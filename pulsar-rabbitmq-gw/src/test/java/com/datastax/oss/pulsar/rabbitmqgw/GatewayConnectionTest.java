@@ -18,6 +18,7 @@ package com.datastax.oss.pulsar.rabbitmqgw;
 import static org.apache.qpid.server.protocol.v0_8.transport.ConnectionCloseOkBody.CONNECTION_CLOSE_OK_0_9;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -34,6 +35,8 @@ import org.apache.qpid.server.protocol.v0_8.FieldTable;
 import org.apache.qpid.server.protocol.v0_8.transport.AMQBody;
 import org.apache.qpid.server.protocol.v0_8.transport.AMQDataBlock;
 import org.apache.qpid.server.protocol.v0_8.transport.AMQFrame;
+import org.apache.qpid.server.protocol.v0_8.transport.ChannelOpenBody;
+import org.apache.qpid.server.protocol.v0_8.transport.ChannelOpenOkBody;
 import org.apache.qpid.server.protocol.v0_8.transport.ConnectionCloseBody;
 import org.apache.qpid.server.protocol.v0_8.transport.ConnectionCloseOkBody;
 import org.apache.qpid.server.protocol.v0_8.transport.ConnectionOpenBody;
@@ -51,6 +54,7 @@ import org.junit.jupiter.api.Test;
 
 class GatewayConnectionTest {
 
+  public static final int CHANNEL_ID = 42;
   private final GatewayConfiguration config = new GatewayConfiguration();
   private final GatewayService gatewayService = new GatewayService(config);
   private final GatewayConnection connection = new GatewayConnection(gatewayService);
@@ -288,7 +292,7 @@ class GatewayConnectionTest {
   @Test
   void testSendConnectionCloseTimeout() throws Exception {
     config.setAmqpConnectionCloseTimeout(100);
-    connection.sendConnectionClose(ErrorCodes.NOT_IMPLEMENTED, "test message", 42);
+    connection.sendConnectionClose(ErrorCodes.NOT_IMPLEMENTED, "test message", CHANNEL_ID);
 
     channel.readOutbound();
     assertTrue(channel.isOpen());
@@ -343,11 +347,64 @@ class GatewayConnectionTest {
     assertTrue(channel.isOpen());
   }
 
+  @Test
+  void testReceiveChannelOpen() {
+    openConnection();
+    assertNull(connection.getChannel(CHANNEL_ID));
+
+    AMQFrame frame = sendChannelOpen();
+
+    assertEquals(CHANNEL_ID, frame.getChannel());
+    AMQBody body = frame.getBodyFrame();
+    assertTrue(body instanceof ChannelOpenOkBody);
+    assertNotNull(connection.getChannel(CHANNEL_ID));
+  }
+
+  @Test
+  void testReceiveChannelOpenInvalidState() {
+    sendProtocolHeader();
+
+    AMQFrame frame = sendChannelOpen();
+
+    assertIsConnectionCloseFrame(frame, ErrorCodes.COMMAND_INVALID);
+  }
+
+  @Test
+  void testReceiveChannelOpenAlreadyExists() {
+    openConnection();
+
+    sendChannelOpen();
+    AMQFrame frame = sendChannelOpen();
+
+    assertIsConnectionCloseFrame(frame, ErrorCodes.CHANNEL_ERROR);
+  }
+
+  // TODO
+  /* @Test
+  void testReceiveChannelOpenAlreadyExistsAwaitingClosure() {
+  }*/
+
+  @Test
+  void testReceiveChannelIdTooBig() {
+    openConnection();
+
+    AMQFrame frame = sendChannelOpen(1024);
+
+    assertIsConnectionCloseFrame(frame, ErrorCodes.CHANNEL_ERROR);
+  }
+
   private AMQFrame exchangeData(AMQDataBlock data) {
     ByteBuf byteBuf = ByteBufAllocator.DEFAULT.buffer();
     data.writePayload(new NettyByteBufferSender(byteBuf));
     channel.writeInbound(byteBuf);
     return channel.readOutbound();
+  }
+
+  private void openConnection() {
+    sendProtocolHeader();
+    sendConnectionStartOk();
+    sendConnectionTuneOk();
+    sendConnectionOpen();
   }
 
   private AMQFrame sendProtocolHeader() {
@@ -397,13 +454,22 @@ class GatewayConnectionTest {
             ProtocolVersion.v0_91,
             ErrorCodes.INTERNAL_ERROR,
             AMQShortString.createAMQShortString("test-replyText"),
-            42,
-            43);
+            43,
+            44);
     return exchangeData(connectionCloseBody.generateFrame(1));
   }
 
   private AMQFrame sendConnectionCloseOk() {
     return exchangeData(CONNECTION_CLOSE_OK_0_9.generateFrame(1));
+  }
+
+  private AMQFrame sendChannelOpen() {
+    return sendChannelOpen(CHANNEL_ID);
+  }
+
+  private AMQFrame sendChannelOpen(int channelId) {
+    ChannelOpenBody channelOpenBody = new ChannelOpenBody();
+    return exchangeData(channelOpenBody.generateFrame(channelId));
   }
 
   private void assertIsConnectionCloseFrame(AMQFrame frame, int errorCode) {
