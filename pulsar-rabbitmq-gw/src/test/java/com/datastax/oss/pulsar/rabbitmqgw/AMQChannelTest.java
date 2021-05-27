@@ -16,6 +16,7 @@
 package com.datastax.oss.pulsar.rabbitmqgw;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -41,6 +42,19 @@ public class AMQChannelTest extends AbstractBaseTest {
     AMQBody body = frame.getBodyFrame();
     assertTrue(body instanceof ChannelCloseOkBody);
     assertNull(connection.getChannel(CHANNEL_ID));
+  }
+
+  @Test
+  void testReceiveChannelCloseOk() {
+    openConnection();
+    sendChannelOpen();
+    connection.markChannelAwaitingCloseOk(CHANNEL_ID);
+    assertTrue(connection.channelAwaitingClosure(CHANNEL_ID));
+
+    AMQFrame frame = sendChannelCloseOk();
+
+    assertNull(frame);
+    assertFalse(connection.channelAwaitingClosure(CHANNEL_ID));
   }
 
   private AMQFrame sendChannelClose() {

@@ -17,6 +17,7 @@ package com.datastax.oss.pulsar.rabbitmqgw;
 
 import static java.nio.charset.StandardCharsets.US_ASCII;
 
+import com.google.common.annotations.VisibleForTesting;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
@@ -635,14 +636,6 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
     closeChannel(channel, cause, message, true);
   }
 
-  public void closeChannel(int channelId, int cause, String message) {
-    final AMQChannel channel = getChannel(channelId);
-    if (channel == null) {
-      throw new IllegalArgumentException("Unknown channel id");
-    }
-    closeChannel(channel, cause, message, true);
-  }
-
   void closeChannel(AMQChannel channel, int cause, String message, boolean mark) {
     int channelId = channel.getChannelId();
     try {
@@ -659,7 +652,8 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
     _closingChannelsList.remove(channelId);
   }
 
-  private void markChannelAwaitingCloseOk(int channelId) {
+  @VisibleForTesting
+  void markChannelAwaitingCloseOk(int channelId) {
     _closingChannelsList.put(channelId, System.currentTimeMillis());
   }
 

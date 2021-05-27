@@ -157,7 +157,14 @@ public class AMQChannel implements ServerChannelMethodProcessor {
   }
 
   @Override
-  public void receiveChannelCloseOk() {}
+  public void receiveChannelCloseOk() {
+    if(LOGGER.isDebugEnabled())
+    {
+      LOGGER.debug("RECV[" + _channelId + "] ChannelCloseOk");
+    }
+
+    _connection.closeChannelOk(getChannelId());
+  }
 
   @Override
   public void receiveMessageContent(QpidByteBuffer data) {}
