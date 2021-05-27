@@ -24,46 +24,23 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufAllocator;
-import io.netty.channel.embedded.EmbeddedChannel;
 import java.nio.charset.StandardCharsets;
-import java.util.Collections;
-import org.apache.qpid.server.bytebuffer.QpidByteBuffer;
 import org.apache.qpid.server.protocol.ErrorCodes;
 import org.apache.qpid.server.protocol.ProtocolVersion;
-import org.apache.qpid.server.protocol.v0_8.AMQShortString;
-import org.apache.qpid.server.protocol.v0_8.FieldTable;
 import org.apache.qpid.server.protocol.v0_8.transport.AMQBody;
-import org.apache.qpid.server.protocol.v0_8.transport.AMQDataBlock;
 import org.apache.qpid.server.protocol.v0_8.transport.AMQFrame;
-import org.apache.qpid.server.protocol.v0_8.transport.ChannelOpenBody;
 import org.apache.qpid.server.protocol.v0_8.transport.ChannelOpenOkBody;
-import org.apache.qpid.server.protocol.v0_8.transport.ConnectionCloseBody;
 import org.apache.qpid.server.protocol.v0_8.transport.ConnectionCloseOkBody;
-import org.apache.qpid.server.protocol.v0_8.transport.ConnectionOpenBody;
 import org.apache.qpid.server.protocol.v0_8.transport.ConnectionOpenOkBody;
 import org.apache.qpid.server.protocol.v0_8.transport.ConnectionSecureOkBody;
 import org.apache.qpid.server.protocol.v0_8.transport.ConnectionStartBody;
-import org.apache.qpid.server.protocol.v0_8.transport.ConnectionStartOkBody;
 import org.apache.qpid.server.protocol.v0_8.transport.ConnectionTuneBody;
-import org.apache.qpid.server.protocol.v0_8.transport.ConnectionTuneOkBody;
 import org.apache.qpid.server.protocol.v0_8.transport.HeartbeatBody;
 import org.apache.qpid.server.protocol.v0_8.transport.ProtocolInitiation;
-import org.apache.qpid.server.transport.ByteBufferSender;
-import org.junit.jupiter.api.BeforeEach;
+import org.apache.qpid.server.protocol.v0_8.transport.TxSelectBody;
 import org.junit.jupiter.api.Test;
 
-class GatewayConnectionTest {
-
-  public static final int CHANNEL_ID = 42;
-  private final GatewayConfiguration config = new GatewayConfiguration();
-  private final GatewayService gatewayService = new GatewayService(config);
-  private final GatewayConnection connection = new GatewayConnection(gatewayService);
-  private EmbeddedChannel channel;
-
-  @BeforeEach
-  void setup() {
-    channel = new EmbeddedChannel(connection, new AMQDataBlockEncoder());
-  }
+class GatewayConnectionTest extends AbstractBaseTest {
 
   @Test
   void testReceiveProtocolHeader() {
@@ -379,7 +356,7 @@ class GatewayConnectionTest {
     assertIsConnectionCloseFrame(frame, ErrorCodes.CHANNEL_ERROR);
   }
 
-  // TODO
+  // TODO testReceiveChannelOpenAlreadyExistsAwaitingClosure
   /* @Test
   void testReceiveChannelOpenAlreadyExistsAwaitingClosure() {
   }*/
@@ -393,119 +370,43 @@ class GatewayConnectionTest {
     assertIsConnectionCloseFrame(frame, ErrorCodes.CHANNEL_ERROR);
   }
 
-  private AMQFrame exchangeData(AMQDataBlock data) {
-    ByteBuf byteBuf = ByteBufAllocator.DEFAULT.buffer();
-    data.writePayload(new NettyByteBufferSender(byteBuf));
-    channel.writeInbound(byteBuf);
-    return channel.readOutbound();
-  }
-
-  private void openConnection() {
+  @Test
+  void testReceiveChannelFrameInvalidState() {
     sendProtocolHeader();
-    sendConnectionStartOk();
-    sendConnectionTuneOk();
-    sendConnectionOpen();
+
+    AMQFrame frame = sendChannelCloseOk();
+
+    assertIsConnectionCloseFrame(frame, ErrorCodes.COMMAND_INVALID);
   }
 
-  private AMQFrame sendProtocolHeader() {
-    return exchangeData(new ProtocolInitiation(ProtocolVersion.v0_91));
+  @Test
+  void testReceiveChannelFrameChannelNotFound() {
+    openConnection();
+
+    AMQFrame frame = sendChannelCloseOk();
+
+    assertIsConnectionCloseFrame(frame, ErrorCodes.CHANNEL_ERROR);
   }
 
-  private AMQFrame sendConnectionStartOk() {
-    return sendConnectionStartOk("PLAIN");
+  @Test
+  void testReceiveChannelCloseOkWhileConnectionClosing() {
+    openConnection();
+    sendChannelOpen();
+    connection.sendConnectionClose(ErrorCodes.INTERNAL_ERROR, "", 0);
+
+    assertTrue(connection.channelAwaitingClosure(CHANNEL_ID));
+
+    sendChannelCloseOk();
+
+    assertTrue(connection.channelAwaitingClosure(CHANNEL_ID));
   }
 
-  private AMQFrame sendConnectionStartOk(String mechanism) {
-    ConnectionStartOkBody connectionStartOkBody =
-        new ConnectionStartOkBody(
-            FieldTable.convertToFieldTable(Collections.emptyMap()),
-            AMQShortString.createAMQShortString(mechanism),
-            new byte[0],
-            AMQShortString.createAMQShortString("en_US"));
-    return exchangeData(connectionStartOkBody.generateFrame(1));
-  }
+  @Test
+  void testReceiveChannelFrameWhileConnectionClosing() {
+    openConnection();
 
-  private AMQFrame sendConnectionTuneOk() {
-    return sendConnectionTuneOk(256, 128 * 1024, 60);
-  }
+    AMQFrame frame = exchangeData(TxSelectBody.INSTANCE.generateFrame(CHANNEL_ID));
 
-  private AMQFrame sendConnectionTuneOk(int channelMax, long frameMax, int heartbeat) {
-    ConnectionTuneOkBody connectionTuneOkBody =
-        new ConnectionTuneOkBody(channelMax, frameMax, heartbeat);
-    return exchangeData(connectionTuneOkBody.generateFrame(1));
-  }
-
-  private AMQFrame sendConnectionOpen() {
-    return sendConnectionOpen("");
-  }
-
-  private AMQFrame sendConnectionOpen(String vhost) {
-    ConnectionOpenBody connectionOpenBody =
-        new ConnectionOpenBody(
-            AMQShortString.createAMQShortString(vhost),
-            AMQShortString.createAMQShortString("test-capabilities"),
-            false);
-    return exchangeData(connectionOpenBody.generateFrame(1));
-  }
-
-  private AMQFrame sendConnectionClose() {
-    ConnectionCloseBody connectionCloseBody =
-        new ConnectionCloseBody(
-            ProtocolVersion.v0_91,
-            ErrorCodes.INTERNAL_ERROR,
-            AMQShortString.createAMQShortString("test-replyText"),
-            43,
-            44);
-    return exchangeData(connectionCloseBody.generateFrame(1));
-  }
-
-  private AMQFrame sendConnectionCloseOk() {
-    return exchangeData(CONNECTION_CLOSE_OK_0_9.generateFrame(1));
-  }
-
-  private AMQFrame sendChannelOpen() {
-    return sendChannelOpen(CHANNEL_ID);
-  }
-
-  private AMQFrame sendChannelOpen(int channelId) {
-    ChannelOpenBody channelOpenBody = new ChannelOpenBody();
-    return exchangeData(channelOpenBody.generateFrame(channelId));
-  }
-
-  private void assertIsConnectionCloseFrame(AMQFrame frame, int errorCode) {
-    assertEquals(0, frame.getChannel());
-    AMQBody body = frame.getBodyFrame();
-    assertTrue(body instanceof ConnectionCloseBody);
-    ConnectionCloseBody connectionCloseBody = (ConnectionCloseBody) body;
-    assertEquals(errorCode, connectionCloseBody.getReplyCode());
-  }
-
-  public static class NettyByteBufferSender implements ByteBufferSender {
-
-    private final ByteBuf byteBuf;
-
-    NettyByteBufferSender(ByteBuf byteBuf) {
-      this.byteBuf = byteBuf;
-    }
-
-    @Override
-    public boolean isDirectBufferPreferred() {
-      return true;
-    }
-
-    @Override
-    public void send(QpidByteBuffer msg) {
-      try {
-        byteBuf.writeBytes(msg.asInputStream(), msg.remaining());
-      } catch (Exception e) {
-        // Oops
-      }
-    }
-
-    @Override
-    public void flush() {}
-
-    @Override
-    public void close() {}
+    assertIsConnectionCloseFrame(frame, ErrorCodes.CHANNEL_ERROR);
   }
 }

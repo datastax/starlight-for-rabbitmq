@@ -24,6 +24,7 @@ import io.netty.handler.timeout.IdleState;
 import io.netty.handler.timeout.IdleStateEvent;
 import io.netty.handler.timeout.IdleStateHandler;
 import java.io.IOException;
+import java.lang.reflect.Proxy;
 import java.net.SocketAddress;
 import java.nio.BufferUnderflowException;
 import java.util.Collections;
@@ -55,6 +56,7 @@ import org.apache.qpid.server.protocol.v0_8.transport.HeartbeatBody;
 import org.apache.qpid.server.protocol.v0_8.transport.MethodRegistry;
 import org.apache.qpid.server.protocol.v0_8.transport.ProtocolInitiation;
 import org.apache.qpid.server.protocol.v0_8.transport.ServerChannelMethodProcessor;
+import org.apache.qpid.server.protocol.v0_8.transport.ServerMethodDispatcher;
 import org.apache.qpid.server.protocol.v0_8.transport.ServerMethodProcessor;
 import org.apache.qpid.server.util.ConnectionScopedRuntimeException;
 import org.slf4j.Logger;
@@ -90,7 +92,6 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
   private ProtocolVersion _protocolVersion;
   private volatile MethodRegistry _methodRegistry;
   private volatile ConnectionState _state = ConnectionState.INIT;
-  private final Object _channelAddRemoveLock = new Object();
   private final ConcurrentLongHashMap<AMQChannel> _channelMap = new ConcurrentLongHashMap<>();
   private volatile int _maxFrameSize;
   private final AtomicBoolean _orderlyClose = new AtomicBoolean(false);
@@ -433,8 +434,29 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
 
   @Override
   public ServerChannelMethodProcessor getChannelMethodProcessor(int channelId) {
-    // TODO: getChannelMethodProcessor
-    return null;
+    assertState(ConnectionState.OPEN);
+
+    ServerChannelMethodProcessor channelMethodProcessor = getChannel(channelId);
+    if (channelMethodProcessor == null) {
+      channelMethodProcessor =
+          (ServerChannelMethodProcessor)
+              Proxy.newProxyInstance(
+                  ServerMethodDispatcher.class.getClassLoader(),
+                  new Class[] {ServerChannelMethodProcessor.class},
+                  (proxy, method, args) -> {
+                    if (method.getName().equals("receiveChannelCloseOk")
+                        && channelAwaitingClosure(channelId)) {
+                      closeChannelOk(channelId);
+                    } else if (method.getName().startsWith("receive")) {
+                      sendConnectionClose(
+                          ErrorCodes.CHANNEL_ERROR, "Unknown channel id: " + channelId, channelId);
+                    } else if (method.getName().equals("ignoreAllButCloseOk")) {
+                      return channelAwaitingClosure(channelId);
+                    }
+                    return null;
+                  });
+    }
+    return channelMethodProcessor;
   }
 
   @Override
@@ -594,6 +616,47 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
     }
 
     ctx.writeAndFlush(frame);
+  }
+
+  public void closeChannel(AMQChannel channel) {
+    closeChannel(channel, 0, null, false);
+  }
+
+  public void closeChannelAndWriteFrame(AMQChannel channel, int cause, String message) {
+    writeFrame(
+        new AMQFrame(
+            channel.getChannelId(),
+            getMethodRegistry()
+                .createChannelCloseBody(
+                    cause,
+                    AMQShortString.validValueOf(message),
+                    _currentClassId,
+                    _currentMethodId)));
+    closeChannel(channel, cause, message, true);
+  }
+
+  public void closeChannel(int channelId, int cause, String message) {
+    final AMQChannel channel = getChannel(channelId);
+    if (channel == null) {
+      throw new IllegalArgumentException("Unknown channel id");
+    }
+    closeChannel(channel, cause, message, true);
+  }
+
+  void closeChannel(AMQChannel channel, int cause, String message, boolean mark) {
+    int channelId = channel.getChannelId();
+    try {
+      channel.close(cause, message);
+      if (mark) {
+        markChannelAwaitingCloseOk(channelId);
+      }
+    } finally {
+      removeChannel(channelId);
+    }
+  }
+
+  public void closeChannelOk(int channelId) {
+    _closingChannelsList.remove(channelId);
   }
 
   private void markChannelAwaitingCloseOk(int channelId) {

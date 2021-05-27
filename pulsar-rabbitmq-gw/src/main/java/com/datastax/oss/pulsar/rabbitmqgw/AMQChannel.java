@@ -17,12 +17,20 @@ package com.datastax.oss.pulsar.rabbitmqgw;
 
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.apache.qpid.server.bytebuffer.QpidByteBuffer;
+import org.apache.qpid.server.logging.LogMessage;
+import org.apache.qpid.server.logging.messages.ChannelMessages;
+import org.apache.qpid.server.model.Queue;
 import org.apache.qpid.server.protocol.v0_8.AMQShortString;
 import org.apache.qpid.server.protocol.v0_8.FieldTable;
+import org.apache.qpid.server.protocol.v0_8.transport.AMQFrame;
 import org.apache.qpid.server.protocol.v0_8.transport.BasicContentHeaderProperties;
 import org.apache.qpid.server.protocol.v0_8.transport.ServerChannelMethodProcessor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class AMQChannel implements ServerChannelMethodProcessor {
+
+  private static final Logger LOGGER = LoggerFactory.getLogger(AMQChannel.class);
 
   private final int _channelId;
   private final GatewayConnection _connection;
@@ -126,7 +134,27 @@ public class AMQChannel implements ServerChannelMethodProcessor {
 
   @Override
   public void receiveChannelClose(
-      int replyCode, AMQShortString replyText, int classId, int methodId) {}
+      int replyCode, AMQShortString replyText, int classId, int methodId) {
+    if (LOGGER.isDebugEnabled()) {
+      LOGGER.debug(
+          "RECV["
+              + _channelId
+              + "] ChannelClose["
+              + " replyCode: "
+              + replyCode
+              + " replyText: "
+              + replyText
+              + " classId: "
+              + classId
+              + " methodId: "
+              + methodId
+              + " ]");
+    }
+    _connection.closeChannel(this);
+
+    _connection.writeFrame(
+        new AMQFrame(getChannelId(), _connection.getMethodRegistry().createChannelCloseOkBody()));
+  }
 
   @Override
   public void receiveChannelCloseOk() {}
@@ -176,6 +204,34 @@ public class AMQChannel implements ServerChannelMethodProcessor {
   }
 
   public void close() {
-    // TODO: See org.apache.qpid.server.protocol.v0_8.AMQChannel::close
+    close(0, null);
+  }
+
+  public void close(int cause, String message) {
+    if (!_closing.compareAndSet(false, true)) {
+      // Channel is already closing
+      return;
+    }
+    try {
+      unsubscribeAllConsumers();
+      setDefaultQueue(null);
+    } finally {
+      LogMessage operationalLogMessage =
+          cause == 0 ? ChannelMessages.CLOSE() : ChannelMessages.CLOSE_FORCED(cause, message);
+      messageWithSubject(operationalLogMessage);
+    }
+  }
+
+  private void unsubscribeAllConsumers() {
+    // TODO unsubscribeAllConsumers
+  }
+
+  private void messageWithSubject(final LogMessage operationalLogMessage) {
+    Logger logger = LoggerFactory.getLogger(operationalLogMessage.getLogHierarchy());
+    logger.info(operationalLogMessage.toString());
+  }
+
+  private void setDefaultQueue(Queue<?> queue) {
+    // TODO setDefaultQueue
   }
 }
