@@ -22,7 +22,7 @@
   <artifactId>pulsar-rabbitmq-gw-parent</artifactId>
   <packaging>pom</packaging>
   <version>1.0.0-SNAPSHOT</version>
-  <name>DataStax RabbitMQ gateway for Apache Pulsar (R)</name>
+  <name>DataStax RabbitMQ (R) gateway for Apache Pulsar (R)</name>
   <description>Gateway to connect RabbitMQ clients to Apache Pulsar seamlessly</description>
   <url>https://github.com/datastax/pulsar-rabbitmq-gw</url>
   <inceptionYear>2021</inceptionYear>
@@ -236,6 +236,9 @@ limitations under the License.]]></inlineHeader>
       <plugin>
         <groupId>com.github.spotbugs</groupId>
         <artifactId>spotbugs-maven-plugin</artifactId>
+        <configuration>
+          <excludeFilterFile>${basedir}/src/test/resources/findbugsExclude.xml</excludeFilterFile>
+        </configuration>
         <executions>
           <execution>
             <phase>verify</phase>

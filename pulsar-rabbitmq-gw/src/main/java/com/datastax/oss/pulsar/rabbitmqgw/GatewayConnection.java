@@ -59,6 +59,11 @@ import org.apache.qpid.server.util.ConnectionScopedRuntimeException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+/**
+ * Calls the Qpid AMQP {@link ServerDecoder} from Netty's buffers, handles AMQP
+ * connection/disconnection frames and heartbeat. Most of the code is adapted from {@link
+ * org.apache.qpid.server.protocol.v0_8.AMQPConnection_0_8Impl}.
+ */
 public class GatewayConnection extends ChannelInboundHandlerAdapter
     implements ServerMethodProcessor<ServerChannelMethodProcessor> {
 
@@ -78,6 +83,7 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
   private SocketAddress remoteAddress;
   private String namespace;
 
+  // Variables copied from Qpid's AMQPConnection_0_8Impl
   private ServerDecoder _decoder;
   private volatile int _maxNoOfChannels;
   private ProtocolVersion _protocolVersion;
@@ -92,6 +98,7 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
   private volatile int _currentMethodId;
   private volatile int _heartBeatDelay;
 
+  // Variables copied from Qpid's NonBlockingConnectionPlainDelegate
   private final int _networkBufferSize;
   private volatile QpidByteBuffer _netInputBuffer;
 
@@ -161,7 +168,8 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
     }
   }
 
-  protected void restoreApplicationBufferForWrite() {
+  /** See {@link org.apache.qpid.server.transport.NonBlockingConnectionPlainDelegate} */
+  private void restoreApplicationBufferForWrite() {
     try (QpidByteBuffer oldNetInputBuffer = _netInputBuffer) {
       int unprocessedDataLength = _netInputBuffer.remaining();
       _netInputBuffer.limit(_netInputBuffer.capacity());

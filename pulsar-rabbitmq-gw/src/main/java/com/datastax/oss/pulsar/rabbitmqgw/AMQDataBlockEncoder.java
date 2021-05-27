@@ -24,6 +24,7 @@ import org.apache.qpid.server.transport.ByteBufferSender;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+/** Converts {@link AMQDataBlock} to Netty's {@link ByteBuf} */
 public class AMQDataBlockEncoder extends MessageToByteEncoder<AMQDataBlock> {
 
   private static final Logger log = LoggerFactory.getLogger(AMQDataBlockEncoder.class);

@@ -35,7 +35,7 @@ public class GatewayServiceStarter {
     description = "Configuration file path",
     required = true
   )
-  private String configFile;
+  private String configFile = null;
 
   @Parameter(
     names = {"-h", "--help"},

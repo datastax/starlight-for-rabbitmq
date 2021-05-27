@@ -25,7 +25,7 @@
   <modelVersion>4.0.0</modelVersion>
   <artifactId>pulsar-rabbitmq-gw</artifactId>
   <packaging>jar</packaging>
-  <name>DataStax RabbitMQ gateway for Apache Pulsar (R)</name>
+  <name>DataStax RabbitMQ (R) gateway for Apache Pulsar (R)</name>
   <properties>
     <build.dir>${project.build.directory}</build.dir>
   </properties>
