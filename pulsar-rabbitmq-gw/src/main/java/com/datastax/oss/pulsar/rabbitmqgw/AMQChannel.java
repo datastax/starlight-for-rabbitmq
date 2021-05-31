@@ -15,15 +15,21 @@
  */
 package com.datastax.oss.pulsar.rabbitmqgw;
 
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.apache.qpid.server.bytebuffer.QpidByteBuffer;
+import org.apache.qpid.server.exchange.ExchangeDefaults;
 import org.apache.qpid.server.logging.LogMessage;
 import org.apache.qpid.server.logging.messages.ChannelMessages;
+import org.apache.qpid.server.model.LifetimePolicy;
 import org.apache.qpid.server.model.Queue;
+import org.apache.qpid.server.protocol.ErrorCodes;
 import org.apache.qpid.server.protocol.v0_8.AMQShortString;
 import org.apache.qpid.server.protocol.v0_8.FieldTable;
 import org.apache.qpid.server.protocol.v0_8.transport.AMQFrame;
+import org.apache.qpid.server.protocol.v0_8.transport.AMQMethodBody;
 import org.apache.qpid.server.protocol.v0_8.transport.BasicContentHeaderProperties;
+import org.apache.qpid.server.protocol.v0_8.transport.MethodRegistry;
 import org.apache.qpid.server.protocol.v0_8.transport.ServerChannelMethodProcessor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -35,6 +41,7 @@ public class AMQChannel implements ServerChannelMethodProcessor {
   private final int _channelId;
   private final GatewayConnection _connection;
   private final AtomicBoolean _closing = new AtomicBoolean(false);
+  private final ConcurrentHashMap<String, Exchange> exchanges = new ConcurrentHashMap<>();
 
   public AMQChannel(GatewayConnection connection, int channelId) {
     _connection = connection;
@@ -52,14 +59,139 @@ public class AMQChannel implements ServerChannelMethodProcessor {
 
   @Override
   public void receiveExchangeDeclare(
-      AMQShortString exchange,
+      AMQShortString exchangeName,
       AMQShortString type,
       boolean passive,
       boolean durable,
       boolean autoDelete,
       boolean internal,
       boolean nowait,
-      FieldTable arguments) {}
+      FieldTable arguments) {
+
+    if (LOGGER.isDebugEnabled()) {
+      LOGGER.debug(
+          "RECV["
+              + _channelId
+              + "] ExchangeDeclare["
+              + " exchange: "
+              + exchangeName
+              + " type: "
+              + type
+              + " passive: "
+              + passive
+              + " durable: "
+              + durable
+              + " autoDelete: "
+              + autoDelete
+              + " internal: "
+              + internal
+              + " nowait: "
+              + nowait
+              + " arguments: "
+              + arguments
+              + " ]");
+    }
+
+    final MethodRegistry methodRegistry = _connection.getMethodRegistry();
+    final AMQMethodBody declareOkBody = methodRegistry.createExchangeDeclareOkBody();
+
+    Exchange exchange;
+
+    if (isDefaultExchange(exchangeName)) {
+      if (!AMQShortString.createAMQShortString(ExchangeDefaults.DIRECT_EXCHANGE_CLASS)
+          .equals(type)) {
+        _connection.sendConnectionClose(
+            ErrorCodes.NOT_ALLOWED,
+            "Attempt to redeclare default exchange: "
+                + " of type "
+                + ExchangeDefaults.DIRECT_EXCHANGE_CLASS
+                + " to "
+                + type
+                + ".",
+            getChannelId());
+      } else if (!nowait) {
+        _connection.writeFrame(declareOkBody.generateFrame(getChannelId()));
+      }
+    } else {
+      if (passive) {
+        exchange = getExchange(exchangeName.toString());
+        if (exchange == null) {
+          closeChannel(ErrorCodes.NOT_FOUND, "Unknown exchange: '" + exchangeName + "'");
+        } else if (!(type == null || type.length() == 0)
+            && !exchange.getType().equals(type.toString())) {
+
+          _connection.sendConnectionClose(
+              ErrorCodes.NOT_ALLOWED,
+              "Attempt to redeclare exchange: '"
+                  + exchangeName
+                  + "' of type "
+                  + exchange.getType()
+                  + " to "
+                  + type
+                  + ".",
+              getChannelId());
+        } else if (!nowait) {
+          _connection.writeFrame(declareOkBody.generateFrame(getChannelId()));
+        }
+
+      } else {
+        String name = exchangeName.toString();
+        String typeString = type == null ? null : type.toString();
+
+        Exchange.Type exChangeType;
+        try {
+          exChangeType = Exchange.Type.valueOf(typeString);
+          if (isReservedExchangeName(name)) {
+            Exchange existing = getExchange(name);
+            if (existing == null || !existing.getType().equals(typeString)) {
+              _connection.sendConnectionClose(
+                  ErrorCodes.NOT_ALLOWED,
+                  "Attempt to declare exchange: '"
+                      + exchangeName
+                      + "' which begins with reserved prefix.",
+                  getChannelId());
+            } else if (!nowait) {
+              _connection.writeFrame(declareOkBody.generateFrame(getChannelId()));
+            }
+          } else if (exchanges.containsKey(name)) {
+            exchange = getExchange(name);
+            if (!exchange.getType().equals(typeString)) {
+              _connection.sendConnectionClose(
+                  ErrorCodes.NOT_ALLOWED,
+                  "Attempt to redeclare exchange: '"
+                      + exchangeName
+                      + "' of type "
+                      + exchange.getType()
+                      + " to "
+                      + type
+                      + ".",
+                  getChannelId());
+            } else {
+              if (!nowait) {
+                _connection.writeFrame(declareOkBody.generateFrame(getChannelId()));
+              }
+            }
+          }
+          exchange =
+              new Exchange(
+                  name,
+                  exChangeType,
+                  durable,
+                  autoDelete ? LifetimePolicy.DELETE_ON_NO_LINKS : LifetimePolicy.PERMANENT);
+          addExchange(exchange);
+
+          if (!nowait) {
+            _connection.writeFrame(declareOkBody.generateFrame(getChannelId()));
+          }
+        } catch (IllegalArgumentException e) {
+          String errorMessage =
+              "Unknown exchange type '" + typeString + "' for exchange '" + exchangeName + "'";
+          LOGGER.debug(errorMessage, e);
+          _connection.sendConnectionClose(ErrorCodes.COMMAND_INVALID, errorMessage, getChannelId());
+        }
+      }
+    }
+  }
 
   @Override
   public void receiveExchangeDelete(AMQShortString exchange, boolean ifUnused, boolean nowait) {}
@@ -158,8 +290,7 @@ public class AMQChannel implements ServerChannelMethodProcessor {
 
   @Override
   public void receiveChannelCloseOk() {
-    if(LOGGER.isDebugEnabled())
-    {
+    if (LOGGER.isDebugEnabled()) {
       LOGGER.debug("RECV[" + _channelId + "] ChannelCloseOk");
     }
 
@@ -197,6 +328,14 @@ public class AMQChannel implements ServerChannelMethodProcessor {
 
   @Override
   public void receiveConfirmSelect(boolean nowait) {}
+
+  private void closeChannel(int cause, final String message) {
+    _connection.closeChannelAndWriteFrame(this, cause, message);
+  }
+
+  private boolean isDefaultExchange(final AMQShortString exchangeName) {
+    return exchangeName == null || AMQShortString.EMPTY_STRING.equals(exchangeName);
+  }
 
   public boolean isClosing() {
     return _closing.get() || getConnection().isClosing();
@@ -240,5 +379,20 @@ public class AMQChannel implements ServerChannelMethodProcessor {
 
   private void setDefaultQueue(Queue<?> queue) {
     // TODO setDefaultQueue
+  }
+
+  private Exchange getExchange(String name) {
+    return exchanges.get(name);
+  }
+
+  private void addExchange(Exchange exchange) {
+    exchanges.put(exchange.getName(), exchange);
+  }
+
+  private boolean isReservedExchangeName(String name) {
+    return name == null
+        || ExchangeDefaults.DEFAULT_EXCHANGE_NAME.equals(name)
+        || name.startsWith("amq.")
+        || name.startsWith("qpid.");
   }
 }
