@@ -212,6 +212,12 @@ public class GatewayConfiguration implements PulsarConfiguration {
   @FieldContext(category = CATEGORY_AMQP, doc = "Network buffer size.")
   private int amqpNetworkBufferSize = 256 * 1024;
 
+  @FieldContext(category = CATEGORY_AMQP, doc = "Max message size.")
+  private int amqpMaxMessageSize = 100 * 1024 * 1024;
+
+  @FieldContext(category = CATEGORY_AMQP, doc = "Length of binary data sent to debug log.")
+  private int amqpDebugBinaryDataLength = 80;
+
   @FieldContext(
     category = CATEGORY_AMQP,
     doc =

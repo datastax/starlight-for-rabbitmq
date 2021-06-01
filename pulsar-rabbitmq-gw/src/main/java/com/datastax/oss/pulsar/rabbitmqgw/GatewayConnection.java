@@ -726,4 +726,8 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
   public String getNamespace() {
     return namespace;
   }
+
+  public GatewayService getGatewayService() {
+    return gatewayService;
+  }
 }
