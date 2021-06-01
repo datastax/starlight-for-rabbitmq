@@ -32,13 +32,13 @@ import org.apache.qpid.server.protocol.v0_8.transport.ChannelCloseBody;
 import org.apache.qpid.server.protocol.v0_8.transport.ChannelCloseOkBody;
 import org.apache.qpid.server.protocol.v0_8.transport.ExchangeDeclareBody;
 import org.apache.qpid.server.protocol.v0_8.transport.ExchangeDeclareOkBody;
+import org.apache.qpid.server.protocol.v0_8.transport.ExchangeDeleteBody;
+import org.apache.qpid.server.protocol.v0_8.transport.ExchangeDeleteOkBody;
 import org.junit.jupiter.api.Test;
 
 public class AMQChannelTest extends AbstractBaseTest {
 
   public static final String TEST_EXCHANGE = "test-exchange";
-  public static final String DIRECT_EXCHANGE_TYPE = "direct";
-  public static final String FANOUT_EXCHANGE_TYPE = "fanout";
 
   @Test
   void testReceiveChannelClose() {
@@ -72,7 +72,8 @@ public class AMQChannelTest extends AbstractBaseTest {
     openConnection();
     sendChannelOpen();
 
-    AMQFrame frame = sendExchangeDeclare(TEST_EXCHANGE, DIRECT_EXCHANGE_TYPE, false);
+    AMQFrame frame =
+        sendExchangeDeclare(TEST_EXCHANGE, ExchangeDefaults.DIRECT_EXCHANGE_CLASS, false);
 
     assertIsExchangeDeclareOk(frame);
   }
@@ -83,7 +84,8 @@ public class AMQChannelTest extends AbstractBaseTest {
     sendChannelOpen();
 
     AMQFrame frame =
-        sendExchangeDeclare(ExchangeDefaults.DEFAULT_EXCHANGE_NAME, DIRECT_EXCHANGE_TYPE, false);
+        sendExchangeDeclare(
+            ExchangeDefaults.DEFAULT_EXCHANGE_NAME, ExchangeDefaults.DIRECT_EXCHANGE_CLASS, false);
 
     assertIsExchangeDeclareOk(frame);
   }
@@ -94,7 +96,8 @@ public class AMQChannelTest extends AbstractBaseTest {
     sendChannelOpen();
 
     AMQFrame frame =
-        sendExchangeDeclare(ExchangeDefaults.DEFAULT_EXCHANGE_NAME, FANOUT_EXCHANGE_TYPE, false);
+        sendExchangeDeclare(
+            ExchangeDefaults.DEFAULT_EXCHANGE_NAME, ExchangeDefaults.FANOUT_EXCHANGE_CLASS, false);
 
     assertIsConnectionCloseFrame(frame, ErrorCodes.NOT_ALLOWED);
   }
@@ -103,9 +106,10 @@ public class AMQChannelTest extends AbstractBaseTest {
   void testReceiveExchangeDeclarePassive() {
     openConnection();
     sendChannelOpen();
-    sendExchangeDeclare(TEST_EXCHANGE, DIRECT_EXCHANGE_TYPE, false);
+    sendExchangeDeclare(TEST_EXCHANGE, ExchangeDefaults.DIRECT_EXCHANGE_CLASS, false);
 
-    AMQFrame frame = sendExchangeDeclare(TEST_EXCHANGE, DIRECT_EXCHANGE_TYPE, true);
+    AMQFrame frame =
+        sendExchangeDeclare(TEST_EXCHANGE, ExchangeDefaults.DIRECT_EXCHANGE_CLASS, true);
 
     assertIsExchangeDeclareOk(frame);
   }
@@ -115,22 +119,20 @@ public class AMQChannelTest extends AbstractBaseTest {
     openConnection();
     sendChannelOpen();
 
-    AMQFrame frame = sendExchangeDeclare(TEST_EXCHANGE, DIRECT_EXCHANGE_TYPE, true);
+    AMQFrame frame =
+        sendExchangeDeclare(TEST_EXCHANGE, ExchangeDefaults.DIRECT_EXCHANGE_CLASS, true);
 
-    assertEquals(CHANNEL_ID, frame.getChannel());
-    AMQBody body = frame.getBodyFrame();
-    assertTrue(body instanceof ChannelCloseBody);
-    ChannelCloseBody channelCloseBody = (ChannelCloseBody) body;
-    assertEquals(ErrorCodes.NOT_FOUND, channelCloseBody.getReplyCode());
+    assertIsChannelCloseFrame(frame, ErrorCodes.NOT_FOUND);
   }
 
   @Test
   void testReceiveExchangeDeclarePassiveInvalidType() {
     openConnection();
     sendChannelOpen();
-    sendExchangeDeclare(TEST_EXCHANGE, DIRECT_EXCHANGE_TYPE, false);
+    sendExchangeDeclare(TEST_EXCHANGE, ExchangeDefaults.DIRECT_EXCHANGE_CLASS, false);
 
-    AMQFrame frame = sendExchangeDeclare(TEST_EXCHANGE, FANOUT_EXCHANGE_TYPE, true);
+    AMQFrame frame =
+        sendExchangeDeclare(TEST_EXCHANGE, ExchangeDefaults.FANOUT_EXCHANGE_CLASS, true);
 
     assertIsConnectionCloseFrame(frame, ErrorCodes.NOT_ALLOWED);
   }
@@ -140,41 +142,87 @@ public class AMQChannelTest extends AbstractBaseTest {
     openConnection();
     sendChannelOpen();
 
-    AMQFrame frame = sendExchangeDeclare("amq.test", DIRECT_EXCHANGE_TYPE, false);
+    AMQFrame frame = sendExchangeDeclare("amq.test", ExchangeDefaults.DIRECT_EXCHANGE_CLASS, false);
 
     assertIsConnectionCloseFrame(frame, ErrorCodes.NOT_ALLOWED);
   }
 
   @Test
-  void testReceiveExchangeAlreadyExists() {
+  void testReceiveExchangeDeclareAlreadyExists() {
     openConnection();
     sendChannelOpen();
-    sendExchangeDeclare(TEST_EXCHANGE, DIRECT_EXCHANGE_TYPE, false);
+    sendExchangeDeclare(TEST_EXCHANGE, ExchangeDefaults.DIRECT_EXCHANGE_CLASS, false);
 
-    AMQFrame frame = sendExchangeDeclare(TEST_EXCHANGE, DIRECT_EXCHANGE_TYPE, false);
+    AMQFrame frame =
+        sendExchangeDeclare(TEST_EXCHANGE, ExchangeDefaults.DIRECT_EXCHANGE_CLASS, false);
 
     assertIsExchangeDeclareOk(frame);
   }
 
   @Test
-  void testReceiveExchangeAlreadyExistsInvalidType() {
+  void testReceiveExchangeDeclareAlreadyExistsInvalidType() {
     openConnection();
     sendChannelOpen();
-    sendExchangeDeclare(TEST_EXCHANGE, DIRECT_EXCHANGE_TYPE, false);
+    sendExchangeDeclare(TEST_EXCHANGE, ExchangeDefaults.DIRECT_EXCHANGE_CLASS, false);
 
-    AMQFrame frame = sendExchangeDeclare(TEST_EXCHANGE, FANOUT_EXCHANGE_TYPE, false);
+    AMQFrame frame =
+        sendExchangeDeclare(TEST_EXCHANGE, ExchangeDefaults.FANOUT_EXCHANGE_CLASS, false);
 
     assertIsConnectionCloseFrame(frame, ErrorCodes.NOT_ALLOWED);
   }
 
   @Test
-  void testReceiveExchangeInvalidType() {
+  void testReceiveExchangeDeclareInvalidType() {
     openConnection();
     sendChannelOpen();
 
     AMQFrame frame = sendExchangeDeclare(TEST_EXCHANGE, "invalid-type", false);
 
     assertIsConnectionCloseFrame(frame, ErrorCodes.COMMAND_INVALID);
+  }
+
+  @Test
+  void testReceiveExchangeDelete() {
+    openConnection();
+    sendChannelOpen();
+    sendExchangeDeclare(TEST_EXCHANGE, ExchangeDefaults.DIRECT_EXCHANGE_CLASS, false);
+
+    AMQFrame frame = sendExchangeDelete(TEST_EXCHANGE, false);
+
+    assertEquals(CHANNEL_ID, frame.getChannel());
+    AMQBody body = frame.getBodyFrame();
+    assertTrue(body instanceof ExchangeDeleteOkBody);
+  }
+
+  @Test
+  void testReceiveExchangeDeleteNotFound() {
+    openConnection();
+    sendChannelOpen();
+
+    AMQFrame frame = sendExchangeDelete(TEST_EXCHANGE, false);
+
+    assertIsChannelCloseFrame(frame, ErrorCodes.NOT_FOUND);
+  }
+
+  // TODO: test ExchangeDelete with ifUnused when bindings implemented
+  /*@Test
+  void testReceiveExchangeDeleteIfUnused() {
+    openConnection();
+    sendChannelOpen();
+
+    AMQFrame frame = sendExchangeDelete(TEST_EXCHANGE, true);
+
+    assertIsChannelCloseFrame(frame, ErrorCodes.IN_USE);
+  }*/
+
+  @Test
+  void testReceiveExchangeDeleteReservedExchange() {
+    openConnection();
+    sendChannelOpen();
+
+    AMQFrame frame = sendExchangeDelete(ExchangeDefaults.FANOUT_EXCHANGE_NAME, false);
+
+    assertIsChannelCloseFrame(frame, ErrorCodes.NOT_ALLOWED);
   }
 
   private AMQFrame sendChannelClose() {
@@ -195,6 +243,20 @@ public class AMQChannelTest extends AbstractBaseTest {
             false,
             FieldTable.convertToFieldTable(Collections.emptyMap()));
     return exchangeData(exchangeDeclareBody.generateFrame(CHANNEL_ID));
+  }
+
+  private AMQFrame sendExchangeDelete(String exchange, boolean ifUnused) {
+    ExchangeDeleteBody exchangeDeleteBody =
+        new ExchangeDeleteBody(0, AMQShortString.createAMQShortString(exchange), ifUnused, false);
+    return exchangeData(exchangeDeleteBody.generateFrame(CHANNEL_ID));
+  }
+
+  private void assertIsChannelCloseFrame(AMQFrame frame, int errorCode) {
+    assertEquals(CHANNEL_ID, frame.getChannel());
+    AMQBody body = frame.getBodyFrame();
+    assertTrue(body instanceof ChannelCloseBody);
+    ChannelCloseBody channelCloseBody = (ChannelCloseBody) body;
+    assertEquals(errorCode, channelCloseBody.getReplyCode());
   }
 
   private void assertIsExchangeDeclareOk(AMQFrame frame) {

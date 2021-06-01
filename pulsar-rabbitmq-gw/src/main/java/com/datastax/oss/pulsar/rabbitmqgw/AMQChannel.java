@@ -29,6 +29,7 @@ import org.apache.qpid.server.protocol.v0_8.FieldTable;
 import org.apache.qpid.server.protocol.v0_8.transport.AMQFrame;
 import org.apache.qpid.server.protocol.v0_8.transport.AMQMethodBody;
 import org.apache.qpid.server.protocol.v0_8.transport.BasicContentHeaderProperties;
+import org.apache.qpid.server.protocol.v0_8.transport.ExchangeDeleteOkBody;
 import org.apache.qpid.server.protocol.v0_8.transport.MethodRegistry;
 import org.apache.qpid.server.protocol.v0_8.transport.ServerChannelMethodProcessor;
 import org.slf4j.Logger;
@@ -46,6 +47,16 @@ public class AMQChannel implements ServerChannelMethodProcessor {
   public AMQChannel(GatewayConnection connection, int channelId) {
     _connection = connection;
     _channelId = channelId;
+    addStandardExchange(
+        ExchangeDefaults.DEFAULT_EXCHANGE_NAME, ExchangeDefaults.DIRECT_EXCHANGE_CLASS);
+    addStandardExchange(
+        ExchangeDefaults.DIRECT_EXCHANGE_NAME, ExchangeDefaults.DIRECT_EXCHANGE_CLASS);
+    addStandardExchange(
+        ExchangeDefaults.FANOUT_EXCHANGE_NAME, ExchangeDefaults.FANOUT_EXCHANGE_CLASS);
+    addStandardExchange(
+        ExchangeDefaults.TOPIC_EXCHANGE_NAME, ExchangeDefaults.TOPIC_EXCHANGE_CLASS);
+    addStandardExchange(
+        ExchangeDefaults.HEADERS_EXCHANGE_NAME, ExchangeDefaults.HEADERS_EXCHANGE_CLASS);
   }
 
   @Override
@@ -96,15 +107,22 @@ public class AMQChannel implements ServerChannelMethodProcessor {
     final AMQMethodBody declareOkBody = methodRegistry.createExchangeDeclareOkBody();
 
     Exchange exchange;
+    String name =
+        exchangeName == null ? ExchangeDefaults.DEFAULT_EXCHANGE_NAME : exchangeName.toString();
 
-    if (isDefaultExchange(exchangeName)) {
-      if (!AMQShortString.createAMQShortString(ExchangeDefaults.DIRECT_EXCHANGE_CLASS)
-          .equals(type)) {
+    if (passive) {
+      exchange = getExchange(name);
+      if (exchange == null) {
+        closeChannel(ErrorCodes.NOT_FOUND, "Unknown exchange: '" + name + "'");
+      } else if (!(type == null || type.length() == 0)
+          && !exchange.getType().equals(type.toString())) {
+
         _connection.sendConnectionClose(
             ErrorCodes.NOT_ALLOWED,
-            "Attempt to redeclare default exchange: "
-                + " of type "
-                + ExchangeDefaults.DIRECT_EXCHANGE_CLASS
+            "Attempt to redeclare exchange: '"
+                + name
+                + "' of type "
+                + exchange.getType()
                 + " to "
                 + type
                 + ".",
@@ -112,66 +130,44 @@ public class AMQChannel implements ServerChannelMethodProcessor {
       } else if (!nowait) {
         _connection.writeFrame(declareOkBody.generateFrame(getChannelId()));
       }
+
     } else {
-      if (passive) {
-        exchange = getExchange(exchangeName.toString());
-        if (exchange == null) {
-          closeChannel(ErrorCodes.NOT_FOUND, "Unknown exchange: '" + exchangeName + "'");
-        } else if (!(type == null || type.length() == 0)
-            && !exchange.getType().equals(type.toString())) {
+      String typeString = type == null ? null : type.toString();
 
-          _connection.sendConnectionClose(
-              ErrorCodes.NOT_ALLOWED,
-              "Attempt to redeclare exchange: '"
-                  + exchangeName
-                  + "' of type "
-                  + exchange.getType()
-                  + " to "
-                  + type
-                  + ".",
-              getChannelId());
-        } else if (!nowait) {
-          _connection.writeFrame(declareOkBody.generateFrame(getChannelId()));
-        }
-
-      } else {
-        String name = exchangeName.toString();
-        String typeString = type == null ? null : type.toString();
-
-        Exchange.Type exChangeType;
-        try {
-          exChangeType = Exchange.Type.valueOf(typeString);
-          if (isReservedExchangeName(name)) {
-            Exchange existing = getExchange(name);
-            if (existing == null || !existing.getType().equals(typeString)) {
-              _connection.sendConnectionClose(
-                  ErrorCodes.NOT_ALLOWED,
-                  "Attempt to declare exchange: '"
-                      + exchangeName
-                      + "' which begins with reserved prefix.",
-                  getChannelId());
-            } else if (!nowait) {
+      Exchange.Type exChangeType;
+      try {
+        exChangeType = Exchange.Type.valueOf(typeString);
+        if (isReservedExchangeName(name)) {
+          Exchange existing = getExchange(name);
+          if (existing == null || !existing.getType().equals(typeString)) {
+            _connection.sendConnectionClose(
+                ErrorCodes.NOT_ALLOWED,
+                "Attempt to declare exchange: '"
+                    + exchangeName
+                    + "' which begins with reserved prefix.",
+                getChannelId());
+          } else if (!nowait) {
+            _connection.writeFrame(declareOkBody.generateFrame(getChannelId()));
+          }
+        } else if (exchanges.containsKey(name)) {
+          exchange = getExchange(name);
+          if (!exchange.getType().equals(typeString)) {
+            _connection.sendConnectionClose(
+                ErrorCodes.NOT_ALLOWED,
+                "Attempt to redeclare exchange: '"
+                    + exchangeName
+                    + "' of type "
+                    + exchange.getType()
+                    + " to "
+                    + type
+                    + ".",
+                getChannelId());
+          } else {
+            if (!nowait) {
               _connection.writeFrame(declareOkBody.generateFrame(getChannelId()));
             }
-          } else if (exchanges.containsKey(name)) {
-            exchange = getExchange(name);
-            if (!exchange.getType().equals(typeString)) {
-              _connection.sendConnectionClose(
-                  ErrorCodes.NOT_ALLOWED,
-                  "Attempt to redeclare exchange: '"
-                      + exchangeName
-                      + "' of type "
-                      + exchange.getType()
-                      + " to "
-                      + type
-                      + ".",
-                  getChannelId());
-            } else {
-              if (!nowait) {
-                _connection.writeFrame(declareOkBody.generateFrame(getChannelId()));
-              }
-            }
           }
+        } else {
           exchange =
               new Exchange(
                   name,
@@ -183,18 +179,51 @@ public class AMQChannel implements ServerChannelMethodProcessor {
           if (!nowait) {
             _connection.writeFrame(declareOkBody.generateFrame(getChannelId()));
           }
-        } catch (IllegalArgumentException e) {
-          String errorMessage =
-              "Unknown exchange type '" + typeString + "' for exchange '" + exchangeName + "'";
-          LOGGER.debug(errorMessage, e);
-          _connection.sendConnectionClose(ErrorCodes.COMMAND_INVALID, errorMessage, getChannelId());
         }
+      } catch (IllegalArgumentException e) {
+        String errorMessage =
+            "Unknown exchange type '" + typeString + "' for exchange '" + exchangeName + "'";
+        LOGGER.debug(errorMessage, e);
+        _connection.sendConnectionClose(ErrorCodes.COMMAND_INVALID, errorMessage, getChannelId());
       }
     }
   }
 
   @Override
-  public void receiveExchangeDelete(AMQShortString exchange, boolean ifUnused, boolean nowait) {}
+  public void receiveExchangeDelete(AMQShortString exchangeStr, boolean ifUnused, boolean nowait) {
+    if (LOGGER.isDebugEnabled()) {
+      LOGGER.debug(
+          "RECV["
+              + _channelId
+              + "] ExchangeDelete["
+              + " exchange: "
+              + exchangeStr
+              + " ifUnused: "
+              + ifUnused
+              + " nowait: "
+              + nowait
+              + " ]");
+    }
+
+    final String exchangeName = exchangeStr.toString();
+
+    final Exchange exchange = getExchange(exchangeName);
+    if (exchange == null) {
+      closeChannel(ErrorCodes.NOT_FOUND, "No such exchange: '" + exchangeStr + "'");
+    } else if (ifUnused && exchange.hasBindings()) {
+      closeChannel(ErrorCodes.IN_USE, "Exchange has bindings");
+    } else if (isReservedExchangeName(exchangeName)) {
+      closeChannel(ErrorCodes.NOT_ALLOWED, "Exchange '" + exchangeStr + "' cannot be deleted");
+    } else {
+      deleteExchange(exchange);
+
+      if (!nowait) {
+        ExchangeDeleteOkBody responseBody =
+            _connection.getMethodRegistry().createExchangeDeleteOkBody();
+        _connection.writeFrame(responseBody.generateFrame(getChannelId()));
+      }
+    }
+  }
 
   @Override
   public void receiveExchangeBound(
@@ -387,6 +416,19 @@ public class AMQChannel implements ServerChannelMethodProcessor {
 
   private void addExchange(Exchange exchange) {
     exchanges.put(exchange.getName(), exchange);
+  }
+
+  private void deleteExchange(Exchange exchange) {
+    exchanges.remove(exchange.getName());
+  }
+
+  private void addStandardExchange(String directExchangeName, String directExchangeClass) {
+    addExchange(
+        new Exchange(
+            directExchangeName,
+            Exchange.Type.valueOf(directExchangeClass),
+            true,
+            LifetimePolicy.PERMANENT));
   }
 
   private boolean isReservedExchangeName(String name) {

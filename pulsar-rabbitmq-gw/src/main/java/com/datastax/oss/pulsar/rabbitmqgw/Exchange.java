@@ -45,4 +45,8 @@ public class Exchange {
   public String getType() {
     return type.toString();
   }
+
+  public boolean hasBindings() {
+    return false;
+  }
 }
