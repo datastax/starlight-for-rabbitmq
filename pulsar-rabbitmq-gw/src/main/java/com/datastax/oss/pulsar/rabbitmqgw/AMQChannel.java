@@ -19,11 +19,11 @@ import static org.apache.commons.lang3.StringUtils.isBlank;
 import static org.apache.commons.lang3.StringUtils.isNotBlank;
 import static org.apache.qpid.server.transport.util.Functions.hex;
 
-import java.io.IOException;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.apache.pulsar.client.api.Producer;
+import org.apache.pulsar.client.api.PulsarClientException;
+import org.apache.pulsar.client.api.TypedMessageBuilder;
 import org.apache.pulsar.common.naming.NamespaceName;
 import org.apache.pulsar.common.naming.TopicName;
 import org.apache.qpid.server.bytebuffer.QpidByteBuffer;
@@ -38,6 +38,7 @@ import org.apache.qpid.server.protocol.v0_8.FieldTable;
 import org.apache.qpid.server.protocol.v0_8.IncomingMessage;
 import org.apache.qpid.server.protocol.v0_8.transport.AMQFrame;
 import org.apache.qpid.server.protocol.v0_8.transport.AMQMethodBody;
+import org.apache.qpid.server.protocol.v0_8.transport.BasicAckBody;
 import org.apache.qpid.server.protocol.v0_8.transport.BasicContentHeaderProperties;
 import org.apache.qpid.server.protocol.v0_8.transport.ConfirmSelectOkBody;
 import org.apache.qpid.server.protocol.v0_8.transport.ContentBody;
@@ -508,8 +509,60 @@ public class AMQChannel implements ServerChannelMethodProcessor {
   }
 
   private void deliverCurrentMessageIfComplete() {
-    // TODO: deliverCurrentMessageIfComplete
+    // check and deliver if header says body length is zero
+    if (_currentMessage.allContentReceived()) {
+      MessagePublishInfo info = _currentMessage.getMessagePublishInfo();
+      String routingKey = AMQShortString.toString(info.getRoutingKey());
+      String exchangeName = AMQShortString.toString(info.getExchange());
 
+      Producer<byte[]> producer;
+      try {
+        producer = getOrCreateProducerForExchange(exchangeName, routingKey);
+      } catch (Exception e) {
+        _connection.sendConnectionClose(
+            ErrorCodes.INTERNAL_ERROR,
+            String.format(
+                "Failed in creating producer for exchange [%s] and routing key [%s]",
+                exchangeName, routingKey),
+            _channelId);
+        return;
+      }
+
+      TypedMessageBuilder<byte[]> messageBuilder = producer.newMessage();
+      QpidByteBuffer qpidByteBuffer = QpidByteBuffer.emptyQpidByteBuffer();
+      int bodyCount = _currentMessage.getBodyCount();
+      if (bodyCount > 0) {
+        for (int i = 0; i < bodyCount; i++) {
+          ContentBody contentChunk = _currentMessage.getContentChunk(i);
+          qpidByteBuffer = QpidByteBuffer.concatenate(qpidByteBuffer, contentChunk.getPayload());
+          contentChunk.dispose();
+        }
+      }
+      byte[] value = new byte[qpidByteBuffer.remaining()];
+      qpidByteBuffer.copyTo(value);
+      messageBuilder.value(value);
+
+      // TODO: map properties
+      // Map<String, Object> properties =
+      // _currentMessage.getContentHeader().getProperties().getHeadersAsMap();
+
+      messageBuilder
+          .sendAsync()
+          .thenAccept(
+              messageId -> {
+                if (_confirmOnPublish) {
+                  _confirmedMessageCounter++;
+                  _connection.writeFrame(
+                      new AMQFrame(_channelId, new BasicAckBody(_confirmedMessageCounter, false)));
+                }
+              })
+          .exceptionally(
+              throwable -> {
+                LOGGER.error("Failed to write message to exchange", throwable);
+                return null;
+              });
+    }
+    // TODO: auth, immediate, mandatory, closeOnNoRoute
   }
 
   private void setPublishFrame(MessagePublishInfo info) {
@@ -600,8 +653,7 @@ public class AMQChannel implements ServerChannelMethodProcessor {
         || name.startsWith("qpid.");
   }
 
-  private CompletableFuture<Producer<byte[]>> getOrCreateProducerForExchange(
-      String exchangeName, String routingKey) throws IOException {
+  private Producer<byte[]> getOrCreateProducerForExchange(String exchangeName, String routingKey) {
     String vHost = _connection.getNamespace();
     StringBuilder topic = new StringBuilder(isBlank(exchangeName) ? "amq.default" : exchangeName);
     if (isNotBlank(routingKey)) {
@@ -610,11 +662,19 @@ public class AMQChannel implements ServerChannelMethodProcessor {
 
     TopicName topicName = TopicName.get("persistent", NamespaceName.get(vHost), topic.toString());
 
-    return _connection
-        .getGatewayService()
-        .getPulsarClient()
-        .newProducer()
-        .topic(topicName.toString())
-        .createAsync();
+    return producers.computeIfAbsent(topicName.toString(), this::createProducer);
+  }
+
+  private Producer<byte[]> createProducer(String topicName) {
+    try {
+      return _connection
+          .getGatewayService()
+          .getPulsarClient()
+          .newProducer()
+          .topic(topicName)
+          .create();
+    } catch (PulsarClientException e) {
+      throw new RuntimeException(e);
+    }
   }
 }

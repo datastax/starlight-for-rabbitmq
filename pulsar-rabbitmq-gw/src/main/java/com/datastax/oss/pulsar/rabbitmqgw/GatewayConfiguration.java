@@ -56,13 +56,10 @@ public class GatewayConfiguration implements PulsarConfiguration {
   )
   private String advertisedAddress;
 
-  @FieldContext(category = CATEGORY_SERVER, doc = "The port for serving binary protobuf request")
-  private Optional<Integer> servicePort = Optional.ofNullable(6650);
+  @FieldContext(category = CATEGORY_SERVER, doc = "The port for serving AMQP")
+  private Optional<Integer> servicePort = Optional.of(5672);
 
-  @FieldContext(
-    category = CATEGORY_SERVER,
-    doc = "The port for serving tls secured binary protobuf request"
-  )
+  @FieldContext(category = CATEGORY_SERVER, doc = "The port for serving tls secured AMQP")
   private Optional<Integer> servicePortTls = Optional.empty();
 
   @FieldContext(

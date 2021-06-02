@@ -18,6 +18,7 @@ package com.datastax.oss.pulsar.rabbitmqgw;
 import static org.apache.qpid.server.protocol.v0_8.transport.ConnectionCloseOkBody.CONNECTION_CLOSE_OK_0_9;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.spy;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufAllocator;
@@ -44,7 +45,7 @@ import org.junit.jupiter.api.BeforeEach;
 public class AbstractBaseTest {
   public static final int CHANNEL_ID = 42;
   protected final GatewayConfiguration config = new GatewayConfiguration();
-  protected final GatewayService gatewayService = new GatewayService(config);
+  protected final GatewayService gatewayService = spy(new GatewayService(config));
   protected final GatewayConnection connection = new GatewayConnection(gatewayService);
   protected EmbeddedChannel channel;
 

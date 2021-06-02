@@ -20,21 +20,36 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Matchers.anyString;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.util.Collections;
+import java.util.concurrent.CompletableFuture;
+import org.apache.pulsar.client.api.Producer;
+import org.apache.pulsar.client.api.ProducerBuilder;
+import org.apache.pulsar.client.api.PulsarClient;
+import org.apache.pulsar.client.api.TypedMessageBuilder;
+import org.apache.pulsar.client.impl.MessageIdImpl;
 import org.apache.qpid.server.bytebuffer.QpidByteBuffer;
 import org.apache.qpid.server.exchange.ExchangeDefaults;
 import org.apache.qpid.server.protocol.ErrorCodes;
 import org.apache.qpid.server.protocol.v0_8.AMQShortString;
 import org.apache.qpid.server.protocol.v0_8.FieldTable;
 import org.apache.qpid.server.protocol.v0_8.FieldTableFactory;
-import org.apache.qpid.server.protocol.v0_8.transport.AMQBody;
 import org.apache.qpid.server.protocol.v0_8.transport.AMQFrame;
+import org.apache.qpid.server.protocol.v0_8.transport.BasicAckBody;
 import org.apache.qpid.server.protocol.v0_8.transport.BasicContentHeaderProperties;
 import org.apache.qpid.server.protocol.v0_8.transport.BasicPublishBody;
 import org.apache.qpid.server.protocol.v0_8.transport.ChannelCloseBody;
 import org.apache.qpid.server.protocol.v0_8.transport.ChannelCloseOkBody;
+import org.apache.qpid.server.protocol.v0_8.transport.ConfirmSelectBody;
+import org.apache.qpid.server.protocol.v0_8.transport.ConfirmSelectOkBody;
 import org.apache.qpid.server.protocol.v0_8.transport.ContentBody;
 import org.apache.qpid.server.protocol.v0_8.transport.ContentHeaderBody;
 import org.apache.qpid.server.protocol.v0_8.transport.ExchangeDeclareBody;
@@ -46,6 +61,7 @@ import org.junit.jupiter.api.Test;
 public class AMQChannelTest extends AbstractBaseTest {
 
   public static final String TEST_EXCHANGE = "test-exchange";
+  public static final byte[] TEST_MESSAGE = "test-message".getBytes(StandardCharsets.UTF_8);
 
   @Test
   void testReceiveChannelClose() {
@@ -55,8 +71,7 @@ public class AMQChannelTest extends AbstractBaseTest {
     AMQFrame frame = sendChannelClose();
 
     assertEquals(CHANNEL_ID, frame.getChannel());
-    AMQBody body = frame.getBodyFrame();
-    assertTrue(body instanceof ChannelCloseOkBody);
+    assertTrue(frame.getBodyFrame() instanceof ChannelCloseOkBody);
     assertNull(connection.getChannel(CHANNEL_ID));
   }
 
@@ -184,8 +199,7 @@ public class AMQChannelTest extends AbstractBaseTest {
     AMQFrame frame = sendExchangeDelete(TEST_EXCHANGE, false);
 
     assertEquals(CHANNEL_ID, frame.getChannel());
-    AMQBody body = frame.getBodyFrame();
-    assertTrue(body instanceof ExchangeDeleteOkBody);
+    assertTrue(frame.getBodyFrame() instanceof ExchangeDeleteOkBody);
   }
 
   @Test
@@ -277,6 +291,81 @@ public class AMQChannelTest extends AbstractBaseTest {
     assertIsConnectionCloseFrame(frame, ErrorCodes.FRAME_ERROR);
   }
 
+  @Test
+  void testReceiveMessagePulsarClientError() {
+    openChannel();
+    sendBasicPublish();
+    sendMessageHeader(TEST_MESSAGE.length);
+
+    AMQFrame frame = sendMessageContent();
+
+    assertIsConnectionCloseFrame(frame, ErrorCodes.INTERNAL_ERROR);
+  }
+
+  @Test
+  void testReceiveMessageSuccess() throws Exception {
+    PulsarClient pulsarClient = mock(PulsarClient.class);
+    ProducerBuilder producerBuilder = mock(ProducerBuilder.class);
+    Producer producer = mock(Producer.class);
+    TypedMessageBuilder messageBuilder = mock(TypedMessageBuilder.class);
+
+    when(pulsarClient.newProducer()).thenReturn(producerBuilder);
+    when(producerBuilder.topic(anyString())).thenReturn(producerBuilder);
+    when(producerBuilder.create()).thenReturn(producer);
+    doReturn(pulsarClient).when(gatewayService).getPulsarClient();
+    when(producer.newMessage()).thenReturn(messageBuilder);
+    when(messageBuilder.sendAsync())
+        .thenReturn(CompletableFuture.completedFuture(new MessageIdImpl(1, 2, 3)));
+
+    openChannel();
+    sendBasicPublish();
+
+    sendMessageHeader(TEST_MESSAGE.length);
+    AMQFrame frame = sendMessageContent();
+
+    assertNull(frame);
+    verify(messageBuilder, times(1)).value(TEST_MESSAGE);
+  }
+
+  @Test
+  void testReceiveMessageConfirm() throws Exception {
+    PulsarClient pulsarClient = mock(PulsarClient.class);
+    ProducerBuilder producerBuilder = mock(ProducerBuilder.class);
+    Producer producer = mock(Producer.class);
+    TypedMessageBuilder messageBuilder = mock(TypedMessageBuilder.class);
+
+    when(pulsarClient.newProducer()).thenReturn(producerBuilder);
+    when(producerBuilder.topic(anyString())).thenReturn(producerBuilder);
+    when(producerBuilder.create()).thenReturn(producer);
+    doReturn(pulsarClient).when(gatewayService).getPulsarClient();
+    when(producer.newMessage()).thenReturn(messageBuilder);
+    when(messageBuilder.sendAsync())
+        .thenReturn(CompletableFuture.completedFuture(new MessageIdImpl(1, 2, 3)));
+
+    openChannel();
+    AMQFrame frame = exchangeData(new ConfirmSelectBody(false).generateFrame(CHANNEL_ID));
+
+    assertTrue(frame.getBodyFrame() instanceof ConfirmSelectOkBody);
+
+    sendBasicPublish();
+    sendMessageHeader(TEST_MESSAGE.length);
+    frame = sendMessageContent();
+
+    assertTrue(frame.getBodyFrame() instanceof BasicAckBody);
+    BasicAckBody basicAckBody = (BasicAckBody) frame.getBodyFrame();
+    assertEquals(1, basicAckBody.getDeliveryTag());
+    assertFalse(basicAckBody.getMultiple());
+    verify(messageBuilder, times(1)).value(TEST_MESSAGE);
+
+    sendBasicPublish();
+    sendMessageHeader(TEST_MESSAGE.length);
+    frame = sendMessageContent();
+
+    assertTrue(frame.getBodyFrame() instanceof BasicAckBody);
+    basicAckBody = (BasicAckBody) frame.getBodyFrame();
+    assertEquals(2, basicAckBody.getDeliveryTag());
+  }
+
   private void openChannel() {
     openConnection();
     sendChannelOpen();
@@ -325,22 +414,19 @@ public class AMQChannelTest extends AbstractBaseTest {
   }
 
   private AMQFrame sendMessageContent() {
-    byte[] body = new byte[] {1, 2};
-    ContentBody contentBody = new ContentBody(ByteBuffer.wrap(body));
+    ContentBody contentBody = new ContentBody(ByteBuffer.wrap(TEST_MESSAGE));
     return exchangeData(ContentBody.createAMQFrame(CHANNEL_ID, contentBody));
   }
 
   private void assertIsChannelCloseFrame(AMQFrame frame, int errorCode) {
     assertEquals(CHANNEL_ID, frame.getChannel());
-    AMQBody body = frame.getBodyFrame();
-    assertTrue(body instanceof ChannelCloseBody);
-    ChannelCloseBody channelCloseBody = (ChannelCloseBody) body;
+    assertTrue(frame.getBodyFrame() instanceof ChannelCloseBody);
+    ChannelCloseBody channelCloseBody = (ChannelCloseBody) frame.getBodyFrame();
     assertEquals(errorCode, channelCloseBody.getReplyCode());
   }
 
   private void assertIsExchangeDeclareOk(AMQFrame frame) {
     assertEquals(CHANNEL_ID, frame.getChannel());
-    AMQBody body = frame.getBodyFrame();
-    assertTrue(body instanceof ExchangeDeclareOkBody);
+    assertTrue(frame.getBodyFrame() instanceof ExchangeDeclareOkBody);
   }
 }
