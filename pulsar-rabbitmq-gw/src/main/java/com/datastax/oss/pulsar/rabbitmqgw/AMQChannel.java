@@ -19,6 +19,7 @@ import static org.apache.commons.lang3.StringUtils.isBlank;
 import static org.apache.commons.lang3.StringUtils.isNotBlank;
 import static org.apache.qpid.server.transport.util.Functions.hex;
 
+import java.util.Base64;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.apache.pulsar.client.api.Producer;
@@ -542,9 +543,13 @@ public class AMQChannel implements ServerChannelMethodProcessor {
       qpidByteBuffer.copyTo(value);
       messageBuilder.value(value);
 
-      // TODO: map properties
-      // Map<String, Object> properties =
-      // _currentMessage.getContentHeader().getProperties().getHeadersAsMap();
+      ContentHeaderBody contentHeader = _currentMessage.getContentHeader();
+      byte[] bytes = new byte[contentHeader.getSize()];
+      QpidByteBuffer buf = QpidByteBuffer.wrap(bytes);
+      contentHeader.writePayload(buf);
+
+      messageBuilder.property("amqp-headers", Base64.getEncoder().encodeToString(bytes));
+      messageBuilder.eventTime(contentHeader.getProperties().getTimestamp());
 
       messageBuilder
           .sendAsync()
@@ -571,10 +576,6 @@ public class AMQChannel implements ServerChannelMethodProcessor {
 
   private void closeChannel(int cause, final String message) {
     _connection.closeChannelAndWriteFrame(this, cause, message);
-  }
-
-  private boolean isDefaultExchange(final AMQShortString exchangeName) {
-    return exchangeName == null || AMQShortString.EMPTY_STRING.equals(exchangeName);
   }
 
   public boolean isClosing() {

@@ -16,20 +16,27 @@
 package com.datastax.oss.pulsar.rabbitmqtests;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.datastax.oss.pulsar.rabbitmqgw.GatewayConfiguration;
 import com.datastax.oss.pulsar.rabbitmqgw.GatewayService;
 import com.datastax.oss.pulsar.rabbitmqtests.utils.PulsarCluster;
+import com.rabbitmq.client.AMQP;
 import com.rabbitmq.client.Channel;
 import com.rabbitmq.client.Connection;
 import com.rabbitmq.client.ConnectionFactory;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.util.Date;
 import java.util.concurrent.TimeUnit;
+import org.apache.commons.codec.binary.Base64;
 import org.apache.pulsar.client.api.Consumer;
 import org.apache.pulsar.client.api.Message;
 import org.apache.pulsar.client.api.PulsarClient;
 import org.apache.pulsar.client.api.Schema;
+import org.apache.qpid.server.bytebuffer.QpidByteBuffer;
+import org.apache.qpid.server.protocol.v0_8.transport.ContentHeaderBody;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -78,10 +85,27 @@ public class RabbitmqInteropIT {
             .subscriptionName("test-subscription")
             .subscribe();
 
-    channel.basicPublish("", "", null, TEST_MESSAGE.getBytes(StandardCharsets.UTF_8));
+    Date now = new Date();
+    AMQP.BasicProperties properties =
+        new AMQP.BasicProperties.Builder()
+            .contentType("application/octet-stream")
+            .timestamp(now)
+            .build();
+    channel.basicPublish("", "", properties, TEST_MESSAGE.getBytes(StandardCharsets.UTF_8));
 
     Message<String> receive = consumer.receive(1, TimeUnit.SECONDS);
+
+    assertNotNull(receive);
     assertEquals(TEST_MESSAGE, receive.getValue());
+
+    assertTrue(receive.hasProperty("amqp-headers"));
+    byte[] bytes = Base64.decodeBase64(receive.getProperty("amqp-headers"));
+    ContentHeaderBody contentHeaderBody =
+        new ContentHeaderBody(QpidByteBuffer.wrap(bytes), bytes.length);
+    assertEquals(
+        "application/octet-stream", contentHeaderBody.getProperties().getContentType().toString());
+
+    assertEquals(now.getTime() / 1000, receive.getEventTime());
 
     consumer.close();
     channel.close();

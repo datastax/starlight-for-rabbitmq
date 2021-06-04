@@ -21,9 +21,9 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Matchers.anyString;
+import static org.mockito.Matchers.eq;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -31,11 +31,13 @@ import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.concurrent.CompletableFuture;
+import org.apache.commons.codec.binary.Base64;
 import org.apache.pulsar.client.api.Producer;
 import org.apache.pulsar.client.api.ProducerBuilder;
 import org.apache.pulsar.client.api.PulsarClient;
 import org.apache.pulsar.client.api.TypedMessageBuilder;
 import org.apache.pulsar.client.impl.MessageIdImpl;
+import org.apache.pulsar.client.impl.ProducerBase;
 import org.apache.qpid.server.bytebuffer.QpidByteBuffer;
 import org.apache.qpid.server.exchange.ExchangeDefaults;
 import org.apache.qpid.server.protocol.ErrorCodes;
@@ -57,6 +59,7 @@ import org.apache.qpid.server.protocol.v0_8.transport.ExchangeDeclareOkBody;
 import org.apache.qpid.server.protocol.v0_8.transport.ExchangeDeleteBody;
 import org.apache.qpid.server.protocol.v0_8.transport.ExchangeDeleteOkBody;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 public class AMQChannelTest extends AbstractBaseTest {
 
@@ -212,7 +215,7 @@ public class AMQChannelTest extends AbstractBaseTest {
   }
 
   // TODO: test ExchangeDelete with ifUnused when bindings implemented
-  /*@Test
+  // @Test
   void testReceiveExchangeDeleteIfUnused() {
     openConnection();
     sendChannelOpen();
@@ -220,7 +223,7 @@ public class AMQChannelTest extends AbstractBaseTest {
     AMQFrame frame = sendExchangeDelete(TEST_EXCHANGE, true);
 
     assertIsChannelCloseFrame(frame, ErrorCodes.IN_USE);
-  }*/
+  }
 
   @Test
   void testReceiveExchangeDeleteReservedExchange() {
@@ -306,7 +309,7 @@ public class AMQChannelTest extends AbstractBaseTest {
   void testReceiveMessageSuccess() throws Exception {
     PulsarClient pulsarClient = mock(PulsarClient.class);
     ProducerBuilder producerBuilder = mock(ProducerBuilder.class);
-    Producer producer = mock(Producer.class);
+    ProducerBase producer = mock(ProducerBase.class);
     TypedMessageBuilder messageBuilder = mock(TypedMessageBuilder.class);
 
     when(pulsarClient.newProducer()).thenReturn(producerBuilder);
@@ -320,11 +323,24 @@ public class AMQChannelTest extends AbstractBaseTest {
     openChannel();
     sendBasicPublish();
 
-    sendMessageHeader(TEST_MESSAGE.length);
+    BasicContentHeaderProperties props = new BasicContentHeaderProperties();
+    props.setContentType("application/json");
+    props.setTimestamp(1234);
+
+    exchangeData(ContentHeaderBody.createAMQFrame(CHANNEL_ID, props, TEST_MESSAGE.length));
     AMQFrame frame = sendMessageContent();
 
     assertNull(frame);
-    verify(messageBuilder, times(1)).value(TEST_MESSAGE);
+    ArgumentCaptor<String> captor = ArgumentCaptor.forClass(String.class);
+    verify(messageBuilder).property(eq("amqp-headers"), captor.capture());
+    byte[] bytes = Base64.decodeBase64(captor.getValue());
+    ContentHeaderBody contentHeaderBody =
+        new ContentHeaderBody(QpidByteBuffer.wrap(bytes), bytes.length);
+    assertEquals("application/json", contentHeaderBody.getProperties().getContentType().toString());
+
+    verify(messageBuilder).eventTime(1234);
+    verify(messageBuilder).value(TEST_MESSAGE);
+    verify(messageBuilder).sendAsync();
   }
 
   @Test
@@ -355,7 +371,7 @@ public class AMQChannelTest extends AbstractBaseTest {
     BasicAckBody basicAckBody = (BasicAckBody) frame.getBodyFrame();
     assertEquals(1, basicAckBody.getDeliveryTag());
     assertFalse(basicAckBody.getMultiple());
-    verify(messageBuilder, times(1)).value(TEST_MESSAGE);
+    verify(messageBuilder).value(TEST_MESSAGE);
 
     sendBasicPublish();
     sendMessageHeader(TEST_MESSAGE.length);
