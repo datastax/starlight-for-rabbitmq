@@ -78,7 +78,6 @@ public class RabbitmqInteropIT {
     factory.setPort(config.getServicePort().get());
 
     Connection conn = factory.newConnection();
-
     Channel channel = conn.createChannel();
 
     PulsarClient pulsarClient = PulsarClient.builder().serviceUrl(cluster.getAddress()).build();
@@ -147,6 +146,48 @@ public class RabbitmqInteropIT {
     producer.close();
     channel.close();
     conn.close();
+    gatewayService.close();
+  }
+
+  @Test
+  void testRabbitProducerRabbitConsumer() throws Exception {
+    GatewayConfiguration config = new GatewayConfiguration();
+    config.setBrokerServiceURL(cluster.getAddress());
+    GatewayService gatewayService = new GatewayService(config);
+    gatewayService.start();
+
+    ConnectionFactory factory = new ConnectionFactory();
+    factory.setVirtualHost("/");
+    factory.setHost("localhost");
+    factory.setPort(config.getServicePort().get());
+
+    Connection conn1 = factory.newConnection();
+    Channel channel1 = conn1.createChannel();
+
+    Connection conn2 = factory.newConnection();
+    Channel channel2 = conn2.createChannel();
+
+    channel1.queueDeclare("test-queue", true, false, false, new HashMap<>());
+
+    Date now = new Date();
+    AMQP.BasicProperties properties =
+            new AMQP.BasicProperties.Builder()
+                    .contentType("application/octet-stream")
+                    .timestamp(now)
+                    .build();
+    channel2.basicPublish("", "test-queue", properties, TEST_MESSAGE.getBytes(StandardCharsets.UTF_8));
+
+    GetResponse getResponse = channel1.basicGet("test-queue", false);
+    assertEquals("amq.default", getResponse.getEnvelope().getExchange());
+    assertEquals("test-queue", getResponse.getEnvelope().getRoutingKey());
+    assertEquals("application/octet-stream", getResponse.getProps().getContentType());
+    assertEquals(now.getTime()/1000, getResponse.getProps().getTimestamp().getTime()/1000);
+    assertArrayEquals(TEST_MESSAGE.getBytes(StandardCharsets.UTF_8), getResponse.getBody());
+
+    channel1.close();
+    conn1.close();
+    channel2.close();
+    conn2.close();
     gatewayService.close();
   }
 }
