@@ -15,25 +15,27 @@
  */
 package com.datastax.oss.pulsar.rabbitmqgw;
 
-import static org.apache.commons.lang3.StringUtils.isBlank;
-import static org.apache.commons.lang3.StringUtils.isNotBlank;
 import static org.apache.qpid.server.transport.util.Functions.hex;
 
+import java.nio.ByteBuffer;
+import java.security.AccessControlException;
 import java.util.Base64;
+import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.apache.pulsar.client.api.Producer;
 import org.apache.pulsar.client.api.PulsarClientException;
 import org.apache.pulsar.client.api.TypedMessageBuilder;
-import org.apache.pulsar.common.naming.NamespaceName;
 import org.apache.pulsar.common.naming.TopicName;
 import org.apache.qpid.server.bytebuffer.QpidByteBuffer;
 import org.apache.qpid.server.exchange.ExchangeDefaults;
 import org.apache.qpid.server.logging.LogMessage;
 import org.apache.qpid.server.logging.messages.ChannelMessages;
+import org.apache.qpid.server.model.ExclusivityPolicy;
 import org.apache.qpid.server.model.LifetimePolicy;
-import org.apache.qpid.server.model.Queue;
 import org.apache.qpid.server.protocol.ErrorCodes;
+import org.apache.qpid.server.protocol.v0_8.AMQFrameDecodingException;
 import org.apache.qpid.server.protocol.v0_8.AMQShortString;
 import org.apache.qpid.server.protocol.v0_8.FieldTable;
 import org.apache.qpid.server.protocol.v0_8.IncomingMessage;
@@ -47,6 +49,7 @@ import org.apache.qpid.server.protocol.v0_8.transport.ContentHeaderBody;
 import org.apache.qpid.server.protocol.v0_8.transport.ExchangeDeleteOkBody;
 import org.apache.qpid.server.protocol.v0_8.transport.MessagePublishInfo;
 import org.apache.qpid.server.protocol.v0_8.transport.MethodRegistry;
+import org.apache.qpid.server.protocol.v0_8.transport.QueueDeclareOkBody;
 import org.apache.qpid.server.protocol.v0_8.transport.ServerChannelMethodProcessor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -56,6 +59,7 @@ public class AMQChannel implements ServerChannelMethodProcessor {
   private static final Logger LOGGER = LoggerFactory.getLogger(AMQChannel.class);
 
   private final int _channelId;
+  private Queue _defaultQueue;
   /**
    * The current message - which may be partial in the sense that not all frames have been received
    * yet - which has been received by this channel. As the frames are received the message gets
@@ -67,23 +71,12 @@ public class AMQChannel implements ServerChannelMethodProcessor {
   private final AtomicBoolean _closing = new AtomicBoolean(false);
   private boolean _confirmOnPublish;
   private long _confirmedMessageCounter;
-  private final ConcurrentHashMap<String, Exchange> exchanges = new ConcurrentHashMap<>();
 
   private final ConcurrentHashMap<String, Producer<byte[]>> producers = new ConcurrentHashMap<>();
 
   public AMQChannel(GatewayConnection connection, int channelId) {
     _connection = connection;
     _channelId = channelId;
-    addStandardExchange(
-        ExchangeDefaults.DEFAULT_EXCHANGE_NAME, ExchangeDefaults.DIRECT_EXCHANGE_CLASS);
-    addStandardExchange(
-        ExchangeDefaults.DIRECT_EXCHANGE_NAME, ExchangeDefaults.DIRECT_EXCHANGE_CLASS);
-    addStandardExchange(
-        ExchangeDefaults.FANOUT_EXCHANGE_NAME, ExchangeDefaults.FANOUT_EXCHANGE_CLASS);
-    addStandardExchange(
-        ExchangeDefaults.TOPIC_EXCHANGE_NAME, ExchangeDefaults.TOPIC_EXCHANGE_CLASS);
-    addStandardExchange(
-        ExchangeDefaults.HEADERS_EXCHANGE_NAME, ExchangeDefaults.HEADERS_EXCHANGE_CLASS);
   }
 
   @Override
@@ -176,7 +169,7 @@ public class AMQChannel implements ServerChannelMethodProcessor {
           } else if (!nowait) {
             _connection.writeFrame(declareOkBody.generateFrame(getChannelId()));
           }
-        } else if (exchanges.containsKey(name)) {
+        } else if (_connection.getVhost().hasExchange(name)) {
           exchange = getExchange(name);
           if (!exchange.getType().equals(typeString)) {
             _connection.sendConnectionClose(
@@ -258,13 +251,182 @@ public class AMQChannel implements ServerChannelMethodProcessor {
 
   @Override
   public void receiveQueueDeclare(
-      AMQShortString queue,
+      AMQShortString queueStr,
       boolean passive,
       boolean durable,
       boolean exclusive,
       boolean autoDelete,
       boolean nowait,
-      FieldTable arguments) {}
+      FieldTable arguments) {
+
+    if (LOGGER.isDebugEnabled()) {
+      LOGGER.debug(
+          "RECV["
+              + _channelId
+              + "] QueueDeclare["
+              + " queue: "
+              + queueStr
+              + " passive: "
+              + passive
+              + " durable: "
+              + durable
+              + " exclusive: "
+              + exclusive
+              + " autoDelete: "
+              + autoDelete
+              + " nowait: "
+              + nowait
+              + " arguments: "
+              + arguments
+              + " ]");
+    }
+
+    final AMQShortString queueName;
+
+    // if we aren't given a queue name, we create one which we return to the client
+    if ((queueStr == null) || (queueStr.length() == 0)) {
+      queueName = AMQShortString.createAMQShortString("tmp_" + UUID.randomUUID());
+    } else {
+      queueName = queueStr;
+    }
+
+    Queue queue;
+
+    // TODO: do we need to check that the queue already exists with exactly the same
+    // "configuration"?
+
+    if (passive) {
+      queue = getQueue(queueName.toString());
+      if (queue == null) {
+        closeChannel(
+            ErrorCodes.NOT_FOUND,
+            "Queue: '"
+                + queueName
+                + "' not found on VirtualHost '"
+                + _connection.getVhost().getNamespace()
+                + "'.");
+      } else {
+        // TODO: check exclusive queue access
+        {
+          // set this as the default queue on the channel:
+          setDefaultQueue(queue);
+          if (!nowait) {
+            MethodRegistry methodRegistry = _connection.getMethodRegistry();
+            QueueDeclareOkBody responseBody =
+                methodRegistry.createQueueDeclareOkBody(
+                    queueName, queue.getQueueDepthMessages(), queue.getConsumerCount());
+            _connection.writeFrame(responseBody.generateFrame(getChannelId()));
+
+            if (LOGGER.isDebugEnabled()) {
+              LOGGER.debug("Queue " + queueName + " declared successfully");
+            }
+          }
+        }
+      }
+    } else {
+      try {
+        LifetimePolicy lifetimePolicy;
+        ExclusivityPolicy exclusivityPolicy;
+
+        if (exclusive) {
+          lifetimePolicy =
+              autoDelete
+                  ? LifetimePolicy.DELETE_ON_NO_OUTBOUND_LINKS
+                  : durable ? LifetimePolicy.PERMANENT : LifetimePolicy.DELETE_ON_CONNECTION_CLOSE;
+          exclusivityPolicy = durable ? ExclusivityPolicy.CONTAINER : ExclusivityPolicy.CONNECTION;
+        } else {
+          lifetimePolicy =
+              autoDelete ? LifetimePolicy.DELETE_ON_NO_OUTBOUND_LINKS : LifetimePolicy.PERMANENT;
+          exclusivityPolicy = ExclusivityPolicy.NONE;
+        }
+
+        Map<String, Object> attributes = FieldTable.convertToMap(arguments);
+
+        if (attributes.containsKey(org.apache.qpid.server.model.Queue.EXCLUSIVE)) {
+          exclusivityPolicy =
+              ExclusivityPolicy.valueOf(
+                  attributes.get(org.apache.qpid.server.model.Queue.EXCLUSIVE).toString());
+        }
+        if (attributes.containsKey(org.apache.qpid.server.model.Queue.LIFETIME_POLICY)) {
+          lifetimePolicy =
+              LifetimePolicy.valueOf(
+                  attributes.get(org.apache.qpid.server.model.Queue.LIFETIME_POLICY).toString());
+        }
+
+        queue = getQueue(queueName.toString());
+        if (queue != null) {
+          // TODO; verify if queue is exclusive and opened by another connection
+          if (queue.isExclusive() != exclusive) {
+
+            closeChannel(
+                ErrorCodes.ALREADY_EXISTS,
+                "Cannot re-declare queue '"
+                    + queue.getName()
+                    + "' with different exclusivity (was: "
+                    + queue.isExclusive()
+                    + " requested "
+                    + exclusive
+                    + ")");
+          } else if ((autoDelete && queue.getLifetimePolicy() == LifetimePolicy.PERMANENT)
+              || (!autoDelete
+                  && queue.getLifetimePolicy()
+                      != ((exclusive && !durable)
+                          ? LifetimePolicy.DELETE_ON_CONNECTION_CLOSE
+                          : LifetimePolicy.PERMANENT))) {
+            closeChannel(
+                ErrorCodes.ALREADY_EXISTS,
+                "Cannot re-declare queue '"
+                    + queue.getName()
+                    + "' with different lifetime policy (was: "
+                    + queue.getLifetimePolicy()
+                    + " requested autodelete: "
+                    + autoDelete
+                    + ")");
+          } else {
+            setDefaultQueue(queue);
+            if (!nowait) {
+              MethodRegistry methodRegistry = _connection.getMethodRegistry();
+              QueueDeclareOkBody responseBody =
+                  methodRegistry.createQueueDeclareOkBody(
+                      queueName, queue.getQueueDepthMessages(), queue.getConsumerCount());
+              _connection.writeFrame(responseBody.generateFrame(getChannelId()));
+
+              if (LOGGER.isDebugEnabled()) {
+                LOGGER.debug("Queue " + queueName + " declared successfully");
+              }
+            }
+          }
+        } else {
+
+          queue = new Queue(queueName.toString(), lifetimePolicy, exclusivityPolicy);
+          addQueue(queue);
+          _connection
+              .getVhost()
+              .getExchange(ExchangeDefaults.DEFAULT_EXCHANGE_NAME)
+              .bind(queue, queue.getName(), _connection);
+
+          setDefaultQueue(queue);
+
+          if (!nowait) {
+            MethodRegistry methodRegistry = _connection.getMethodRegistry();
+            QueueDeclareOkBody responseBody =
+                methodRegistry.createQueueDeclareOkBody(
+                    queueName, queue.getQueueDepthMessages(), queue.getConsumerCount());
+            _connection.writeFrame(responseBody.generateFrame(getChannelId()));
+
+            if (LOGGER.isDebugEnabled()) {
+              LOGGER.debug("Queue " + queueName + " declared successfully");
+            }
+          }
+        }
+      } catch (IllegalArgumentException e) {
+        String message = String.format("Error creating queue '%s': %s", queueName, e.getMessage());
+        _connection.sendConnectionClose(ErrorCodes.INVALID_ARGUMENT, message, getChannelId());
+      } catch (PulsarClientException e) {
+        _connection.sendConnectionClose(ErrorCodes.INTERNAL_ERROR, e.getMessage(), getChannelId());
+      }
+    }
+  }
 
   @Override
   public void receiveQueueBind(
@@ -330,8 +492,12 @@ public class AMQChannel implements ServerChannelMethodProcessor {
               + " ]");
     }
 
-    if (!exchanges.containsKey(
-        exchangeName == null ? ExchangeDefaults.DEFAULT_EXCHANGE_NAME : exchangeName.toString())) {
+    if (!_connection
+        .getVhost()
+        .hasExchange(
+            exchangeName == null
+                ? ExchangeDefaults.DEFAULT_EXCHANGE_NAME
+                : exchangeName.toString())) {
       closeChannel(ErrorCodes.NOT_FOUND, "Unknown exchange name: '" + exchangeName + "'");
     }
 
@@ -342,7 +508,120 @@ public class AMQChannel implements ServerChannelMethodProcessor {
   }
 
   @Override
-  public void receiveBasicGet(AMQShortString queue, boolean noAck) {}
+  public void receiveBasicGet(AMQShortString queueName, boolean noAck) {
+    if (LOGGER.isDebugEnabled()) {
+      LOGGER.debug(
+          "RECV["
+              + _channelId
+              + "] BasicGet["
+              + " queue: "
+              + queueName
+              + " noAck: "
+              + noAck
+              + " ]");
+    }
+
+    Queue queue =
+        queueName == null
+            ? getDefaultQueue()
+            : _connection.getVhost().getQueue(queueName.toString());
+
+    if (queue == null) {
+      if (LOGGER.isDebugEnabled()) {
+        LOGGER.debug("No queue for '" + queueName + "'");
+      }
+      if (queueName != null) {
+        _connection.sendConnectionClose(
+            ErrorCodes.NOT_FOUND, "No such queue, '" + queueName + "'", _channelId);
+
+      } else {
+        _connection.sendConnectionClose(
+            ErrorCodes.NOT_ALLOWED,
+            "No queue name provided, no default queue defined.",
+            _channelId);
+      }
+    } else {
+
+      try {
+        queue
+            .receiveAsync()
+            .thenAccept(
+                message -> {
+                  // TODO: add isRedelivered and deliveryTag
+                  boolean isRedelivered = false;
+                  long deliveryTag = 0;
+                  ContentBody contentBody = new ContentBody(ByteBuffer.wrap(message.getData()));
+                  String localName = TopicName.get(message.getTopicName()).getLocalName();
+                  String[] split = localName.split("\\$\\$", 2);
+                  String routingKey = "";
+                  String exchange = split[0];
+                  if (split.length > 1) {
+                    routingKey = split[1];
+                  }
+                  MessagePublishInfo info =
+                      new MessagePublishInfo(
+                          AMQShortString.createAMQShortString(exchange),
+                          Boolean.parseBoolean(message.getProperty("immediate")),
+                          Boolean.parseBoolean(message.getProperty("mandatory")),
+                          AMQShortString.createAMQShortString(routingKey));
+                  String headersProperty = message.getProperty("amqp-headers");
+                  ContentHeaderBody contentHeaderBody = null;
+                  if (headersProperty != null) {
+                    try {
+                      byte[] headers = Base64.getDecoder().decode(headersProperty);
+                      QpidByteBuffer buf = QpidByteBuffer.wrap(headers);
+                      contentHeaderBody = ContentHeaderBody.createFromBuffer(buf, headers.length);
+                    } catch (AMQFrameDecodingException | IllegalArgumentException e) {
+                      LOGGER.error("Couldn't decode AMQP headers", e);
+                    }
+                  } else {
+                    contentHeaderBody = new ContentHeaderBody(new BasicContentHeaderProperties());
+                    contentHeaderBody.setBodySize(message.getData().length);
+                  }
+                  _connection
+                      .getProtocolOutputConverter()
+                      .writeGetOk(
+                          info,
+                          contentBody,
+                          contentHeaderBody,
+                          isRedelivered,
+                          _channelId,
+                          deliveryTag,
+                          queue.getQueueDepthMessages());
+                });
+
+        /*if (!performGet(queue, !noAck))
+        {
+          MethodRegistry methodRegistry = _connection.getMethodRegistry();
+
+          BasicGetEmptyBody responseBody = methodRegistry.createBasicGetEmptyBody(null);
+
+          _connection.writeFrame(responseBody.generateFrame(_channelId));
+        }*/
+      } catch (AccessControlException e) {
+        _connection.sendConnectionClose(ErrorCodes.ACCESS_REFUSED, e.getMessage(), _channelId);
+      }
+      /*catch (MessageSource.ExistingExclusiveConsumer e)
+      {
+        _connection.sendConnectionClose(ErrorCodes.NOT_ALLOWED, "Queue has an exclusive consumer", _channelId);
+      }
+      catch (MessageSource.ExistingConsumerPreventsExclusive e)
+      {
+        _connection.sendConnectionClose(ErrorCodes.INTERNAL_ERROR,
+                "The GET request has been evaluated as an exclusive consumer, " +
+                        "this is likely due to a programming error in the Qpid broker", _channelId);
+      }
+      catch (MessageSource.ConsumerAccessRefused consumerAccessRefused)
+      {
+        _connection.sendConnectionClose(ErrorCodes.NOT_ALLOWED,
+                "Queue has an incompatible exclusivity policy", _channelId);
+      }
+      catch (MessageSource.QueueDeleted queueDeleted)
+      {
+        _connection.sendConnectionClose(ErrorCodes.NOT_FOUND, "Queue has been deleted", _channelId);
+      }*/
+    }
+  }
 
   @Override
   public void receiveChannelFlow(boolean active) {}
@@ -543,6 +822,9 @@ public class AMQChannel implements ServerChannelMethodProcessor {
       qpidByteBuffer.copyTo(value);
       messageBuilder.value(value);
 
+      messageBuilder.property("amqp-immediate", String.valueOf(info.isImmediate()));
+      messageBuilder.property("amqp-mandatory", String.valueOf(info.isMandatory()));
+
       ContentHeaderBody contentHeader = _currentMessage.getContentHeader();
       byte[] bytes = new byte[contentHeader.getSize()];
       QpidByteBuffer buf = QpidByteBuffer.wrap(bytes);
@@ -622,29 +904,32 @@ public class AMQChannel implements ServerChannelMethodProcessor {
     logger.info(operationalLogMessage.toString());
   }
 
-  private void setDefaultQueue(Queue<?> queue) {
-    // TODO setDefaultQueue
+  private void setDefaultQueue(Queue queue) {
+    _defaultQueue = queue;
+  }
+
+  private Queue getDefaultQueue() {
+    return _defaultQueue;
   }
 
   private Exchange getExchange(String name) {
-    return exchanges.get(name);
+    return _connection.getVhost().getExchange(name);
   }
 
   private void addExchange(Exchange exchange) {
-    exchanges.put(exchange.getName(), exchange);
+    _connection.getVhost().addExchange(exchange);
   }
 
   private void deleteExchange(Exchange exchange) {
-    exchanges.remove(exchange.getName());
+    _connection.getVhost().deleteExchange(exchange);
   }
 
-  private void addStandardExchange(String directExchangeName, String directExchangeClass) {
-    addExchange(
-        new Exchange(
-            directExchangeName,
-            Exchange.Type.valueOf(directExchangeClass),
-            true,
-            LifetimePolicy.PERMANENT));
+  private Queue getQueue(String name) {
+    return _connection.getVhost().getQueue(name);
+  }
+
+  private void addQueue(Queue queue) {
+    _connection.getVhost().addQueue(queue);
   }
 
   private boolean isReservedExchangeName(String name) {
@@ -656,12 +941,7 @@ public class AMQChannel implements ServerChannelMethodProcessor {
 
   private Producer<byte[]> getOrCreateProducerForExchange(String exchangeName, String routingKey) {
     String vHost = _connection.getNamespace();
-    StringBuilder topic = new StringBuilder(isBlank(exchangeName) ? "amq.default" : exchangeName);
-    if (isNotBlank(routingKey)) {
-      topic.append(".__").append(routingKey).append("__");
-    }
-
-    TopicName topicName = TopicName.get("persistent", NamespaceName.get(vHost), topic.toString());
+    TopicName topicName = Exchange.getTopicName(vHost, exchangeName, routingKey);
 
     return producers.computeIfAbsent(topicName.toString(), this::createProducer);
   }

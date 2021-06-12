@@ -15,6 +15,7 @@
  */
 package com.datastax.oss.pulsar.rabbitmqtests;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -26,13 +27,16 @@ import com.rabbitmq.client.AMQP;
 import com.rabbitmq.client.Channel;
 import com.rabbitmq.client.Connection;
 import com.rabbitmq.client.ConnectionFactory;
+import com.rabbitmq.client.GetResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.concurrent.TimeUnit;
 import org.apache.commons.codec.binary.Base64;
 import org.apache.pulsar.client.api.Consumer;
 import org.apache.pulsar.client.api.Message;
+import org.apache.pulsar.client.api.Producer;
 import org.apache.pulsar.client.api.PulsarClient;
 import org.apache.pulsar.client.api.Schema;
 import org.apache.qpid.server.bytebuffer.QpidByteBuffer;
@@ -93,7 +97,7 @@ public class RabbitmqInteropIT {
             .build();
     channel.basicPublish("", "", properties, TEST_MESSAGE.getBytes(StandardCharsets.UTF_8));
 
-    Message<String> receive = consumer.receive(1, TimeUnit.SECONDS);
+    Message<String> receive = consumer.receive(10, TimeUnit.SECONDS);
 
     assertNotNull(receive);
     assertEquals(TEST_MESSAGE, receive.getValue());
@@ -108,6 +112,39 @@ public class RabbitmqInteropIT {
     assertEquals(now.getTime() / 1000, receive.getEventTime());
 
     consumer.close();
+    channel.close();
+    conn.close();
+    gatewayService.close();
+  }
+
+  @Test
+  void testPulsarProducerRabbitConsumer() throws Exception {
+    GatewayConfiguration config = new GatewayConfiguration();
+    config.setBrokerServiceURL(cluster.getAddress());
+    GatewayService gatewayService = new GatewayService(config);
+    gatewayService.start();
+
+    ConnectionFactory factory = new ConnectionFactory();
+    factory.setVirtualHost("/");
+    factory.setHost("localhost");
+    factory.setPort(config.getServicePort().get());
+
+    Connection conn = factory.newConnection();
+
+    Channel channel = conn.createChannel();
+
+    PulsarClient pulsarClient = PulsarClient.builder().serviceUrl(cluster.getAddress()).build();
+    Producer<String> producer =
+        pulsarClient.newProducer(Schema.STRING).topic("amq.default$$test-queue").create();
+
+    channel.queueDeclare("test-queue", true, false, false, new HashMap<>());
+    producer.send(TEST_MESSAGE);
+    GetResponse getResponse = channel.basicGet("test-queue", false);
+    assertEquals("amq.default", getResponse.getEnvelope().getExchange());
+    assertEquals("test-queue", getResponse.getEnvelope().getRoutingKey());
+    assertArrayEquals(TEST_MESSAGE.getBytes(StandardCharsets.UTF_8), getResponse.getBody());
+
+    producer.close();
     channel.close();
     conn.close();
     gatewayService.close();

@@ -15,38 +15,43 @@
  */
 package com.datastax.oss.pulsar.rabbitmqgw;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.Matchers.anyString;
 import static org.mockito.Matchers.eq;
-import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import io.netty.buffer.ByteBuf;
+import io.netty.buffer.ByteBufAllocator;
+import io.netty.buffer.Unpooled;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.concurrent.CompletableFuture;
 import org.apache.commons.codec.binary.Base64;
-import org.apache.pulsar.client.api.Producer;
-import org.apache.pulsar.client.api.ProducerBuilder;
-import org.apache.pulsar.client.api.PulsarClient;
+import org.apache.pulsar.client.api.PulsarClientException;
 import org.apache.pulsar.client.api.TypedMessageBuilder;
 import org.apache.pulsar.client.impl.MessageIdImpl;
-import org.apache.pulsar.client.impl.ProducerBase;
+import org.apache.pulsar.client.impl.MessageImpl;
 import org.apache.qpid.server.bytebuffer.QpidByteBuffer;
 import org.apache.qpid.server.exchange.ExchangeDefaults;
+import org.apache.qpid.server.model.Queue;
 import org.apache.qpid.server.protocol.ErrorCodes;
 import org.apache.qpid.server.protocol.v0_8.AMQShortString;
 import org.apache.qpid.server.protocol.v0_8.FieldTable;
 import org.apache.qpid.server.protocol.v0_8.FieldTableFactory;
+import org.apache.qpid.server.protocol.v0_8.transport.AMQBody;
 import org.apache.qpid.server.protocol.v0_8.transport.AMQFrame;
 import org.apache.qpid.server.protocol.v0_8.transport.BasicAckBody;
 import org.apache.qpid.server.protocol.v0_8.transport.BasicContentHeaderProperties;
+import org.apache.qpid.server.protocol.v0_8.transport.BasicGetBody;
+import org.apache.qpid.server.protocol.v0_8.transport.BasicGetOkBody;
 import org.apache.qpid.server.protocol.v0_8.transport.BasicPublishBody;
 import org.apache.qpid.server.protocol.v0_8.transport.ChannelCloseBody;
 import org.apache.qpid.server.protocol.v0_8.transport.ChannelCloseOkBody;
@@ -58,12 +63,15 @@ import org.apache.qpid.server.protocol.v0_8.transport.ExchangeDeclareBody;
 import org.apache.qpid.server.protocol.v0_8.transport.ExchangeDeclareOkBody;
 import org.apache.qpid.server.protocol.v0_8.transport.ExchangeDeleteBody;
 import org.apache.qpid.server.protocol.v0_8.transport.ExchangeDeleteOkBody;
+import org.apache.qpid.server.protocol.v0_8.transport.QueueDeclareBody;
+import org.apache.qpid.server.protocol.v0_8.transport.QueueDeclareOkBody;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 public class AMQChannelTest extends AbstractBaseTest {
 
   public static final String TEST_EXCHANGE = "test-exchange";
+  public static final String TEST_QUEUE = "test-queue";
   public static final byte[] TEST_MESSAGE = "test-message".getBytes(StandardCharsets.UTF_8);
 
   @Test
@@ -175,7 +183,7 @@ public class AMQChannelTest extends AbstractBaseTest {
   }
 
   @Test
-  void testReceiveExchangeDeclareAlreadyExistsInvalidType() {
+  void testReceiveExchangeDeclareAlreadyExistsDifferentType() {
     openChannel();
     sendExchangeDeclare(TEST_EXCHANGE, ExchangeDefaults.DIRECT_EXCHANGE_CLASS, false);
 
@@ -232,6 +240,114 @@ public class AMQChannelTest extends AbstractBaseTest {
     AMQFrame frame = sendExchangeDelete(ExchangeDefaults.FANOUT_EXCHANGE_NAME, false);
 
     assertIsChannelCloseFrame(frame, ErrorCodes.NOT_ALLOWED);
+  }
+
+  @Test
+  void testReceiveQueueDeclare() {
+    openChannel();
+
+    AMQFrame frame = sendQueueDeclare();
+
+    assertIsQueueDeclareOk(frame);
+  }
+
+  @Test
+  void testReceiveQueueDeclareEmptyName() {
+    openChannel();
+
+    AMQFrame frame = sendQueueDeclare("", false);
+
+    assertEquals(CHANNEL_ID, frame.getChannel());
+    assertTrue(frame.getBodyFrame() instanceof QueueDeclareOkBody);
+    QueueDeclareOkBody queueDeclareOkBody = (QueueDeclareOkBody) frame.getBodyFrame();
+    assertTrue(queueDeclareOkBody.getQueue().toString().startsWith("tmp_"));
+  }
+
+  @Test
+  void testReceiveQueueDeclarePassive() {
+    openChannel();
+    sendQueueDeclare();
+
+    AMQFrame frame = sendQueueDeclare(TEST_QUEUE, true);
+
+    assertIsQueueDeclareOk(frame);
+  }
+
+  @Test
+  void testReceiveQueueDeclarePassiveNotFound() {
+    openChannel();
+
+    AMQFrame frame = sendQueueDeclare(TEST_QUEUE, true);
+
+    assertIsChannelCloseFrame(frame, ErrorCodes.NOT_FOUND);
+  }
+
+  @Test
+  void testReceiveQueueDeclareInvalidExclusivityAttribute() {
+    openChannel();
+
+    AMQFrame frame = sendQueueDeclare(TEST_QUEUE, false, null, "invalid");
+
+    assertIsConnectionCloseFrame(frame, ErrorCodes.INVALID_ARGUMENT);
+  }
+
+  @Test
+  void testReceiveQueueDeclareInvalidLifetimePolicyAttribute() {
+    openChannel();
+
+    AMQFrame frame = sendQueueDeclare(TEST_QUEUE, false, "invalid", null);
+
+    assertIsConnectionCloseFrame(frame, ErrorCodes.INVALID_ARGUMENT);
+  }
+
+  @Test
+  void testReceiveQueueDeclareAlreadyExists() {
+    openChannel();
+    sendQueueDeclare();
+
+    AMQFrame frame = sendQueueDeclare();
+
+    assertIsQueueDeclareOk(frame);
+  }
+
+  @Test
+  void testReceiveQueueDeclareAlreadyExistsDifferentExclusivity() {
+    openChannel();
+    sendQueueDeclare();
+
+    QueueDeclareBody queueDeclareBody =
+        new QueueDeclareBody(
+            0,
+            AMQShortString.createAMQShortString(TEST_QUEUE),
+            false,
+            true,
+            true,
+            false,
+            false,
+            FieldTable.convertToFieldTable(Collections.emptyMap()));
+    AMQFrame frame = exchangeData(queueDeclareBody.generateFrame(CHANNEL_ID));
+
+    assertIsChannelCloseFrame(frame, ErrorCodes.ALREADY_EXISTS);
+  }
+
+  @Test
+  void testReceiveQueueDeclareAlreadyExistsDifferentLifetime() {
+    openChannel();
+    sendQueueDeclare();
+
+    QueueDeclareBody queueDeclareBody =
+        new QueueDeclareBody(
+            0,
+            AMQShortString.createAMQShortString(TEST_QUEUE),
+            false,
+            true,
+            false,
+            true,
+            false,
+            FieldTable.convertToFieldTable(Collections.emptyMap()));
+    AMQFrame frame = exchangeData(queueDeclareBody.generateFrame(CHANNEL_ID));
+
+    assertIsChannelCloseFrame(frame, ErrorCodes.ALREADY_EXISTS);
   }
 
   @Test
@@ -295,7 +411,9 @@ public class AMQChannelTest extends AbstractBaseTest {
   }
 
   @Test
-  void testReceiveMessagePulsarClientError() {
+  void testReceiveMessagePulsarClientError() throws Exception {
+    when(gatewayService.getPulsarClient()).thenThrow(PulsarClientException.class);
+
     openChannel();
     sendBasicPublish();
     sendMessageHeader(TEST_MESSAGE.length);
@@ -307,15 +425,8 @@ public class AMQChannelTest extends AbstractBaseTest {
 
   @Test
   void testReceiveMessageSuccess() throws Exception {
-    PulsarClient pulsarClient = mock(PulsarClient.class);
-    ProducerBuilder producerBuilder = mock(ProducerBuilder.class);
-    ProducerBase producer = mock(ProducerBase.class);
     TypedMessageBuilder messageBuilder = mock(TypedMessageBuilder.class);
 
-    when(pulsarClient.newProducer()).thenReturn(producerBuilder);
-    when(producerBuilder.topic(anyString())).thenReturn(producerBuilder);
-    when(producerBuilder.create()).thenReturn(producer);
-    doReturn(pulsarClient).when(gatewayService).getPulsarClient();
     when(producer.newMessage()).thenReturn(messageBuilder);
     when(messageBuilder.sendAsync())
         .thenReturn(CompletableFuture.completedFuture(new MessageIdImpl(1, 2, 3)));
@@ -344,16 +455,9 @@ public class AMQChannelTest extends AbstractBaseTest {
   }
 
   @Test
-  void testReceiveMessageConfirm() throws Exception {
-    PulsarClient pulsarClient = mock(PulsarClient.class);
-    ProducerBuilder producerBuilder = mock(ProducerBuilder.class);
-    Producer producer = mock(Producer.class);
+  void testReceiveMessageConfirm() {
     TypedMessageBuilder messageBuilder = mock(TypedMessageBuilder.class);
 
-    when(pulsarClient.newProducer()).thenReturn(producerBuilder);
-    when(producerBuilder.topic(anyString())).thenReturn(producerBuilder);
-    when(producerBuilder.create()).thenReturn(producer);
-    doReturn(pulsarClient).when(gatewayService).getPulsarClient();
     when(producer.newMessage()).thenReturn(messageBuilder);
     when(messageBuilder.sendAsync())
         .thenReturn(CompletableFuture.completedFuture(new MessageIdImpl(1, 2, 3)));
@@ -382,6 +486,51 @@ public class AMQChannelTest extends AbstractBaseTest {
     assertEquals(2, basicAckBody.getDeliveryTag());
   }
 
+  @Test
+  void testReceiveBasicGet() {
+    openChannel();
+    MessageImpl message = mock(MessageImpl.class);
+    when(message.getData()).thenReturn(TEST_MESSAGE);
+    when(message.getTopicName()).thenReturn(TEST_EXCHANGE + "$$" + TEST_QUEUE);
+    when(message.getProperty("amqp-immediate")).thenReturn("true");
+    when(message.getProperty("amqp-mandatory")).thenReturn("true");
+
+    BasicContentHeaderProperties props = new BasicContentHeaderProperties();
+    props.setContentType("application/json");
+    ContentHeaderBody contentHeader = new ContentHeaderBody(props, TEST_MESSAGE.length);
+    byte[] bytes = new byte[contentHeader.getSize()];
+    QpidByteBuffer buf = QpidByteBuffer.wrap(bytes);
+    contentHeader.writePayload(buf);
+    String headers = java.util.Base64.getEncoder().encodeToString(bytes);
+    when(message.getProperty("amqp-headers")).thenReturn(headers);
+    when(consumer.receiveAsync()).thenReturn(CompletableFuture.completedFuture(message));
+
+    sendQueueDeclare();
+
+    BasicGetBody basicGetBody =
+        new BasicGetBody(0, AMQShortString.createAMQShortString(TEST_QUEUE), true);
+    ByteBuf byteBuf = ByteBufAllocator.DEFAULT.buffer();
+    basicGetBody.generateFrame(CHANNEL_ID).writePayload(new NettyByteBufferSender(byteBuf));
+    channel.writeInbound(byteBuf);
+    ProtocolOutputConverter.CompositeAMQBodyBlock compositeAMQBodyBlock = channel.readOutbound();
+
+    assertNotNull(compositeAMQBodyBlock);
+    assertTrue(compositeAMQBodyBlock.getMethodBody() instanceof BasicGetOkBody);
+    BasicGetOkBody basicGetOkBody = (BasicGetOkBody) compositeAMQBodyBlock.getMethodBody();
+    assertEquals(TEST_EXCHANGE, basicGetOkBody.getExchange().toString());
+    assertEquals(TEST_QUEUE, basicGetOkBody.getRoutingKey().toString());
+
+    assertTrue(compositeAMQBodyBlock.getHeaderBody() instanceof ContentHeaderBody);
+    ContentHeaderBody contentHeaderBody = (ContentHeaderBody) compositeAMQBodyBlock.getHeaderBody();
+    assertEquals(TEST_MESSAGE.length, contentHeaderBody.getBodySize());
+    assertEquals("application/json", contentHeaderBody.getProperties().getContentTypeAsString());
+
+    AMQBody contentBody = compositeAMQBodyBlock.getContentBody();
+    byteBuf = Unpooled.buffer(contentBody.getSize());
+    contentBody.writePayload(new NettyByteBufferSender(byteBuf));
+    assertArrayEquals(TEST_MESSAGE, byteBuf.array());
+  }
+
   private void openChannel() {
     openConnection();
     sendChannelOpen();
@@ -405,6 +554,36 @@ public class AMQChannelTest extends AbstractBaseTest {
             false,
             FieldTable.convertToFieldTable(Collections.emptyMap()));
     return exchangeData(exchangeDeclareBody.generateFrame(CHANNEL_ID));
+  }
+
+  private AMQFrame sendQueueDeclare() {
+    return sendQueueDeclare(TEST_QUEUE, false);
+  }
+
+  private AMQFrame sendQueueDeclare(String queue, boolean passive) {
+    return sendQueueDeclare(queue, passive, null, null);
+  }
+
+  private AMQFrame sendQueueDeclare(
+      String queue, boolean passive, String lifetimePolicy, String exclusivityPolicy) {
+    HashMap<String, Object> attributes = new HashMap<>();
+    if (lifetimePolicy != null) {
+      attributes.put(Queue.LIFETIME_POLICY, lifetimePolicy);
+    }
+    if (exclusivityPolicy != null) {
+      attributes.put(Queue.EXCLUSIVE, exclusivityPolicy);
+    }
+    QueueDeclareBody queueDeclareBody =
+        new QueueDeclareBody(
+            0,
+            AMQShortString.createAMQShortString(queue),
+            passive,
+            true,
+            false,
+            false,
+            false,
+            FieldTable.convertToFieldTable(attributes));
+    return exchangeData(queueDeclareBody.generateFrame(CHANNEL_ID));
   }
 
   private AMQFrame sendExchangeDelete(String exchange, boolean ifUnused) {
@@ -435,6 +614,7 @@ public class AMQChannelTest extends AbstractBaseTest {
   }
 
   private void assertIsChannelCloseFrame(AMQFrame frame, int errorCode) {
+    assertNotNull(frame);
     assertEquals(CHANNEL_ID, frame.getChannel());
     assertTrue(frame.getBodyFrame() instanceof ChannelCloseBody);
     ChannelCloseBody channelCloseBody = (ChannelCloseBody) frame.getBodyFrame();
@@ -442,7 +622,16 @@ public class AMQChannelTest extends AbstractBaseTest {
   }
 
   private void assertIsExchangeDeclareOk(AMQFrame frame) {
+    assertNotNull(frame);
     assertEquals(CHANNEL_ID, frame.getChannel());
     assertTrue(frame.getBodyFrame() instanceof ExchangeDeclareOkBody);
+  }
+
+  private void assertIsQueueDeclareOk(AMQFrame frame) {
+    assertNotNull(frame);
+    assertEquals(CHANNEL_ID, frame.getChannel());
+    assertTrue(frame.getBodyFrame() instanceof QueueDeclareOkBody);
+    QueueDeclareOkBody queueDeclareOkBody = (QueueDeclareOkBody) frame.getBodyFrame();
+    assertEquals(TEST_QUEUE, queueDeclareOkBody.getQueue().toString());
   }
 }

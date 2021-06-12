@@ -86,6 +86,7 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
   private ChannelHandlerContext ctx;
   private SocketAddress remoteAddress;
   private String namespace;
+  private VirtualHost vhost;
 
   // Variables copied from Qpid's AMQPConnection_0_8Impl
   private ServerDecoder _decoder;
@@ -94,6 +95,7 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
   private volatile MethodRegistry _methodRegistry;
   private volatile ConnectionState _state = ConnectionState.INIT;
   private final ConcurrentLongHashMap<AMQChannel> _channelMap = new ConcurrentLongHashMap<>();
+  private final ProtocolOutputConverter _protocolOutputConverter;
   private volatile int _maxFrameSize;
   private final AtomicBoolean _orderlyClose = new AtomicBoolean(false);
   private final Map<Integer, Long> _closingChannelsList = new ConcurrentHashMap<>();
@@ -108,6 +110,7 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
   public GatewayConnection(GatewayService gatewayService) {
     this.gatewayService = gatewayService;
     this._networkBufferSize = gatewayService.getConfig().getAmqpNetworkBufferSize();
+    this._protocolOutputConverter = new ProtocolOutputConverter(this);
   }
 
   @Override
@@ -377,6 +380,7 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
 
     // TODO: can vhosts have / in their name ? in that case they could be mapped to tenant+namespace
     this.namespace = "public/" + (StringUtils.isEmpty(virtualHostStr) ? "default" : virtualHostStr);
+    this.vhost = this.getGatewayService().getOrCreateVhost(namespace);
     // TODO: check or create namespace with the admin client ?
     MethodRegistry methodRegistry = getMethodRegistry();
     AMQMethodBody responseBody = methodRegistry.createConnectionOpenOkBody(virtualHostName);
@@ -719,12 +723,24 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
     }
   }
 
+  public boolean isCompressionSupported() {
+    return true;
+  }
+
   public MethodRegistry getMethodRegistry() {
     return _methodRegistry;
   }
 
+  public ProtocolOutputConverter getProtocolOutputConverter() {
+    return _protocolOutputConverter;
+  }
+
   public String getNamespace() {
     return namespace;
+  }
+
+  public VirtualHost getVhost() {
+    return vhost;
   }
 
   public GatewayService getGatewayService() {

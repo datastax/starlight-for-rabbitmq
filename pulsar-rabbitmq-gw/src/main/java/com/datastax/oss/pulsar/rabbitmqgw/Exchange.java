@@ -15,6 +15,14 @@
  */
 package com.datastax.oss.pulsar.rabbitmqgw;
 
+import static org.apache.commons.lang3.StringUtils.isBlank;
+import static org.apache.commons.lang3.StringUtils.isNotBlank;
+
+import java.util.HashMap;
+import java.util.Map;
+import org.apache.pulsar.client.api.PulsarClientException;
+import org.apache.pulsar.common.naming.NamespaceName;
+import org.apache.pulsar.common.naming.TopicName;
 import org.apache.qpid.server.model.LifetimePolicy;
 
 public class Exchange {
@@ -30,6 +38,7 @@ public class Exchange {
   private final Type type;
   private final boolean durable;
   private final LifetimePolicy lifetimePolicy;
+  private final Map<String, Binding> bindings = new HashMap<>();
 
   public Exchange(String name, Type type, boolean durable, LifetimePolicy lifetimePolicy) {
     this.name = name;
@@ -47,6 +56,28 @@ public class Exchange {
   }
 
   public boolean hasBindings() {
-    return false;
+    return bindings.size() != 0;
+  }
+
+  public static TopicName getTopicName(String vHost, String exchangeName, String routingKey) {
+    StringBuilder topic = new StringBuilder(isBlank(exchangeName) ? "amq.default" : exchangeName);
+    if (isNotBlank(routingKey)) {
+      topic.append("$$").append(routingKey);
+    }
+    return TopicName.get("persistent", NamespaceName.get(vHost), topic.toString());
+  }
+
+  public void bind(Queue queue, String routingKey, GatewayConnection connection)
+      throws PulsarClientException {
+    String vHost = connection.getNamespace();
+
+    if (!bindings.containsKey(queue.getName())) {
+      bindings.put(
+          queue.getName(),
+          new Binding(vHost, this, queue, connection.getGatewayService().getPulsarClient()));
+    }
+    Binding binding = bindings.get(queue.getName());
+    binding.addKey(routingKey);
+    queue.addBinding(binding);
   }
 }

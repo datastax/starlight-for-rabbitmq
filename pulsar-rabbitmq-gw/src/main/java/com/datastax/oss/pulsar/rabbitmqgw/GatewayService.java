@@ -26,6 +26,7 @@ import io.netty.channel.EventLoopGroup;
 import io.netty.util.concurrent.DefaultThreadFactory;
 import java.io.Closeable;
 import java.io.IOException;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import org.apache.pulsar.client.api.ClientBuilder;
 import org.apache.pulsar.client.api.PulsarClient;
@@ -53,6 +54,8 @@ public class GatewayService implements Closeable {
       new DefaultThreadFactory("pulsar-rabbitmqgw-io");
 
   private static final int numThreads = Runtime.getRuntime().availableProcessors();
+
+  private final ConcurrentHashMap<String, VirtualHost> vhosts = new ConcurrentHashMap<>();
 
   public GatewayService(GatewayConfiguration config) {
     checkNotNull(config);
@@ -140,6 +143,10 @@ public class GatewayService implements Closeable {
 
   public GatewayConfiguration getConfig() {
     return config;
+  }
+
+  public VirtualHost getOrCreateVhost(String namespace) {
+    return vhosts.computeIfAbsent(namespace, VirtualHost::new);
   }
 
   private static final Logger LOG = LoggerFactory.getLogger(GatewayService.class);
