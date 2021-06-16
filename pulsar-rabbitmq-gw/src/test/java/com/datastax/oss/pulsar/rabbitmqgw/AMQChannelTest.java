@@ -27,7 +27,6 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import io.netty.buffer.ByteBuf;
-import io.netty.buffer.ByteBufAllocator;
 import io.netty.buffer.Unpooled;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
@@ -51,6 +50,7 @@ import org.apache.qpid.server.protocol.v0_8.transport.AMQFrame;
 import org.apache.qpid.server.protocol.v0_8.transport.BasicAckBody;
 import org.apache.qpid.server.protocol.v0_8.transport.BasicContentHeaderProperties;
 import org.apache.qpid.server.protocol.v0_8.transport.BasicGetBody;
+import org.apache.qpid.server.protocol.v0_8.transport.BasicGetEmptyBody;
 import org.apache.qpid.server.protocol.v0_8.transport.BasicGetOkBody;
 import org.apache.qpid.server.protocol.v0_8.transport.BasicPublishBody;
 import org.apache.qpid.server.protocol.v0_8.transport.ChannelCloseBody;
@@ -443,7 +443,8 @@ public class AMQChannelTest extends AbstractBaseTest {
 
     assertNull(frame);
     ArgumentCaptor<String> captor = ArgumentCaptor.forClass(String.class);
-    verify(messageBuilder).property(eq("amqp-headers"), captor.capture());
+    verify(messageBuilder)
+        .property(eq(MessageUtils.MESSAGE_PROPERTY_AMQP_HEADERS), captor.capture());
     byte[] bytes = Base64.decodeBase64(captor.getValue());
     ContentHeaderBody contentHeaderBody =
         new ContentHeaderBody(QpidByteBuffer.wrap(bytes), bytes.length);
@@ -492,8 +493,7 @@ public class AMQChannelTest extends AbstractBaseTest {
     MessageImpl message = mock(MessageImpl.class);
     when(message.getData()).thenReturn(TEST_MESSAGE);
     when(message.getTopicName()).thenReturn(TEST_EXCHANGE + "$$" + TEST_QUEUE);
-    when(message.getProperty("amqp-immediate")).thenReturn("true");
-    when(message.getProperty("amqp-mandatory")).thenReturn("true");
+    when(message.getRedeliveryCount()).thenReturn(2);
 
     BasicContentHeaderProperties props = new BasicContentHeaderProperties();
     props.setContentType("application/json");
@@ -502,23 +502,29 @@ public class AMQChannelTest extends AbstractBaseTest {
     QpidByteBuffer buf = QpidByteBuffer.wrap(bytes);
     contentHeader.writePayload(buf);
     String headers = java.util.Base64.getEncoder().encodeToString(bytes);
-    when(message.getProperty("amqp-headers")).thenReturn(headers);
-    when(consumer.receiveAsync()).thenReturn(CompletableFuture.completedFuture(message));
+    when(message.getProperty(MessageUtils.MESSAGE_PROPERTY_AMQP_HEADERS)).thenReturn(headers);
+
+    MessageImpl message2 = mock(MessageImpl.class);
+    when(message2.getData()).thenReturn(TEST_MESSAGE);
+    when(message2.getTopicName()).thenReturn(TEST_EXCHANGE + "$$" + TEST_QUEUE);
+    when(message2.getRedeliveryCount()).thenReturn(0);
+
+    when(consumer.receiveAsync())
+        .thenReturn(
+            CompletableFuture.completedFuture(message),
+            CompletableFuture.completedFuture(message2));
 
     sendQueueDeclare();
 
-    BasicGetBody basicGetBody =
-        new BasicGetBody(0, AMQShortString.createAMQShortString(TEST_QUEUE), true);
-    ByteBuf byteBuf = ByteBufAllocator.DEFAULT.buffer();
-    basicGetBody.generateFrame(CHANNEL_ID).writePayload(new NettyByteBufferSender(byteBuf));
-    channel.writeInbound(byteBuf);
-    ProtocolOutputConverter.CompositeAMQBodyBlock compositeAMQBodyBlock = channel.readOutbound();
+    ProtocolOutputConverter.CompositeAMQBodyBlock compositeAMQBodyBlock = sendBasicGet();
 
     assertNotNull(compositeAMQBodyBlock);
     assertTrue(compositeAMQBodyBlock.getMethodBody() instanceof BasicGetOkBody);
     BasicGetOkBody basicGetOkBody = (BasicGetOkBody) compositeAMQBodyBlock.getMethodBody();
     assertEquals(TEST_EXCHANGE, basicGetOkBody.getExchange().toString());
     assertEquals(TEST_QUEUE, basicGetOkBody.getRoutingKey().toString());
+    assertEquals(1, basicGetOkBody.getDeliveryTag());
+    assertTrue(basicGetOkBody.getRedelivered());
 
     assertTrue(compositeAMQBodyBlock.getHeaderBody() instanceof ContentHeaderBody);
     ContentHeaderBody contentHeaderBody = (ContentHeaderBody) compositeAMQBodyBlock.getHeaderBody();
@@ -526,14 +532,77 @@ public class AMQChannelTest extends AbstractBaseTest {
     assertEquals("application/json", contentHeaderBody.getProperties().getContentTypeAsString());
 
     AMQBody contentBody = compositeAMQBodyBlock.getContentBody();
-    byteBuf = Unpooled.buffer(contentBody.getSize());
+    ByteBuf byteBuf = Unpooled.buffer(contentBody.getSize());
     contentBody.writePayload(new NettyByteBufferSender(byteBuf));
     assertArrayEquals(TEST_MESSAGE, byteBuf.array());
+
+    compositeAMQBodyBlock = sendBasicGet();
+    assertNotNull(compositeAMQBodyBlock);
+    assertTrue(compositeAMQBodyBlock.getMethodBody() instanceof BasicGetOkBody);
+    basicGetOkBody = (BasicGetOkBody) compositeAMQBodyBlock.getMethodBody();
+    assertEquals(2, basicGetOkBody.getDeliveryTag());
+    assertFalse(basicGetOkBody.getRedelivered());
+  }
+
+  @Test
+  void testReceiveBasicGetEmpty() {
+    openChannel();
+    when(consumer.receiveAsync()).thenReturn(new CompletableFuture<>());
+    sendQueueDeclare();
+
+    AMQFrame frame = sendBasicGet();
+
+    assertNotNull(frame);
+    assertEquals(CHANNEL_ID, frame.getChannel());
+    assertTrue(frame.getBodyFrame() instanceof BasicGetEmptyBody);
+  }
+
+  @Test
+  void testReceiveBasicGetQueueNotFound() {
+    openChannel();
+
+    AMQFrame frame = sendBasicGet();
+
+    assertIsConnectionCloseFrame(frame, ErrorCodes.NOT_FOUND);
+  }
+
+  @Test
+  void testReceiveBasicGetQueueNameMissing() {
+    openChannel();
+
+    AMQFrame frame = sendBasicGet("");
+
+    assertIsConnectionCloseFrame(frame, ErrorCodes.NOT_ALLOWED);
+  }
+
+  @Test
+  void testReceiveBasicGetDefaultQueue() {
+    openChannel();
+    MessageImpl message = mock(MessageImpl.class);
+    when(message.getData()).thenReturn(TEST_MESSAGE);
+    when(message.getTopicName()).thenReturn(TEST_EXCHANGE + "$$" + TEST_QUEUE);
+    when(message.getRedeliveryCount()).thenReturn(0);
+    when(consumer.receiveAsync()).thenReturn(CompletableFuture.completedFuture(message));
+    sendQueueDeclare();
+
+    ProtocolOutputConverter.CompositeAMQBodyBlock compositeAMQBodyBlock = sendBasicGet("");
+
+    assertNotNull(compositeAMQBodyBlock);
   }
 
   private void openChannel() {
     openConnection();
     sendChannelOpen();
+  }
+
+  private <T> T sendBasicGet() {
+    return sendBasicGet(TEST_QUEUE);
+  }
+
+  private <T> T sendBasicGet(String queueName) {
+    BasicGetBody basicGetBody =
+        new BasicGetBody(0, AMQShortString.createAMQShortString(queueName), true);
+    return exchangeData(basicGetBody.generateFrame(CHANNEL_ID));
   }
 
   private AMQFrame sendChannelClose() {

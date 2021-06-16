@@ -49,15 +49,16 @@ public class Binding {
     return exchange;
   }
 
-  public CompletableFuture<Message<byte[]>> receiveMessageAsync() {
-    CompletableFuture<Message<byte[]>> messageCompletableFuture = pulsarConsumer.receiveAsync();
+  public CompletableFuture<Binding> receiveMessageAsync() {
     message =
-        messageCompletableFuture.thenApply(
-            message1 -> {
-              lastReceivedmessageId = message1.getMessageId();
-              return message1;
-            });
-    return message;
+        pulsarConsumer
+            .receiveAsync()
+            .thenApply(
+                msg -> {
+                  lastReceivedmessageId = msg.getMessageId();
+                  return msg;
+                });
+    return message.thenApply(it -> this);
   }
 
   public void addKey(String routingKey) throws PulsarClientException {
@@ -76,16 +77,19 @@ public class Binding {
         pulsarClient
             .newConsumer()
             .topics(topics)
-            // TODO: set subscription name
             .subscriptionName(exchange.getName() + "-" + queue.getName() + "-" + UUID.randomUUID())
             .subscribe();
     if (lastReceivedmessageId != null) {
       pulsarConsumer.seek(lastReceivedmessageId);
     }
-    receiveMessageAsync().thenRun(queue::deliverMessageIfAvailable);
+    receiveMessageAsync().thenAccept(queue::deliverMessage);
   }
 
   public CompletableFuture<Message<byte[]>> getReceive() {
     return message;
+  }
+
+  public CompletableFuture<Void> ackMessage(Message<byte[]> message) {
+    return pulsarConsumer.acknowledgeAsync(message);
   }
 }

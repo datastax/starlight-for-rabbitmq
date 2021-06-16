@@ -43,9 +43,9 @@ public class QueueTest extends AbstractBaseTest {
             CompletableFuture.completedFuture(message2));
     exchange.bind(queue, queue.getName(), connection);
 
-    Message<byte[]> msg = queue.receiveAsync().get();
+    Message<byte[]> msg = queue.receiveAsync(true).get();
     assertEquals(message1, msg);
-    msg = queue.receiveAsync().get();
+    msg = queue.receiveAsync(true).get();
     assertEquals(message2, msg);
   }
 }

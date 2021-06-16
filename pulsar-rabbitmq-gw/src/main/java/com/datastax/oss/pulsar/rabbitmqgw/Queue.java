@@ -35,8 +35,9 @@ public class Queue {
   private final Map<String, Binding> bindings = new ConcurrentHashMap<>();
   private final Set<String> exchangesToPoll = new HashSet<>();
   private Iterator<String> currentExchange;
-  private final ConcurrentLinkedQueue<CompletableFuture<Message<byte[]>>> messageRequests =
+  private final ConcurrentLinkedQueue<MessageRequest> messageRequests =
       new ConcurrentLinkedQueue<>();
+  private final ConcurrentLinkedQueue<Binding> pendingBindings = new ConcurrentLinkedQueue<>();
 
   public Queue(String name, LifetimePolicy lifetimePolicy, ExclusivityPolicy exclusivityPolicy) {
     this.name = name;
@@ -71,35 +72,86 @@ public class Queue {
     return lifetimePolicy;
   }
 
-  public CompletableFuture<Message<byte[]>> receiveAsync() {
-    CompletableFuture<Message<byte[]>> messageRequest = new CompletableFuture<>();
+  public CompletableFuture<Message<byte[]>> receiveAsync(boolean autoAck) {
+    MessageRequest messageRequest = new MessageRequest(autoAck);
     messageRequests.add(messageRequest);
     deliverMessageIfAvailable();
-    return messageRequest;
+    return messageRequest.getMessage();
+  }
+
+  public Message<byte[]> receive(boolean autoAck) {
+    Binding binding = getReadyBinding();
+    if (binding != null) {
+      Message<byte[]> message = null;
+      try {
+        message = binding.getReceive().get();
+      } catch (Exception e) {
+        // TODO: should not happen. Close connection ?
+      }
+      if (autoAck) {
+        binding.ackMessage(message);
+      }
+      binding.receiveMessageAsync().thenAcceptAsync(this::deliverMessage);
+      return message;
+    }
+    return null;
+  }
+
+  public Binding getReadyBinding() {
+    return pendingBindings.poll();
   }
 
   public void deliverMessageIfAvailable() {
-    if (exchangesToPoll.size() == 0) {
-      return;
-    }
-    if (currentExchange == null || !currentExchange.hasNext()) {
-      currentExchange = exchangesToPoll.iterator();
-    }
-    String s = currentExchange.next();
-    Binding binding = bindings.get(s);
-    CompletableFuture<Message<byte[]>> receive = binding.getReceive();
-    if (receive.isDone()) {
-      CompletableFuture<Message<byte[]>> request = messageRequests.poll();
+    Binding binding = getReadyBinding();
+    if (binding != null) {
+      MessageRequest request = messageRequests.poll();
       if (request != null) {
-        Message<byte[]> message = null;
-        try {
-          message = receive.get();
-        } catch (Exception e) {
-          // TODO: close connection ?
-        }
-        binding.receiveMessageAsync().thenRunAsync(this::deliverMessageIfAvailable);
-        request.complete(message);
+        binding
+            .getReceive()
+            .thenAccept(
+                message -> {
+                  request.getMessage().complete(message);
+                  if (request.isAutoAck()) {
+                    binding.ackMessage(message);
+                  }
+                  binding.receiveMessageAsync().thenAcceptAsync(this::deliverMessage);
+                });
       }
+    }
+  }
+
+  public void deliverMessage(Binding binding) {
+    MessageRequest request = messageRequests.poll();
+    if (request != null) {
+      binding
+          .getReceive()
+          .thenAccept(
+              message -> {
+                request.getMessage().complete(message);
+                if (request.isAutoAck()) {
+                  binding.ackMessage(message);
+                }
+                binding.receiveMessageAsync().thenAcceptAsync(this::deliverMessage);
+              });
+    } else {
+      pendingBindings.add(binding);
+    }
+  }
+
+  public static class MessageRequest {
+    private final CompletableFuture<Message<byte[]>> message = new CompletableFuture<>();
+    private final boolean autoAck;
+
+    public MessageRequest(boolean autoAck) {
+      this.autoAck = autoAck;
+    }
+
+    public CompletableFuture<Message<byte[]>> getMessage() {
+      return message;
+    }
+
+    public boolean isAutoAck() {
+      return autoAck;
     }
   }
 }

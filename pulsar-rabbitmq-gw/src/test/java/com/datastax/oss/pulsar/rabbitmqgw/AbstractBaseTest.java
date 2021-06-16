@@ -19,7 +19,7 @@ import static org.apache.qpid.server.protocol.v0_8.transport.ConnectionCloseOkBo
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.Matchers.anyList;
+import static org.mockito.Matchers.anyListOf;
 import static org.mockito.Matchers.anyString;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
@@ -77,7 +77,7 @@ public class AbstractBaseTest {
 
     ConsumerBuilder consumerBuilder = mock(ConsumerBuilder.class);
     when(pulsarClient.newConsumer()).thenReturn(consumerBuilder);
-    when(consumerBuilder.topics(anyList())).thenReturn(consumerBuilder);
+    when(consumerBuilder.topics(anyListOf(String.class))).thenReturn(consumerBuilder);
     when(consumerBuilder.subscriptionName(anyString())).thenReturn(consumerBuilder);
     when(consumerBuilder.subscribe()).thenReturn(consumer);
 
@@ -86,7 +86,7 @@ public class AbstractBaseTest {
     doReturn(pulsarClient).when(gatewayService).getPulsarClient();
   }
 
-  protected AMQFrame exchangeData(AMQDataBlock data) {
+  protected <T> T exchangeData(AMQDataBlock data) {
     ByteBuf byteBuf = ByteBufAllocator.DEFAULT.buffer();
     data.writePayload(new NettyByteBufferSender(byteBuf));
     channel.writeInbound(byteBuf);

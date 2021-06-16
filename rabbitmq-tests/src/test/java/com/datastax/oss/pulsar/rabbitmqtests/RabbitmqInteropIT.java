@@ -32,7 +32,9 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.Optional;
 import java.util.concurrent.TimeUnit;
+import org.apache.bookkeeper.util.PortManager;
 import org.apache.commons.codec.binary.Base64;
 import org.apache.pulsar.client.api.Consumer;
 import org.apache.pulsar.client.api.Message;
@@ -51,11 +53,23 @@ public class RabbitmqInteropIT {
   public static final String TEST_MESSAGE = "test-message";
   @TempDir public static Path tempDir;
   private static PulsarCluster cluster;
+  private static GatewayService gatewayService;
+  private static ConnectionFactory factory;
 
   @BeforeAll
   public static void before() throws Exception {
     cluster = new PulsarCluster(tempDir);
     cluster.start();
+    GatewayConfiguration config = new GatewayConfiguration();
+    config.setBrokerServiceURL(cluster.getAddress());
+    config.setServicePort(Optional.of(PortManager.nextFreePort()));
+    gatewayService = new GatewayService(config);
+    gatewayService.start();
+
+    factory = new ConnectionFactory();
+    factory.setVirtualHost("/");
+    factory.setHost("localhost");
+    factory.setPort(config.getServicePort().get());
   }
 
   @AfterAll
@@ -63,20 +77,13 @@ public class RabbitmqInteropIT {
     if (cluster != null) {
       cluster.close();
     }
+    if (gatewayService != null) {
+      gatewayService.close();
+    }
   }
 
   @Test
   void testRabbitProducerPulsarConsumer() throws Exception {
-    GatewayConfiguration config = new GatewayConfiguration();
-    config.setBrokerServiceURL(cluster.getAddress());
-    GatewayService gatewayService = new GatewayService(config);
-    gatewayService.start();
-
-    ConnectionFactory factory = new ConnectionFactory();
-    factory.setVirtualHost("/");
-    factory.setHost("localhost");
-    factory.setPort(config.getServicePort().get());
-
     Connection conn = factory.newConnection();
     Channel channel = conn.createChannel();
 
@@ -113,23 +120,11 @@ public class RabbitmqInteropIT {
     consumer.close();
     channel.close();
     conn.close();
-    gatewayService.close();
   }
 
   @Test
   void testPulsarProducerRabbitConsumer() throws Exception {
-    GatewayConfiguration config = new GatewayConfiguration();
-    config.setBrokerServiceURL(cluster.getAddress());
-    GatewayService gatewayService = new GatewayService(config);
-    gatewayService.start();
-
-    ConnectionFactory factory = new ConnectionFactory();
-    factory.setVirtualHost("/");
-    factory.setHost("localhost");
-    factory.setPort(config.getServicePort().get());
-
     Connection conn = factory.newConnection();
-
     Channel channel = conn.createChannel();
 
     PulsarClient pulsarClient = PulsarClient.builder().serviceUrl(cluster.getAddress()).build();
@@ -138,7 +133,13 @@ public class RabbitmqInteropIT {
 
     channel.queueDeclare("test-queue", true, false, false, new HashMap<>());
     producer.send(TEST_MESSAGE);
-    GetResponse getResponse = channel.basicGet("test-queue", false);
+
+    GetResponse getResponse = null;
+    for (int i = 0; i < 100 && getResponse == null; i++) {
+      getResponse = channel.basicGet("test-queue", false);
+      Thread.sleep(10);
+    }
+    assertNotNull(getResponse);
     assertEquals("amq.default", getResponse.getEnvelope().getExchange());
     assertEquals("test-queue", getResponse.getEnvelope().getRoutingKey());
     assertArrayEquals(TEST_MESSAGE.getBytes(StandardCharsets.UTF_8), getResponse.getBody());
@@ -146,21 +147,10 @@ public class RabbitmqInteropIT {
     producer.close();
     channel.close();
     conn.close();
-    gatewayService.close();
   }
 
   @Test
   void testRabbitProducerRabbitConsumer() throws Exception {
-    GatewayConfiguration config = new GatewayConfiguration();
-    config.setBrokerServiceURL(cluster.getAddress());
-    GatewayService gatewayService = new GatewayService(config);
-    gatewayService.start();
-
-    ConnectionFactory factory = new ConnectionFactory();
-    factory.setVirtualHost("/");
-    factory.setHost("localhost");
-    factory.setPort(config.getServicePort().get());
-
     Connection conn1 = factory.newConnection();
     Channel channel1 = conn1.createChannel();
 
@@ -171,23 +161,29 @@ public class RabbitmqInteropIT {
 
     Date now = new Date();
     AMQP.BasicProperties properties =
-            new AMQP.BasicProperties.Builder()
-                    .contentType("application/octet-stream")
-                    .timestamp(now)
-                    .build();
-    channel2.basicPublish("", "test-queue", properties, TEST_MESSAGE.getBytes(StandardCharsets.UTF_8));
+        new AMQP.BasicProperties.Builder()
+            .contentType("application/octet-stream")
+            .timestamp(now)
+            .build();
+    channel2.basicPublish(
+        "", "test-queue", properties, TEST_MESSAGE.getBytes(StandardCharsets.UTF_8));
 
-    GetResponse getResponse = channel1.basicGet("test-queue", false);
+    GetResponse getResponse = null;
+    for (int i = 0; i < 100 && getResponse == null; i++) {
+      getResponse = channel1.basicGet("test-queue", false);
+      Thread.sleep(10);
+    }
+
+    assertNotNull(getResponse);
     assertEquals("amq.default", getResponse.getEnvelope().getExchange());
     assertEquals("test-queue", getResponse.getEnvelope().getRoutingKey());
     assertEquals("application/octet-stream", getResponse.getProps().getContentType());
-    assertEquals(now.getTime()/1000, getResponse.getProps().getTimestamp().getTime()/1000);
+    assertEquals(now.getTime() / 1000, getResponse.getProps().getTimestamp().getTime() / 1000);
     assertArrayEquals(TEST_MESSAGE.getBytes(StandardCharsets.UTF_8), getResponse.getBody());
 
     channel1.close();
     conn1.close();
     channel2.close();
     conn2.close();
-    gatewayService.close();
   }
 }

@@ -18,12 +18,12 @@ package com.datastax.oss.pulsar.rabbitmqgw;
 import static org.apache.qpid.server.transport.util.Functions.hex;
 
 import java.nio.ByteBuffer;
-import java.security.AccessControlException;
 import java.util.Base64;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
+import org.apache.pulsar.client.api.Message;
 import org.apache.pulsar.client.api.Producer;
 import org.apache.pulsar.client.api.PulsarClientException;
 import org.apache.pulsar.client.api.TypedMessageBuilder;
@@ -35,7 +35,6 @@ import org.apache.qpid.server.logging.messages.ChannelMessages;
 import org.apache.qpid.server.model.ExclusivityPolicy;
 import org.apache.qpid.server.model.LifetimePolicy;
 import org.apache.qpid.server.protocol.ErrorCodes;
-import org.apache.qpid.server.protocol.v0_8.AMQFrameDecodingException;
 import org.apache.qpid.server.protocol.v0_8.AMQShortString;
 import org.apache.qpid.server.protocol.v0_8.FieldTable;
 import org.apache.qpid.server.protocol.v0_8.IncomingMessage;
@@ -43,6 +42,7 @@ import org.apache.qpid.server.protocol.v0_8.transport.AMQFrame;
 import org.apache.qpid.server.protocol.v0_8.transport.AMQMethodBody;
 import org.apache.qpid.server.protocol.v0_8.transport.BasicAckBody;
 import org.apache.qpid.server.protocol.v0_8.transport.BasicContentHeaderProperties;
+import org.apache.qpid.server.protocol.v0_8.transport.BasicGetEmptyBody;
 import org.apache.qpid.server.protocol.v0_8.transport.ConfirmSelectOkBody;
 import org.apache.qpid.server.protocol.v0_8.transport.ContentBody;
 import org.apache.qpid.server.protocol.v0_8.transport.ContentHeaderBody;
@@ -59,6 +59,12 @@ public class AMQChannel implements ServerChannelMethodProcessor {
   private static final Logger LOGGER = LoggerFactory.getLogger(AMQChannel.class);
 
   private final int _channelId;
+  /**
+   * The delivery tag is unique per channel. This is pre-incremented before putting into the deliver
+   * frame so that value of this represents the <b>last</b> tag sent out
+   */
+  private volatile long _deliveryTag = 0;
+
   private Queue _defaultQueue;
   /**
    * The current message - which may be partial in the sense that not all frames have been received
@@ -542,66 +548,28 @@ public class AMQChannel implements ServerChannelMethodProcessor {
       }
     } else {
 
-      try {
-        queue
-            .receiveAsync()
-            .thenAccept(
-                message -> {
-                  // TODO: add isRedelivered and deliveryTag
-                  boolean isRedelivered = false;
-                  long deliveryTag = 0;
-                  ContentBody contentBody = new ContentBody(ByteBuffer.wrap(message.getData()));
-                  String localName = TopicName.get(message.getTopicName()).getLocalName();
-                  String[] split = localName.split("\\$\\$", 2);
-                  String routingKey = "";
-                  String exchange = split[0];
-                  if (split.length > 1) {
-                    routingKey = split[1];
-                  }
-                  MessagePublishInfo info =
-                      new MessagePublishInfo(
-                          AMQShortString.createAMQShortString(exchange),
-                          Boolean.parseBoolean(message.getProperty("immediate")),
-                          Boolean.parseBoolean(message.getProperty("mandatory")),
-                          AMQShortString.createAMQShortString(routingKey));
-                  String headersProperty = message.getProperty("amqp-headers");
-                  ContentHeaderBody contentHeaderBody = null;
-                  if (headersProperty != null) {
-                    try {
-                      byte[] headers = Base64.getDecoder().decode(headersProperty);
-                      QpidByteBuffer buf = QpidByteBuffer.wrap(headers);
-                      contentHeaderBody = ContentHeaderBody.createFromBuffer(buf, headers.length);
-                    } catch (AMQFrameDecodingException | IllegalArgumentException e) {
-                      LOGGER.error("Couldn't decode AMQP headers", e);
-                    }
-                  } else {
-                    contentHeaderBody = new ContentHeaderBody(new BasicContentHeaderProperties());
-                    contentHeaderBody.setBodySize(message.getData().length);
-                  }
-                  _connection
-                      .getProtocolOutputConverter()
-                      .writeGetOk(
-                          info,
-                          contentBody,
-                          contentHeaderBody,
-                          isRedelivered,
-                          _channelId,
-                          deliveryTag,
-                          queue.getQueueDepthMessages());
-                });
-
-        /*if (!performGet(queue, !noAck))
-        {
-          MethodRegistry methodRegistry = _connection.getMethodRegistry();
-
-          BasicGetEmptyBody responseBody = methodRegistry.createBasicGetEmptyBody(null);
-
-          _connection.writeFrame(responseBody.generateFrame(_channelId));
-        }*/
-      } catch (AccessControlException e) {
+      // try {
+      Message<byte[]> message = queue.receive(noAck);
+      if (message != null) {
+        _connection
+            .getProtocolOutputConverter()
+            .writeGetOk(
+                MessageUtils.getMessagePublishInfo(message),
+                new ContentBody(ByteBuffer.wrap(message.getData())),
+                MessageUtils.getContentHeaderBody(message),
+                message.getRedeliveryCount() > 0,
+                _channelId,
+                getNextDeliveryTag(),
+                queue.getQueueDepthMessages());
+      } else {
+        MethodRegistry methodRegistry = _connection.getMethodRegistry();
+        BasicGetEmptyBody responseBody = methodRegistry.createBasicGetEmptyBody(null);
+        _connection.writeFrame(responseBody.generateFrame(_channelId));
+      }
+      /*} catch (AccessControlException e) {
         _connection.sendConnectionClose(ErrorCodes.ACCESS_REFUSED, e.getMessage(), _channelId);
       }
-      /*catch (MessageSource.ExistingExclusiveConsumer e)
+      catch (MessageSource.ExistingExclusiveConsumer e)
       {
         _connection.sendConnectionClose(ErrorCodes.NOT_ALLOWED, "Queue has an exclusive consumer", _channelId);
       }
@@ -788,6 +756,10 @@ public class AMQChannel implements ServerChannelMethodProcessor {
     }
   }
 
+  public long getNextDeliveryTag() {
+    return ++_deliveryTag;
+  }
+
   private void deliverCurrentMessageIfComplete() {
     // check and deliver if header says body length is zero
     if (_currentMessage.allContentReceived()) {
@@ -822,16 +794,21 @@ public class AMQChannel implements ServerChannelMethodProcessor {
       qpidByteBuffer.copyTo(value);
       messageBuilder.value(value);
 
-      messageBuilder.property("amqp-immediate", String.valueOf(info.isImmediate()));
-      messageBuilder.property("amqp-mandatory", String.valueOf(info.isMandatory()));
+      messageBuilder.property(
+          MessageUtils.MESSAGE_PROPERTY_AMQP_IMMEDIATE, String.valueOf(info.isImmediate()));
+      messageBuilder.property(
+          MessageUtils.MESSAGE_PROPERTY_AMQP_MANDATORY, String.valueOf(info.isMandatory()));
 
       ContentHeaderBody contentHeader = _currentMessage.getContentHeader();
       byte[] bytes = new byte[contentHeader.getSize()];
       QpidByteBuffer buf = QpidByteBuffer.wrap(bytes);
       contentHeader.writePayload(buf);
 
-      messageBuilder.property("amqp-headers", Base64.getEncoder().encodeToString(bytes));
-      messageBuilder.eventTime(contentHeader.getProperties().getTimestamp());
+      messageBuilder.property(
+          MessageUtils.MESSAGE_PROPERTY_AMQP_HEADERS, Base64.getEncoder().encodeToString(bytes));
+      if (contentHeader.getProperties().getTimestamp() > 0) {
+        messageBuilder.eventTime(contentHeader.getProperties().getTimestamp());
+      }
 
       messageBuilder
           .sendAsync()

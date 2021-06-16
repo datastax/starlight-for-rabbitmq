@@ -22,8 +22,6 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import io.netty.buffer.ByteBuf;
-import io.netty.buffer.ByteBufAllocator;
 import java.nio.charset.StandardCharsets;
 import org.apache.qpid.server.protocol.ErrorCodes;
 import org.apache.qpid.server.protocol.ProtocolVersion;
@@ -63,11 +61,8 @@ class GatewayConnectionTest extends AbstractBaseTest {
     // Send protocol header for unsupported v1.0
     ProtocolInitiation protocolInitiation =
         new ProtocolInitiation(ProtocolVersion.get((byte) 1, (byte) 0));
-    ByteBuf byteBuf = ByteBufAllocator.DEFAULT.buffer();
-    protocolInitiation.writePayload(new NettyByteBufferSender(byteBuf));
-    channel.writeInbound(byteBuf);
 
-    ProtocolInitiation pi = channel.readOutbound();
+    ProtocolInitiation pi = exchangeData(protocolInitiation);
 
     assertEquals(9, pi.getProtocolMajor());
     assertEquals(1, pi.getProtocolMinor());
