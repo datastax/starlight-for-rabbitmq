@@ -51,20 +51,16 @@ public final class MessageUtils {
   }
 
   public static ContentHeaderBody getContentHeaderBody(Message<byte[]> message) {
-    String headersProperty = message.getProperty(MessageUtils.MESSAGE_PROPERTY_AMQP_HEADERS);
-    ContentHeaderBody contentHeaderBody = null;
-    if (headersProperty != null) {
-      try {
+    try {
+      String headersProperty = message.getProperty(MessageUtils.MESSAGE_PROPERTY_AMQP_HEADERS);
+      if (headersProperty != null) {
         byte[] headers = Base64.getDecoder().decode(headersProperty);
         QpidByteBuffer buf = QpidByteBuffer.wrap(headers);
-        contentHeaderBody = ContentHeaderBody.createFromBuffer(buf, headers.length);
-      } catch (AMQFrameDecodingException | IllegalArgumentException e) {
-        LOGGER.error("Couldn't decode AMQP headers", e);
+        return ContentHeaderBody.createFromBuffer(buf, headers.length);
       }
-    } else {
-      contentHeaderBody = new ContentHeaderBody(new BasicContentHeaderProperties());
-      contentHeaderBody.setBodySize(message.getData().length);
+    } catch (AMQFrameDecodingException | IllegalArgumentException e) {
+      LOGGER.error("Couldn't decode AMQP headers", e);
     }
-    return contentHeaderBody;
+    return new ContentHeaderBody(new BasicContentHeaderProperties(), message.getData().length);
   }
 }

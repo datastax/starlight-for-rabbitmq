@@ -15,8 +15,9 @@
  */
 package com.datastax.oss.pulsar.rabbitmqgw;
 
+import java.util.ArrayList;
 import java.util.HashSet;
-import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
@@ -34,10 +35,11 @@ public class Queue {
 
   private final Map<String, Binding> bindings = new ConcurrentHashMap<>();
   private final Set<String> exchangesToPoll = new HashSet<>();
-  private Iterator<String> currentExchange;
-  private final ConcurrentLinkedQueue<MessageRequest> messageRequests =
-      new ConcurrentLinkedQueue<>();
-  private final ConcurrentLinkedQueue<Binding> pendingBindings = new ConcurrentLinkedQueue<>();
+  private final java.util.Queue<MessageRequest> messageRequests = new ConcurrentLinkedQueue<>();
+  private final java.util.Queue<Binding> pendingBindings = new ConcurrentLinkedQueue<>();
+
+  private volatile ConsumerTarget _exclusiveSubscriber;
+  private List<ConsumerTarget> consumers = new ArrayList<>();
 
   public Queue(String name, LifetimePolicy lifetimePolicy, ExclusivityPolicy exclusivityPolicy) {
     this.name = name;
@@ -60,8 +62,7 @@ public class Queue {
   }
 
   public int getConsumerCount() {
-    // TODO: implement consumer count
-    return 0;
+    return consumers.size();
   }
 
   public boolean isExclusive() {
@@ -72,7 +73,8 @@ public class Queue {
     return lifetimePolicy;
   }
 
-  public CompletableFuture<Message<byte[]>> receiveAsync(boolean autoAck) {
+  public CompletableFuture<Message<byte[]>> receiveAsync(boolean autoAck, int priority) {
+    // TODO: support consumer priority
     MessageRequest messageRequest = new MessageRequest(autoAck);
     messageRequests.add(messageRequest);
     deliverMessageIfAvailable();
@@ -121,14 +123,19 @@ public class Queue {
   }
 
   public void deliverMessage(Binding binding) {
-    MessageRequest request = messageRequests.poll();
+    MessageRequest request;
+    do {
+      request = messageRequests.poll();
+    } while (request != null && request.getMessage().isDone());
+
     if (request != null) {
+      final MessageRequest req = request;
       binding
           .getReceive()
           .thenAccept(
               message -> {
-                request.getMessage().complete(message);
-                if (request.isAutoAck()) {
+                req.getMessage().complete(message);
+                if (req.isAutoAck()) {
                   binding.ackMessage(message);
                 }
                 binding.receiveMessageAsync().thenAcceptAsync(this::deliverMessage);
@@ -153,5 +160,22 @@ public class Queue {
     public boolean isAutoAck() {
       return autoAck;
     }
+  }
+
+  public void addConsumer(ConsumerTarget consumer, boolean exclusive) {
+    if (exclusive) {
+      _exclusiveSubscriber = consumer;
+    }
+    consumers.add(consumer);
+    consumer.consume();
+  }
+
+  public void unregisterConsumer(ConsumerTarget consumer) {
+    consumers.remove(consumer);
+    _exclusiveSubscriber = null;
+  }
+
+  public boolean hasExclusiveConsumer() {
+    return _exclusiveSubscriber != null;
   }
 }

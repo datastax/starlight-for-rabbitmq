@@ -50,14 +50,13 @@ public class Binding {
   }
 
   public CompletableFuture<Binding> receiveMessageAsync() {
+    CompletableFuture<Message<byte[]>> messageCompletableFuture = pulsarConsumer.receiveAsync();
     message =
-        pulsarConsumer
-            .receiveAsync()
-            .thenApply(
-                msg -> {
-                  lastReceivedmessageId = msg.getMessageId();
-                  return msg;
-                });
+        messageCompletableFuture.thenApply(
+            msg -> {
+              lastReceivedmessageId = msg.getMessageId();
+              return msg;
+            });
     return message.thenApply(it -> this);
   }
 

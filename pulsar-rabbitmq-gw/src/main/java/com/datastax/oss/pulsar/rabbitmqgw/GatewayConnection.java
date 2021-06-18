@@ -415,7 +415,6 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
       LOGGER.debug("Connecting to: {}", namespace);
 
       final AMQChannel channel = new AMQChannel(this, channelId);
-      // channel.create();
 
       addChannel(channel);
 

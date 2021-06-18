@@ -32,7 +32,6 @@ import io.netty.channel.embedded.EmbeddedChannel;
 import java.util.Collections;
 import java.util.concurrent.CompletableFuture;
 import org.apache.pulsar.client.api.ConsumerBuilder;
-import org.apache.pulsar.client.api.Message;
 import org.apache.pulsar.client.api.ProducerBuilder;
 import org.apache.pulsar.client.api.PulsarClient;
 import org.apache.pulsar.client.impl.ConsumerBase;
@@ -81,7 +80,7 @@ public class AbstractBaseTest {
     when(consumerBuilder.subscriptionName(anyString())).thenReturn(consumerBuilder);
     when(consumerBuilder.subscribe()).thenReturn(consumer);
 
-    when(consumer.receiveAsync()).thenReturn(new CompletableFuture<Message>());
+    when(consumer.receiveAsync()).thenReturn(new CompletableFuture<>());
 
     doReturn(pulsarClient).when(gatewayService).getPulsarClient();
   }

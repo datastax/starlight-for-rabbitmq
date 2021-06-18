@@ -27,12 +27,15 @@ import com.rabbitmq.client.AMQP;
 import com.rabbitmq.client.Channel;
 import com.rabbitmq.client.Connection;
 import com.rabbitmq.client.ConnectionFactory;
+import com.rabbitmq.client.Envelope;
 import com.rabbitmq.client.GetResponse;
+import com.rabbitmq.client.ShutdownSignalException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import org.apache.bookkeeper.util.PortManager;
 import org.apache.commons.codec.binary.Base64;
@@ -50,6 +53,8 @@ import org.junit.jupiter.api.io.TempDir;
 
 public class RabbitmqInteropIT {
 
+  public static final String TEST_QUEUE = "test-queue";
+  public static final String TEST_CONSUMER_TAG = "test-consumer-tag";
   public static final String TEST_MESSAGE = "test-message";
   @TempDir public static Path tempDir;
   private static PulsarCluster cluster;
@@ -131,17 +136,17 @@ public class RabbitmqInteropIT {
     Producer<String> producer =
         pulsarClient.newProducer(Schema.STRING).topic("amq.default$$test-queue").create();
 
-    channel.queueDeclare("test-queue", true, false, false, new HashMap<>());
+    channel.queueDeclare(TEST_QUEUE, true, false, false, new HashMap<>());
     producer.send(TEST_MESSAGE);
 
     GetResponse getResponse = null;
     for (int i = 0; i < 100 && getResponse == null; i++) {
-      getResponse = channel.basicGet("test-queue", false);
+      getResponse = channel.basicGet(TEST_QUEUE, false);
       Thread.sleep(10);
     }
     assertNotNull(getResponse);
     assertEquals("amq.default", getResponse.getEnvelope().getExchange());
-    assertEquals("test-queue", getResponse.getEnvelope().getRoutingKey());
+    assertEquals(TEST_QUEUE, getResponse.getEnvelope().getRoutingKey());
     assertArrayEquals(TEST_MESSAGE.getBytes(StandardCharsets.UTF_8), getResponse.getBody());
 
     producer.close();
@@ -157,7 +162,7 @@ public class RabbitmqInteropIT {
     Connection conn2 = factory.newConnection();
     Channel channel2 = conn2.createChannel();
 
-    channel1.queueDeclare("test-queue", true, false, false, new HashMap<>());
+    channel1.queueDeclare(TEST_QUEUE, true, false, false, new HashMap<>());
 
     Date now = new Date();
     AMQP.BasicProperties properties =
@@ -166,20 +171,56 @@ public class RabbitmqInteropIT {
             .timestamp(now)
             .build();
     channel2.basicPublish(
-        "", "test-queue", properties, TEST_MESSAGE.getBytes(StandardCharsets.UTF_8));
+        "", TEST_QUEUE, properties, TEST_MESSAGE.getBytes(StandardCharsets.UTF_8));
 
-    GetResponse getResponse = null;
-    for (int i = 0; i < 100 && getResponse == null; i++) {
-      getResponse = channel1.basicGet("test-queue", false);
-      Thread.sleep(10);
-    }
+    CountDownLatch consumeOkReceived = new CountDownLatch(1);
+    CountDownLatch messageReceived = new CountDownLatch(1);
+    CountDownLatch consumerCanceled = new CountDownLatch(1);
+    channel1.basicConsume(
+        TEST_QUEUE,
+        true,
+        TEST_CONSUMER_TAG,
+        new com.rabbitmq.client.Consumer() {
+          @Override
+          public void handleConsumeOk(String consumerTag) {
+            assertEquals(TEST_CONSUMER_TAG, consumerTag);
+            consumeOkReceived.countDown();
+          }
 
-    assertNotNull(getResponse);
-    assertEquals("amq.default", getResponse.getEnvelope().getExchange());
-    assertEquals("test-queue", getResponse.getEnvelope().getRoutingKey());
-    assertEquals("application/octet-stream", getResponse.getProps().getContentType());
-    assertEquals(now.getTime() / 1000, getResponse.getProps().getTimestamp().getTime() / 1000);
-    assertArrayEquals(TEST_MESSAGE.getBytes(StandardCharsets.UTF_8), getResponse.getBody());
+          @Override
+          public void handleCancelOk(String consumerTag) {
+            assertEquals(TEST_CONSUMER_TAG, consumerTag);
+            consumerCanceled.countDown();
+          }
+
+          @Override
+          public void handleCancel(String consumerTag) {}
+
+          @Override
+          public void handleShutdownSignal(String consumerTag, ShutdownSignalException sig) {}
+
+          @Override
+          public void handleRecoverOk(String consumerTag) {}
+
+          @Override
+          public void handleDelivery(
+              String consumerTag, Envelope envelope, AMQP.BasicProperties properties, byte[] body) {
+            assertEquals(TEST_CONSUMER_TAG, consumerTag);
+            assertEquals("amq.default", envelope.getExchange());
+            assertEquals(TEST_QUEUE, envelope.getRoutingKey());
+            assertEquals("application/octet-stream", properties.getContentType());
+            assertEquals(now.getTime() / 1000, properties.getTimestamp().getTime() / 1000);
+            assertArrayEquals(TEST_MESSAGE.getBytes(StandardCharsets.UTF_8), body);
+            messageReceived.countDown();
+          }
+        });
+
+    assertTrue(consumeOkReceived.await(5, TimeUnit.SECONDS));
+    assertTrue(messageReceived.await(5, TimeUnit.SECONDS));
+
+    channel1.basicCancel(TEST_CONSUMER_TAG);
+
+    assertTrue(consumerCanceled.await(5, TimeUnit.SECONDS));
 
     channel1.close();
     conn1.close();

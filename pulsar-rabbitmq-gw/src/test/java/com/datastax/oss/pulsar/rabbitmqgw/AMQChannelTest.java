@@ -48,7 +48,12 @@ import org.apache.qpid.server.protocol.v0_8.FieldTableFactory;
 import org.apache.qpid.server.protocol.v0_8.transport.AMQBody;
 import org.apache.qpid.server.protocol.v0_8.transport.AMQFrame;
 import org.apache.qpid.server.protocol.v0_8.transport.BasicAckBody;
+import org.apache.qpid.server.protocol.v0_8.transport.BasicCancelBody;
+import org.apache.qpid.server.protocol.v0_8.transport.BasicCancelOkBody;
+import org.apache.qpid.server.protocol.v0_8.transport.BasicConsumeBody;
+import org.apache.qpid.server.protocol.v0_8.transport.BasicConsumeOkBody;
 import org.apache.qpid.server.protocol.v0_8.transport.BasicContentHeaderProperties;
+import org.apache.qpid.server.protocol.v0_8.transport.BasicDeliverBody;
 import org.apache.qpid.server.protocol.v0_8.transport.BasicGetBody;
 import org.apache.qpid.server.protocol.v0_8.transport.BasicGetEmptyBody;
 import org.apache.qpid.server.protocol.v0_8.transport.BasicGetOkBody;
@@ -73,6 +78,7 @@ public class AMQChannelTest extends AbstractBaseTest {
   public static final String TEST_EXCHANGE = "test-exchange";
   public static final String TEST_QUEUE = "test-queue";
   public static final byte[] TEST_MESSAGE = "test-message".getBytes(StandardCharsets.UTF_8);
+  public static final String TEST_CONSUMER_TAG = "test-consumer-tag";
 
   @Test
   void testReceiveChannelClose() {
@@ -512,7 +518,8 @@ public class AMQChannelTest extends AbstractBaseTest {
     when(consumer.receiveAsync())
         .thenReturn(
             CompletableFuture.completedFuture(message),
-            CompletableFuture.completedFuture(message2));
+            CompletableFuture.completedFuture(message2),
+            new CompletableFuture<>());
 
     sendQueueDeclare();
 
@@ -547,7 +554,6 @@ public class AMQChannelTest extends AbstractBaseTest {
   @Test
   void testReceiveBasicGetEmpty() {
     openChannel();
-    when(consumer.receiveAsync()).thenReturn(new CompletableFuture<>());
     sendQueueDeclare();
 
     AMQFrame frame = sendBasicGet();
@@ -590,9 +596,238 @@ public class AMQChannelTest extends AbstractBaseTest {
     assertNotNull(compositeAMQBodyBlock);
   }
 
+  @Test
+  void testReceiveBasicGetExistingExclusiveConsumer() {
+    openChannel();
+    sendQueueDeclare();
+    sendBasicConsume(null, TEST_QUEUE, true);
+
+    AMQFrame frame = sendBasicGet(TEST_QUEUE);
+
+    assertIsConnectionCloseFrame(frame, ErrorCodes.ACCESS_REFUSED);
+  }
+
+  @Test
+  void testReceiveBasicConsume() {
+    openChannel();
+    sendQueueDeclare();
+
+    AMQFrame frame = sendBasicConsume(TEST_CONSUMER_TAG, TEST_QUEUE, false);
+
+    assertNotNull(frame);
+    assertTrue(frame.getBodyFrame() instanceof BasicConsumeOkBody);
+    assertEquals(
+        TEST_CONSUMER_TAG, ((BasicConsumeOkBody) frame.getBodyFrame()).getConsumerTag().toString());
+
+    frame = sendBasicConsume("test-consumer-tag2", TEST_QUEUE, false);
+
+    assertNotNull(frame);
+    assertTrue(frame.getBodyFrame() instanceof BasicConsumeOkBody);
+    assertEquals(
+        "test-consumer-tag2",
+        ((BasicConsumeOkBody) frame.getBodyFrame()).getConsumerTag().toString());
+  }
+
+  @Test
+  void testReceiveBasicConsumeEmptyConsumerTag() {
+    openChannel();
+    sendQueueDeclare();
+
+    AMQFrame frame = sendBasicConsume(null, TEST_QUEUE, false);
+
+    assertNotNull(frame);
+    assertTrue(frame.getBodyFrame() instanceof BasicConsumeOkBody);
+    assertTrue(
+        ((BasicConsumeOkBody) frame.getBodyFrame()).getConsumerTag().toString().startsWith("sgen"));
+  }
+
+  @Test
+  void testReceiveBasicConsumeQueueNotFound() {
+    openChannel();
+
+    AMQFrame frame = sendBasicConsume(null, TEST_QUEUE, false);
+
+    assertIsChannelCloseFrame(frame, ErrorCodes.NOT_FOUND);
+  }
+
+  @Test
+  void testReceiveBasicConsumeQueueNameMissing() {
+    openChannel();
+
+    AMQFrame frame = sendBasicConsume(null, "", false);
+
+    assertIsConnectionCloseFrame(frame, ErrorCodes.NOT_ALLOWED);
+  }
+
+  @Test
+  void testReceiveBasicConsumeExistingExclusiveConsumer() {
+    openChannel();
+    sendQueueDeclare();
+    sendBasicConsume(null, TEST_QUEUE, true);
+
+    AMQFrame frame = sendBasicConsume(null, TEST_QUEUE, false);
+
+    assertIsConnectionCloseFrame(frame, ErrorCodes.ACCESS_REFUSED);
+  }
+
+  @Test
+  void testReceiveBasicConsumeExistingConsumerTag() {
+    openChannel();
+    sendQueueDeclare();
+    sendBasicConsume(TEST_CONSUMER_TAG, TEST_QUEUE, true);
+
+    AMQFrame frame = sendBasicConsume(TEST_CONSUMER_TAG, TEST_QUEUE, false);
+
+    assertIsConnectionCloseFrame(frame, ErrorCodes.NOT_ALLOWED);
+  }
+
+  @Test
+  void testReceiveBasicConsumeExclusiveExistingConsumer() {
+    openChannel();
+    sendQueueDeclare();
+    sendBasicConsume(null, TEST_QUEUE, false);
+
+    AMQFrame frame = sendBasicConsume(null, TEST_QUEUE, true);
+
+    assertIsConnectionCloseFrame(frame, ErrorCodes.ACCESS_REFUSED);
+  }
+
+  @Test
+  void testConsumerDeliver() throws Exception {
+    MessageImpl message = mock(MessageImpl.class);
+    when(message.getData()).thenReturn(TEST_MESSAGE);
+    when(message.getTopicName()).thenReturn(TEST_EXCHANGE + "$$" + TEST_QUEUE);
+    when(message.getRedeliveryCount()).thenReturn(2);
+
+    BasicContentHeaderProperties props = new BasicContentHeaderProperties();
+    props.setContentType("application/json");
+    ContentHeaderBody contentHeader = new ContentHeaderBody(props, TEST_MESSAGE.length);
+    byte[] bytes = new byte[contentHeader.getSize()];
+    QpidByteBuffer buf = QpidByteBuffer.wrap(bytes);
+    contentHeader.writePayload(buf);
+    String headers = java.util.Base64.getEncoder().encodeToString(bytes);
+    when(message.getProperty(MessageUtils.MESSAGE_PROPERTY_AMQP_HEADERS)).thenReturn(headers);
+
+    MessageImpl message2 = mock(MessageImpl.class);
+    when(message2.getData()).thenReturn(TEST_MESSAGE);
+    when(message2.getTopicName()).thenReturn(TEST_EXCHANGE + "$$" + TEST_QUEUE);
+    when(message2.getRedeliveryCount()).thenReturn(0);
+
+    when(consumer.receiveAsync())
+        .thenReturn(
+            CompletableFuture.completedFuture(message),
+            CompletableFuture.completedFuture(message2),
+            new CompletableFuture<>());
+
+    openChannel();
+    sendQueueDeclare();
+    sendBasicConsume(null, TEST_QUEUE, false);
+
+    ProtocolOutputConverter.CompositeAMQBodyBlock compositeAMQBodyBlock = null;
+
+    for (int i = 0; i < 100 && compositeAMQBodyBlock == null; i++) {
+      compositeAMQBodyBlock = channel.readOutbound();
+      Thread.sleep(10);
+    }
+
+    assertNotNull(compositeAMQBodyBlock);
+    assertTrue(
+        compositeAMQBodyBlock.getMethodBody()
+            instanceof ProtocolOutputConverter.EncodedDeliveryBody);
+    BasicDeliverBody basicDeliverBody =
+        (BasicDeliverBody)
+            ((ProtocolOutputConverter.EncodedDeliveryBody) compositeAMQBodyBlock.getMethodBody())
+                .createAMQBody();
+    assertEquals(TEST_EXCHANGE, basicDeliverBody.getExchange().toString());
+    assertEquals(TEST_QUEUE, basicDeliverBody.getRoutingKey().toString());
+    assertEquals(1, basicDeliverBody.getDeliveryTag());
+    assertTrue(basicDeliverBody.getRedelivered());
+
+    assertTrue(compositeAMQBodyBlock.getHeaderBody() instanceof ContentHeaderBody);
+    ContentHeaderBody contentHeaderBody = (ContentHeaderBody) compositeAMQBodyBlock.getHeaderBody();
+    assertEquals(TEST_MESSAGE.length, contentHeaderBody.getBodySize());
+    assertEquals("application/json", contentHeaderBody.getProperties().getContentTypeAsString());
+
+    compositeAMQBodyBlock = null;
+    for (int i = 0; i < 100 && compositeAMQBodyBlock == null; i++) {
+      compositeAMQBodyBlock = channel.readOutbound();
+      Thread.sleep(10);
+    }
+    assertNotNull(compositeAMQBodyBlock);
+    assertTrue(
+        compositeAMQBodyBlock.getMethodBody()
+            instanceof ProtocolOutputConverter.EncodedDeliveryBody);
+    basicDeliverBody =
+        (BasicDeliverBody)
+            ((ProtocolOutputConverter.EncodedDeliveryBody) compositeAMQBodyBlock.getMethodBody())
+                .createAMQBody();
+    assertEquals(2, basicDeliverBody.getDeliveryTag());
+    assertFalse(basicDeliverBody.getRedelivered());
+  }
+
+  @Test
+  void testReceiveBasicCancel() throws Exception {
+    MessageImpl message = mock(MessageImpl.class);
+    when(message.getData()).thenReturn(TEST_MESSAGE);
+    when(message.getTopicName()).thenReturn(TEST_EXCHANGE + "$$" + TEST_QUEUE);
+    when(message.getRedeliveryCount()).thenReturn(0);
+
+    when(consumer.receiveAsync()).thenReturn(CompletableFuture.completedFuture(message));
+
+    openChannel();
+    sendQueueDeclare();
+    sendBasicConsume(TEST_CONSUMER_TAG, TEST_QUEUE, false);
+
+    ProtocolOutputConverter.CompositeAMQBodyBlock compositeAMQBodyBlock = null;
+
+    for (int i = 0; i < 100 && compositeAMQBodyBlock == null; i++) {
+      compositeAMQBodyBlock = channel.readOutbound();
+      Thread.sleep(10);
+    }
+
+    assertNotNull(compositeAMQBodyBlock);
+
+    Object frame = sendBasicCancel(TEST_CONSUMER_TAG);
+
+    long now = System.currentTimeMillis();
+    while (System.currentTimeMillis() - now < 5000 && !(frame instanceof AMQFrame)) {
+      frame = channel.readOutbound();
+    }
+
+    assertNotNull(frame);
+    assertTrue(frame instanceof AMQFrame);
+    AMQBody body = ((AMQFrame) frame).getBodyFrame();
+    assertTrue(body instanceof BasicCancelOkBody);
+    assertEquals(TEST_CONSUMER_TAG, ((BasicCancelOkBody) body).getConsumerTag().toString());
+
+    // Check nothing is received anymore
+    Thread.sleep(1000);
+    assertNull(channel.readOutbound());
+  }
+
   private void openChannel() {
     openConnection();
     sendChannelOpen();
+  }
+
+  private <T> T sendBasicCancel(String consumerTag) {
+    BasicCancelBody basicConsumeBody =
+        new BasicCancelBody(AMQShortString.createAMQShortString(consumerTag), false);
+    return exchangeData(basicConsumeBody.generateFrame(CHANNEL_ID));
+  }
+
+  private AMQFrame sendBasicConsume(String consumerTag, String queueName, boolean exclusive) {
+    BasicConsumeBody basicConsumeBody =
+        new BasicConsumeBody(
+            0,
+            AMQShortString.createAMQShortString(queueName),
+            AMQShortString.createAMQShortString(consumerTag),
+            false,
+            false,
+            exclusive,
+            false,
+            FieldTable.convertToFieldTable(new HashMap<>()));
+    return exchangeData(basicConsumeBody.generateFrame(CHANNEL_ID));
   }
 
   private <T> T sendBasicGet() {

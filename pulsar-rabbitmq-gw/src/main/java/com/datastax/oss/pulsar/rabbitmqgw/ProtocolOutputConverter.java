@@ -20,7 +20,6 @@ import java.io.IOException;
 import org.apache.qpid.server.QpidException;
 import org.apache.qpid.server.bytebuffer.QpidByteBuffer;
 import org.apache.qpid.server.message.MessageContentSource;
-import org.apache.qpid.server.protocol.v0_8.AMQMessage;
 import org.apache.qpid.server.protocol.v0_8.AMQShortString;
 import org.apache.qpid.server.protocol.v0_8.transport.AMQBody;
 import org.apache.qpid.server.protocol.v0_8.transport.AMQDataBlock;
@@ -52,20 +51,17 @@ public class ProtocolOutputConverter {
     _connection = connection;
   }
 
-  /*public long writeDeliver(final AMQMessage msg,
-                           final InstanceProperties props, int channelId,
-                           long deliveryTag,
-                           AMQShortString consumerTag)
-  {
-      final boolean isRedelivered = Boolean.TRUE.equals(props.getProperty(InstanceProperties.Property.REDELIVERED));
-      AMQBody deliverBody = createEncodedDeliverBody(msg, isRedelivered, deliveryTag, consumerTag);
-      return writeMessageDelivery(msg, channelId, deliverBody);
-  }*/
-
-  /*private long writeMessageDelivery(AMQMessage message, int channelId, AMQBody deliverBody)
-  {
-      return writeMessageDelivery(message, message.getContentHeaderBody(), channelId, deliverBody);
-  }*/
+  public long writeDeliver(
+      final MessagePublishInfo info,
+      final ContentBody contentBody,
+      final ContentHeaderBody contentHeaderBody,
+      final boolean isRedelivered,
+      int channelId,
+      long deliveryTag,
+      AMQShortString consumerTag) {
+    AMQBody deliverBody = createEncodedDeliverBody(info, isRedelivered, deliveryTag, consumerTag);
+    return writeMessageDelivery(contentBody, contentHeaderBody, channelId, deliverBody);
+  }
 
   interface DisposableMessageContentSource extends MessageContentSource {
     void dispose();
@@ -243,7 +239,7 @@ public class ProtocolOutputConverter {
   }
 
   private AMQBody createEncodedDeliverBody(
-      AMQMessage message,
+      MessagePublishInfo info,
       boolean isRedelivered,
       final long deliveryTag,
       final AMQShortString consumerTag) {
@@ -251,7 +247,6 @@ public class ProtocolOutputConverter {
     final AMQShortString exchangeName;
     final AMQShortString routingKey;
 
-    final MessagePublishInfo info = message.getMessagePublishInfo();
     exchangeName = info.getExchange();
     routingKey = info.getRoutingKey();
 
@@ -259,7 +254,7 @@ public class ProtocolOutputConverter {
         deliveryTag, routingKey, exchangeName, consumerTag, isRedelivered);
   }
 
-  private class EncodedDeliveryBody implements AMQBody {
+  public class EncodedDeliveryBody implements AMQBody {
     private final long _deliveryTag;
     private final AMQShortString _routingKey;
     private final AMQShortString _exchangeName;
