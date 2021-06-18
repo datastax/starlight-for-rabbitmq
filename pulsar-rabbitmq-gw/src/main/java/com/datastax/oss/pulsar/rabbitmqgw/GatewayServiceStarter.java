@@ -27,7 +27,7 @@ import org.apache.pulsar.common.configuration.PulsarConfigurationLoader;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/** Starts an instance of the Pulsar ProxyService */
+/** Starts an instance of the Pulsar RabbitMQ GatewayService */
 public class GatewayServiceStarter {
 
   @Parameter(
@@ -91,7 +91,7 @@ public class GatewayServiceStarter {
       gatewayService.start();
 
     } catch (Exception e) {
-      log.error("Failed to start pulsar proxy service. error msg " + e.getMessage(), e);
+      log.error("Failed to start pulsar RabbitMQ gateway service. error msg " + e.getMessage(), e);
       throw new PulsarServerException(e);
     }
   }

@@ -56,13 +56,10 @@ public class GatewayConfiguration implements PulsarConfiguration {
   )
   private String advertisedAddress;
 
-  @FieldContext(category = CATEGORY_SERVER, doc = "The port for serving binary protobuf request")
-  private Optional<Integer> servicePort = Optional.ofNullable(6650);
+  @FieldContext(category = CATEGORY_SERVER, doc = "The port for serving AMQP")
+  private Optional<Integer> servicePort = Optional.of(5672);
 
-  @FieldContext(
-    category = CATEGORY_SERVER,
-    doc = "The port for serving tls secured binary protobuf request"
-  )
+  @FieldContext(category = CATEGORY_SERVER, doc = "The port for serving tls secured AMQP")
   private Optional<Integer> servicePortTls = Optional.empty();
 
   @FieldContext(
@@ -211,6 +208,12 @@ public class GatewayConfiguration implements PulsarConfiguration {
 
   @FieldContext(category = CATEGORY_AMQP, doc = "Network buffer size.")
   private int amqpNetworkBufferSize = 256 * 1024;
+
+  @FieldContext(category = CATEGORY_AMQP, doc = "Max message size.")
+  private int amqpMaxMessageSize = 100 * 1024 * 1024;
+
+  @FieldContext(category = CATEGORY_AMQP, doc = "Length of binary data sent to debug log.")
+  private int amqpDebugBinaryDataLength = 80;
 
   @FieldContext(
     category = CATEGORY_AMQP,

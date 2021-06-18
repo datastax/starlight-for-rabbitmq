@@ -29,12 +29,13 @@ import java.io.IOException;
 import java.util.concurrent.TimeUnit;
 import org.apache.pulsar.client.api.ClientBuilder;
 import org.apache.pulsar.client.api.PulsarClient;
+import org.apache.pulsar.client.api.PulsarClientException;
 import org.apache.pulsar.common.allocator.PulsarByteBufAllocator;
 import org.apache.pulsar.common.util.netty.EventLoopUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/** Pulsar proxy service */
+/** Pulsar RabbitMQ gateway service */
 public class GatewayService implements Closeable {
 
   private final GatewayConfiguration config;
@@ -47,9 +48,9 @@ public class GatewayService implements Closeable {
   private Channel listenChannelTls;
 
   private final DefaultThreadFactory acceptorThreadFactory =
-      new DefaultThreadFactory("pulsar-proxy-acceptor");
+      new DefaultThreadFactory("pulsar-rabbitmqgw-acceptor");
   private final DefaultThreadFactory workersThreadFactory =
-      new DefaultThreadFactory("pulsar-proxy-io");
+      new DefaultThreadFactory("pulsar-rabbitmqgw-io");
 
   private static final int numThreads = Runtime.getRuntime().availableProcessors();
 
@@ -79,10 +80,10 @@ public class GatewayService implements Closeable {
       try {
         listenChannel =
             bootstrap.bind(config.getBindAddress(), config.getServicePort().get()).sync().channel();
-        LOG.info("Started Pulsar Proxy at {}", listenChannel.localAddress());
+        LOG.info("Started Pulsar RabbitMQ Gateway at {}", listenChannel.localAddress());
       } catch (Exception e) {
         throw new IOException(
-            "Failed to bind Pulsar Proxy on port " + config.getServicePort().get(), e);
+            "Failed to bind Pulsar RabbitMQ Gateway on port " + config.getServicePort().get(), e);
       }
     }
 
@@ -94,11 +95,11 @@ public class GatewayService implements Closeable {
               .bind(config.getBindAddress(), config.getServicePortTls().get())
               .sync()
               .channel();
-      LOG.info("Started Pulsar TLS Proxy on {}", listenChannelTls.localAddress());
+      LOG.info("Started Pulsar TLS RabbitMQ Gateway on {}", listenChannelTls.localAddress());
     }
   }
 
-  public synchronized PulsarClient getPulsarClient() throws IOException {
+  public synchronized PulsarClient getPulsarClient() throws PulsarClientException {
     // Do lazy initialization of client
     if (pulsarClient == null) {
       pulsarClient = createClientInstance();
@@ -106,7 +107,7 @@ public class GatewayService implements Closeable {
     return pulsarClient;
   }
 
-  private PulsarClient createClientInstance() throws IOException {
+  private PulsarClient createClientInstance() throws PulsarClientException {
     ClientBuilder clientBuilder =
         PulsarClient.builder()
             .statsInterval(0, TimeUnit.SECONDS)

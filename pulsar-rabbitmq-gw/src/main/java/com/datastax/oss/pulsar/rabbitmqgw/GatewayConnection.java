@@ -17,6 +17,7 @@ package com.datastax.oss.pulsar.rabbitmqgw;
 
 import static java.nio.charset.StandardCharsets.US_ASCII;
 
+import com.google.common.annotations.VisibleForTesting;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
@@ -24,6 +25,7 @@ import io.netty.handler.timeout.IdleState;
 import io.netty.handler.timeout.IdleStateEvent;
 import io.netty.handler.timeout.IdleStateHandler;
 import java.io.IOException;
+import java.lang.reflect.Proxy;
 import java.net.SocketAddress;
 import java.nio.BufferUnderflowException;
 import java.util.Collections;
@@ -31,12 +33,12 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import org.apache.bookkeeper.util.collections.ConcurrentLongHashMap;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.qpid.server.QpidException;
 import org.apache.qpid.server.bytebuffer.QpidByteBuffer;
 import org.apache.qpid.server.protocol.ErrorCodes;
 import org.apache.qpid.server.protocol.ProtocolVersion;
-import org.apache.qpid.server.protocol.v0_8.AMQChannel;
 import org.apache.qpid.server.protocol.v0_8.AMQDecoder;
 import org.apache.qpid.server.protocol.v0_8.AMQFrameDecodingException;
 import org.apache.qpid.server.protocol.v0_8.AMQPInvalidClassException;
@@ -47,6 +49,7 @@ import org.apache.qpid.server.protocol.v0_8.transport.AMQDataBlock;
 import org.apache.qpid.server.protocol.v0_8.transport.AMQFrame;
 import org.apache.qpid.server.protocol.v0_8.transport.AMQMethodBody;
 import org.apache.qpid.server.protocol.v0_8.transport.AMQProtocolHeaderException;
+import org.apache.qpid.server.protocol.v0_8.transport.ChannelOpenOkBody;
 import org.apache.qpid.server.protocol.v0_8.transport.ConnectionCloseBody;
 import org.apache.qpid.server.protocol.v0_8.transport.ConnectionCloseOkBody;
 import org.apache.qpid.server.protocol.v0_8.transport.ConnectionTuneBody;
@@ -54,6 +57,7 @@ import org.apache.qpid.server.protocol.v0_8.transport.HeartbeatBody;
 import org.apache.qpid.server.protocol.v0_8.transport.MethodRegistry;
 import org.apache.qpid.server.protocol.v0_8.transport.ProtocolInitiation;
 import org.apache.qpid.server.protocol.v0_8.transport.ServerChannelMethodProcessor;
+import org.apache.qpid.server.protocol.v0_8.transport.ServerMethodDispatcher;
 import org.apache.qpid.server.protocol.v0_8.transport.ServerMethodProcessor;
 import org.apache.qpid.server.util.ConnectionScopedRuntimeException;
 import org.slf4j.Logger;
@@ -89,8 +93,7 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
   private ProtocolVersion _protocolVersion;
   private volatile MethodRegistry _methodRegistry;
   private volatile ConnectionState _state = ConnectionState.INIT;
-  private final Object _channelAddRemoveLock = new Object();
-  private final Map<Integer, AMQChannel> _channelMap = new ConcurrentHashMap<>();
+  private final ConcurrentLongHashMap<AMQChannel> _channelMap = new ConcurrentLongHashMap<>();
   private volatile int _maxFrameSize;
   private final AtomicBoolean _orderlyClose = new AtomicBoolean(false);
   private final Map<Integer, Long> _closingChannelsList = new ConcurrentHashMap<>();
@@ -383,7 +386,41 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
 
   @Override
   public void receiveChannelOpen(int channelId) {
-    // TODO: receiveChannelOpen
+    if (LOGGER.isDebugEnabled()) {
+      LOGGER.debug("RECV[" + channelId + "] ChannelOpen");
+    }
+    assertState(ConnectionState.OPEN);
+
+    if (namespace == null) {
+      sendConnectionClose(
+          ErrorCodes.COMMAND_INVALID,
+          "Virtualhost has not yet been set. ConnectionOpen has not been called.",
+          channelId);
+    } else if (getChannel(channelId) != null || channelAwaitingClosure(channelId)) {
+      sendConnectionClose(
+          ErrorCodes.CHANNEL_ERROR, "Channel " + channelId + " already exists", channelId);
+    } else if (channelId > getSessionCountLimit()) {
+      sendConnectionClose(
+          ErrorCodes.CHANNEL_ERROR,
+          "Channel "
+              + channelId
+              + " cannot be created as the max allowed channel id is "
+              + getSessionCountLimit(),
+          channelId);
+    } else {
+      LOGGER.debug("Connecting to: {}", namespace);
+
+      final AMQChannel channel = new AMQChannel(this, channelId);
+      // channel.create();
+
+      addChannel(channel);
+
+      ChannelOpenOkBody response;
+
+      response = getMethodRegistry().createChannelOpenOkBody();
+
+      writeFrame(response.generateFrame(channelId));
+    }
   }
 
   @Override
@@ -398,8 +435,29 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
 
   @Override
   public ServerChannelMethodProcessor getChannelMethodProcessor(int channelId) {
-    // TODO: getChannelMethodProcessor
-    return null;
+    assertState(ConnectionState.OPEN);
+
+    ServerChannelMethodProcessor channelMethodProcessor = getChannel(channelId);
+    if (channelMethodProcessor == null) {
+      channelMethodProcessor =
+          (ServerChannelMethodProcessor)
+              Proxy.newProxyInstance(
+                  ServerMethodDispatcher.class.getClassLoader(),
+                  new Class[] {ServerChannelMethodProcessor.class},
+                  (proxy, method, args) -> {
+                    if (method.getName().equals("receiveChannelCloseOk")
+                        && channelAwaitingClosure(channelId)) {
+                      closeChannelOk(channelId);
+                    } else if (method.getName().startsWith("receive")) {
+                      sendConnectionClose(
+                          ErrorCodes.CHANNEL_ERROR, "Unknown channel id: " + channelId, channelId);
+                    } else if (method.getName().equals("ignoreAllButCloseOk")) {
+                      return channelAwaitingClosure(channelId);
+                    }
+                    return null;
+                  });
+    }
+    return channelMethodProcessor;
   }
 
   @Override
@@ -531,6 +589,28 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
     // TODO: see AMQPConnection_0_8Impl::receivedCompleteAllChannels
   }
 
+  public AMQChannel getChannel(int channelId) {
+    final AMQChannel channel = _channelMap.get(channelId);
+    if ((channel == null) || channel.isClosing()) {
+      return null;
+    } else {
+      return channel;
+    }
+  }
+
+  public boolean channelAwaitingClosure(int channelId) {
+    return ignoreAllButCloseOk()
+        || (!_closingChannelsList.isEmpty() && _closingChannelsList.containsKey(channelId));
+  }
+
+  private void addChannel(AMQChannel channel) {
+    _channelMap.put(channel.getChannelId(), channel);
+  }
+
+  private void removeChannel(int channelId) {
+    _channelMap.remove(channelId);
+  }
+
   public synchronized void writeFrame(AMQDataBlock frame) {
     if (LOGGER.isDebugEnabled()) {
       LOGGER.debug("SEND: " + frame);
@@ -539,7 +619,41 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
     ctx.writeAndFlush(frame);
   }
 
-  private void markChannelAwaitingCloseOk(int channelId) {
+  public void closeChannel(AMQChannel channel) {
+    closeChannel(channel, 0, null, false);
+  }
+
+  public void closeChannelAndWriteFrame(AMQChannel channel, int cause, String message) {
+    writeFrame(
+        new AMQFrame(
+            channel.getChannelId(),
+            getMethodRegistry()
+                .createChannelCloseBody(
+                    cause,
+                    AMQShortString.validValueOf(message),
+                    _currentClassId,
+                    _currentMethodId)));
+    closeChannel(channel, cause, message, true);
+  }
+
+  void closeChannel(AMQChannel channel, int cause, String message, boolean mark) {
+    int channelId = channel.getChannelId();
+    try {
+      channel.close(cause, message);
+      if (mark) {
+        markChannelAwaitingCloseOk(channelId);
+      }
+    } finally {
+      removeChannel(channelId);
+    }
+  }
+
+  public void closeChannelOk(int channelId) {
+    _closingChannelsList.remove(channelId);
+  }
+
+  @VisibleForTesting
+  void markChannelAwaitingCloseOk(int channelId) {
     _closingChannelsList.put(channelId, System.currentTimeMillis());
   }
 
@@ -582,9 +696,7 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
         throw firstException;
       }
     } finally {
-      synchronized (_channelAddRemoveLock) {
-        _channelMap.clear();
-      }
+      _channelMap.clear();
     }
   }
 
@@ -613,5 +725,9 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
 
   public String getNamespace() {
     return namespace;
+  }
+
+  public GatewayService getGatewayService() {
+    return gatewayService;
   }
 }
