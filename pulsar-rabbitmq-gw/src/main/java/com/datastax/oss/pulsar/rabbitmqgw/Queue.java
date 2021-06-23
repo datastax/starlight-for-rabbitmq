@@ -16,10 +16,8 @@
 package com.datastax.oss.pulsar.rabbitmqgw;
 
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -34,14 +32,13 @@ public class Queue {
   private final ExclusivityPolicy exclusivityPolicy;
 
   private final Map<String, Binding> bindings = new ConcurrentHashMap<>();
-  private final Set<String> exchangesToPoll = new HashSet<>();
   private final java.util.Queue<MessageRequest> messageRequests = new ConcurrentLinkedQueue<>();
   private final java.util.Queue<Binding> pendingBindings = new ConcurrentLinkedQueue<>();
 
-  private volatile ConsumerTarget _exclusiveSubscriber;
-  private List<ConsumerTarget> consumers = new ArrayList<>();
+  private volatile AMQConsumer _exclusiveSubscriber;
+  private final List<AMQConsumer> consumers = new ArrayList<>();
 
-  public Queue(String name, LifetimePolicy lifetimePolicy, ExclusivityPolicy exclusivityPolicy) {
+  public Queue(LifetimePolicy lifetimePolicy, ExclusivityPolicy exclusivityPolicy, String name) {
     this.name = name;
     this.lifetimePolicy = lifetimePolicy;
     this.exclusivityPolicy = exclusivityPolicy;
@@ -53,7 +50,6 @@ public class Queue {
 
   public void addBinding(Binding binding) {
     bindings.put(binding.getExchange().getName(), binding);
-    exchangesToPoll.add(binding.getExchange().getName());
   }
 
   public int getQueueDepthMessages() {
@@ -73,28 +69,20 @@ public class Queue {
     return lifetimePolicy;
   }
 
-  public CompletableFuture<Message<byte[]>> receiveAsync(boolean autoAck, int priority) {
+  public CompletableFuture<MessageResponse> receiveAsync(AMQConsumer consumer) {
     // TODO: support consumer priority
-    MessageRequest messageRequest = new MessageRequest(autoAck);
-    messageRequests.add(messageRequest);
+    MessageRequest request = new MessageRequest(consumer);
+    messageRequests.add(request);
     deliverMessageIfAvailable();
-    return messageRequest.getMessage();
+    return request.getResponse();
   }
 
-  public Message<byte[]> receive(boolean autoAck) {
+  public MessageResponse receive() {
     Binding binding = getReadyBinding();
     if (binding != null) {
-      Message<byte[]> message = null;
-      try {
-        message = binding.getReceive().get();
-      } catch (Exception e) {
-        // TODO: should not happen. Close connection ?
-      }
-      if (autoAck) {
-        binding.ackMessage(message);
-      }
+      Message<byte[]> message = binding.getReceive().join();
       binding.receiveMessageAsync().thenAcceptAsync(this::deliverMessage);
-      return message;
+      return new MessageResponse(message, binding);
     }
     return null;
   }
@@ -106,63 +94,68 @@ public class Queue {
   public void deliverMessageIfAvailable() {
     Binding binding = getReadyBinding();
     if (binding != null) {
-      MessageRequest request = messageRequests.poll();
-      if (request != null) {
-        binding
-            .getReceive()
-            .thenAccept(
-                message -> {
-                  request.getMessage().complete(message);
-                  if (request.isAutoAck()) {
-                    binding.ackMessage(message);
-                  }
-                  binding.receiveMessageAsync().thenAcceptAsync(this::deliverMessage);
-                });
-      }
+      deliverMessage(binding);
     }
   }
 
   public void deliverMessage(Binding binding) {
-    MessageRequest request;
-    do {
-      request = messageRequests.poll();
-    } while (request != null && request.getMessage().isDone());
-
-    if (request != null) {
-      final MessageRequest req = request;
-      binding
-          .getReceive()
-          .thenAccept(
-              message -> {
-                req.getMessage().complete(message);
-                if (req.isAutoAck()) {
-                  binding.ackMessage(message);
-                }
-                binding.receiveMessageAsync().thenAcceptAsync(this::deliverMessage);
-              });
-    } else {
+    Message<byte[]> message = binding.getReceive().join();
+    boolean messageDelivered = false;
+    while (!messageRequests.isEmpty()) {
+      MessageRequest request = messageRequests.poll();
+      if (request != null && !request.getResponse().isDone()) {
+        boolean allocated = request.getConsumer().useCreditForMessage(message.getData().length);
+        if (allocated) {
+          request.getResponse().complete(new MessageResponse(message, binding));
+          binding.receiveMessageAsync().thenAcceptAsync(this::deliverMessage);
+          messageDelivered = true;
+          break;
+        } else {
+          request.getConsumer().block();
+        }
+      }
+    }
+    if (!messageDelivered) {
       pendingBindings.add(binding);
     }
   }
 
-  public static class MessageRequest {
-    private final CompletableFuture<Message<byte[]>> message = new CompletableFuture<>();
-    private final boolean autoAck;
+  public static class MessageResponse {
+    private final Message<byte[]> message;
+    private final Binding binding;
 
-    public MessageRequest(boolean autoAck) {
-      this.autoAck = autoAck;
+    public MessageResponse(Message<byte[]> message, Binding binding) {
+      this.message = message;
+      this.binding = binding;
     }
 
-    public CompletableFuture<Message<byte[]>> getMessage() {
+    public Message<byte[]> getMessage() {
       return message;
     }
 
-    public boolean isAutoAck() {
-      return autoAck;
+    public Binding getBinding() {
+      return binding;
     }
   }
 
-  public void addConsumer(ConsumerTarget consumer, boolean exclusive) {
+  public static class MessageRequest {
+    private final AMQConsumer consumer;
+    private final CompletableFuture<MessageResponse> response = new CompletableFuture<>();
+
+    public MessageRequest(AMQConsumer consumer) {
+      this.consumer = consumer;
+    }
+
+    public CompletableFuture<MessageResponse> getResponse() {
+      return response;
+    }
+
+    public AMQConsumer getConsumer() {
+      return consumer;
+    }
+  }
+
+  public void addConsumer(AMQConsumer consumer, boolean exclusive) {
     if (exclusive) {
       _exclusiveSubscriber = consumer;
     }
@@ -170,7 +163,7 @@ public class Queue {
     consumer.consume();
   }
 
-  public void unregisterConsumer(ConsumerTarget consumer) {
+  public void unregisterConsumer(AMQConsumer consumer) {
     consumers.remove(consumer);
     _exclusiveSubscriber = null;
   }

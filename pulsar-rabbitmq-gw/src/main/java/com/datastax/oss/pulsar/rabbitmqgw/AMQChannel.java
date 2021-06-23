@@ -18,6 +18,7 @@ package com.datastax.oss.pulsar.rabbitmqgw;
 import static org.apache.qpid.server.transport.util.Functions.hex;
 
 import java.nio.ByteBuffer;
+import java.util.Arrays;
 import java.util.Base64;
 import java.util.HashMap;
 import java.util.Map;
@@ -25,12 +26,14 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.apache.pulsar.client.api.Message;
+import org.apache.pulsar.client.api.MessageId;
 import org.apache.pulsar.client.api.Producer;
 import org.apache.pulsar.client.api.PulsarClientException;
 import org.apache.pulsar.client.api.TypedMessageBuilder;
 import org.apache.pulsar.common.naming.TopicName;
 import org.apache.qpid.server.bytebuffer.QpidByteBuffer;
 import org.apache.qpid.server.exchange.ExchangeDefaults;
+import org.apache.qpid.server.flow.FlowCreditManager;
 import org.apache.qpid.server.logging.LogMessage;
 import org.apache.qpid.server.logging.messages.ChannelMessages;
 import org.apache.qpid.server.model.ExclusivityPolicy;
@@ -76,9 +79,10 @@ public class AMQChannel implements ServerChannelMethodProcessor {
    * basic.consume request.
    */
   private volatile int _consumerTag;
+
+  private final UnacknowledgedMessageMap _unacknowledgedMessageMap;
   /** Maps from consumer tag to subscription instance. Allows us to unsubscribe from a queue. */
-  private final Map<AMQShortString, ConsumerTarget> _tag2SubscriptionTargetMap =
-      new HashMap<AMQShortString, ConsumerTarget>();
+  private final Map<AMQShortString, AMQConsumer> _tag2SubscriptionTargetMap = new HashMap<>();
   /**
    * The current message - which may be partial in the sense that not all frames have been received
    * yet - which has been received by this channel. As the frames are received the message gets
@@ -98,6 +102,7 @@ public class AMQChannel implements ServerChannelMethodProcessor {
     _channelId = channelId;
     _creditManager =
         new Pre0_10CreditManager(0L, 0L, DEFAULT_HIGH_PREFETCH_LIMIT, DEFAULT_BATCH_LIMIT);
+    _unacknowledgedMessageMap = new UnacknowledgedMessageMap(_creditManager);
   }
 
   @Override
@@ -419,7 +424,7 @@ public class AMQChannel implements ServerChannelMethodProcessor {
           }
         } else {
 
-          queue = new Queue(queueName.toString(), lifetimePolicy, exclusivityPolicy);
+          queue = new Queue(lifetimePolicy, exclusivityPolicy, queueName.toString());
           addQueue(queue);
           _connection
               .getVhost()
@@ -489,7 +494,10 @@ public class AMQChannel implements ServerChannelMethodProcessor {
               + global
               + " ]");
     }
+    // TODO: per consumer QoS. Warning: RabbitMQ has reinterpreted the "global" field of AMQP.
     _creditManager.setCreditLimits(prefetchSize, prefetchCount);
+
+    _tag2SubscriptionTargetMap.values().forEach(AMQConsumer::unblock);
 
     MethodRegistry methodRegistry = _connection.getMethodRegistry();
     AMQMethodBody responseBody = methodRegistry.createBasicQosOkBody();
@@ -574,7 +582,7 @@ public class AMQChannel implements ServerChannelMethodProcessor {
           AMQMethodBody responseBody = methodRegistry.createBasicConsumeOkBody(consumerTag1);
           _connection.writeFrame(responseBody.generateFrame(_channelId));
         }
-        ConsumerTarget consumer = new ConsumerTarget(this, consumerTag1, queue);
+        AMQConsumer consumer = new AMQConsumer(this, consumerTag1, queue, noAck);
         queue.addConsumer(consumer, exclusive);
         _tag2SubscriptionTargetMap.put(consumerTag1, consumer);
       }
@@ -684,18 +692,28 @@ public class AMQChannel implements ServerChannelMethodProcessor {
                 + "' as it already has an existing exclusive consumer",
             _channelId);
       } else {
-        Message<byte[]> message = queue.receive(noAck);
-        if (message != null) {
+        Queue.MessageResponse messageResponse = queue.receive();
+        if (messageResponse != null) {
+          Message<byte[]> message = messageResponse.getMessage();
+          Binding binding = messageResponse.getBinding();
+          long deliveryTag = getNextDeliveryTag();
+          ContentBody contentBody = new ContentBody(ByteBuffer.wrap(message.getData()));
           _connection
               .getProtocolOutputConverter()
               .writeGetOk(
                   MessageUtils.getMessagePublishInfo(message),
-                  new ContentBody(ByteBuffer.wrap(message.getData())),
+                  contentBody,
                   MessageUtils.getContentHeaderBody(message),
                   message.getRedeliveryCount() > 0,
                   _channelId,
-                  getNextDeliveryTag(),
+                  deliveryTag,
                   queue.getQueueDepthMessages());
+          if (noAck) {
+            binding.ackMessage(message);
+          } else {
+            _unacknowledgedMessageMap.add(
+                deliveryTag, message.getMessageId(), binding, contentBody.getSize());
+          }
         } else {
           MethodRegistry methodRegistry = _connection.getMethodRegistry();
           BasicGetEmptyBody responseBody = methodRegistry.createBasicGetEmptyBody(null);
@@ -982,7 +1000,7 @@ public class AMQChannel implements ServerChannelMethodProcessor {
       LOGGER.debug("Unsubscribing consumer '{}' on channel {}", consumerTag, this);
     }
 
-    ConsumerTarget target = _tag2SubscriptionTargetMap.remove(consumerTag);
+    AMQConsumer target = _tag2SubscriptionTargetMap.remove(consumerTag);
     if (target != null) {
       target.close();
       return true;
@@ -1016,6 +1034,22 @@ public class AMQChannel implements ServerChannelMethodProcessor {
 
   private void unsubscribeAllConsumers() {
     // TODO unsubscribeAllConsumers
+  }
+
+  /** Add a message to the channel-based list of unacknowledged messages */
+  public void addUnacknowledgedMessage(
+      MessageId messageId, long deliveryTag, Binding binding, int size) {
+    if (LOGGER.isDebugEnabled()) {
+      LOGGER.debug(
+          "Adding unacked message("
+              + Arrays.toString(messageId.toByteArray())
+              + " DT:"
+              + deliveryTag
+              + ") for "
+              + binding);
+    }
+
+    _unacknowledgedMessageMap.add(deliveryTag, messageId, binding, size);
   }
 
   private void messageWithSubject(final LogMessage operationalLogMessage) {
@@ -1076,5 +1110,9 @@ public class AMQChannel implements ServerChannelMethodProcessor {
     } catch (PulsarClientException e) {
       throw new RuntimeException(e);
     }
+  }
+
+  public FlowCreditManager getCreditManager() {
+    return _creditManager;
   }
 }

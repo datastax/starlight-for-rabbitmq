@@ -91,4 +91,9 @@ public class Binding {
   public CompletableFuture<Void> ackMessage(Message<byte[]> message) {
     return pulsarConsumer.acknowledgeAsync(message);
   }
+
+  @Override
+  public String toString() {
+    return "Binding{" + "exchange=" + exchange.getName() + ", queue=" + queue.getName() + '}';
+  }
 }

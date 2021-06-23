@@ -46,6 +46,7 @@ import org.apache.qpid.server.protocol.v0_8.AMQShortString;
 import org.apache.qpid.server.protocol.v0_8.FieldTable;
 import org.apache.qpid.server.protocol.v0_8.FieldTableFactory;
 import org.apache.qpid.server.protocol.v0_8.transport.AMQBody;
+import org.apache.qpid.server.protocol.v0_8.transport.AMQDataBlock;
 import org.apache.qpid.server.protocol.v0_8.transport.AMQFrame;
 import org.apache.qpid.server.protocol.v0_8.transport.BasicAckBody;
 import org.apache.qpid.server.protocol.v0_8.transport.BasicCancelBody;
@@ -58,6 +59,8 @@ import org.apache.qpid.server.protocol.v0_8.transport.BasicGetBody;
 import org.apache.qpid.server.protocol.v0_8.transport.BasicGetEmptyBody;
 import org.apache.qpid.server.protocol.v0_8.transport.BasicGetOkBody;
 import org.apache.qpid.server.protocol.v0_8.transport.BasicPublishBody;
+import org.apache.qpid.server.protocol.v0_8.transport.BasicQosBody;
+import org.apache.qpid.server.protocol.v0_8.transport.BasicQosOkBody;
 import org.apache.qpid.server.protocol.v0_8.transport.ChannelCloseBody;
 import org.apache.qpid.server.protocol.v0_8.transport.ChannelCloseOkBody;
 import org.apache.qpid.server.protocol.v0_8.transport.ConfirmSelectBody;
@@ -231,8 +234,7 @@ public class AMQChannelTest extends AbstractBaseTest {
   // TODO: test ExchangeDelete with ifUnused when bindings implemented
   // @Test
   void testReceiveExchangeDeleteIfUnused() {
-    openConnection();
-    sendChannelOpen();
+    openChannel();
 
     AMQFrame frame = sendExchangeDelete(TEST_EXCHANGE, true);
 
@@ -772,6 +774,7 @@ public class AMQChannelTest extends AbstractBaseTest {
     when(message.getTopicName()).thenReturn(TEST_EXCHANGE + "$$" + TEST_QUEUE);
     when(message.getRedeliveryCount()).thenReturn(0);
 
+    // Binding always has a message ready for delivery
     when(consumer.receiveAsync()).thenReturn(CompletableFuture.completedFuture(message));
 
     openChannel();
@@ -787,7 +790,7 @@ public class AMQChannelTest extends AbstractBaseTest {
 
     assertNotNull(compositeAMQBodyBlock);
 
-    Object frame = sendBasicCancel(TEST_CONSUMER_TAG);
+    AMQDataBlock frame = sendBasicCancel(TEST_CONSUMER_TAG);
 
     long now = System.currentTimeMillis();
     while (System.currentTimeMillis() - now < 5000 && !(frame instanceof AMQFrame)) {
@@ -805,9 +808,67 @@ public class AMQChannelTest extends AbstractBaseTest {
     assertNull(channel.readOutbound());
   }
 
+  @Test
+  void testReceiveBasicQos() throws Exception {
+    MessageImpl message = mock(MessageImpl.class);
+    when(message.getData()).thenReturn(TEST_MESSAGE);
+    when(message.getTopicName()).thenReturn(TEST_EXCHANGE + "$$" + TEST_QUEUE);
+    when(message.getRedeliveryCount()).thenReturn(0);
+
+    // Binding always has a message ready for delivery
+    when(consumer.receiveAsync()).thenReturn(CompletableFuture.completedFuture(message));
+
+    openChannel();
+
+    AMQFrame frame = sendBasicQos(0, 2);
+    assertIsBasicQosOk(frame);
+
+    sendQueueDeclare();
+
+    sendBasicConsume(null, TEST_QUEUE, false);
+
+    // Check that only 2 messages are received
+    Thread.sleep(1000);
+    assertTrue(channel.readOutbound() instanceof ProtocolOutputConverter.CompositeAMQBodyBlock);
+    assertTrue(channel.readOutbound() instanceof ProtocolOutputConverter.CompositeAMQBodyBlock);
+    assertNull(channel.readOutbound());
+
+    AMQDataBlock read = sendBasicQos(0, 3);
+
+    // Check that consumption resumed and only 1 message was received
+    Thread.sleep(1000);
+    assertTrue(read instanceof ProtocolOutputConverter.CompositeAMQBodyBlock);
+    assertIsBasicQosOk(channel.readOutbound());
+    assertNull(channel.readOutbound());
+
+    // Limit by size. 3 unacked messages were already sent so we should only receive one more
+    // message
+    read = sendBasicQos(TEST_MESSAGE.length * 4L, 0);
+
+    Thread.sleep(1000);
+    assertTrue(read instanceof ProtocolOutputConverter.CompositeAMQBodyBlock);
+    assertIsBasicQosOk(channel.readOutbound());
+    assertNull(channel.readOutbound());
+
+    read = sendBasicQos(0, 0);
+
+    // Check that consumption resumes without limits
+    Thread.sleep(1000);
+    assertTrue(read instanceof ProtocolOutputConverter.CompositeAMQBodyBlock);
+    assertIsBasicQosOk(channel.readOutbound());
+    for (int i = 0; i < 10; i++) {
+      assertTrue(channel.readOutbound() instanceof ProtocolOutputConverter.CompositeAMQBodyBlock);
+    }
+  }
+
   private void openChannel() {
     openConnection();
     sendChannelOpen();
+  }
+
+  private <T> T sendBasicQos(long prefetchSize, int prefetchCount) {
+    BasicQosBody basicQosBody = new BasicQosBody(prefetchSize, prefetchCount, true);
+    return exchangeData(basicQosBody.generateFrame(CHANNEL_ID));
   }
 
   private <T> T sendBasicCancel(String consumerTag) {
@@ -937,5 +998,10 @@ public class AMQChannelTest extends AbstractBaseTest {
     assertTrue(frame.getBodyFrame() instanceof QueueDeclareOkBody);
     QueueDeclareOkBody queueDeclareOkBody = (QueueDeclareOkBody) frame.getBodyFrame();
     assertEquals(TEST_QUEUE, queueDeclareOkBody.getQueue().toString());
+  }
+
+  private void assertIsBasicQosOk(AMQDataBlock read) {
+    assertTrue(read instanceof AMQFrame);
+    assertTrue(((AMQFrame) read).getBodyFrame() instanceof BasicQosOkBody);
   }
 }
