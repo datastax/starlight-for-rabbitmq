@@ -845,40 +845,8 @@ public class AMQChannel implements ServerChannelMethodProcessor {
               + requeue
               + " ]");
     }
-
     // Note : A delivery tag equal to 0 nacks all messages in RabbitMQ, not in Qpid
-    Collection<MessageConsumerAssociation> nackedMessages =
-        _unacknowledgedMessageMap.acknowledge(
-            deliveryTag == 0 && multiple ? _deliveryTag : deliveryTag, multiple);
-
-    for (MessageConsumerAssociation unackedMessageConsumerAssociation : nackedMessages) {
-      if (LOGGER.isDebugEnabled()) {
-        LOGGER.debug(
-            "Nack-ing: DT:"
-                + deliveryTag
-                + "-"
-                + Arrays.toString(unackedMessageConsumerAssociation.getMessageId().toByteArray())
-                + ": Requeue:"
-                + requeue);
-      }
-
-      if (requeue) {
-        unackedMessageConsumerAssociation
-            .getBinding()
-            .nackMessage(unackedMessageConsumerAssociation.getMessageId());
-      } else {
-        // TODO: send message to DLQ
-        unackedMessageConsumerAssociation
-            .getBinding()
-            .ackMessage(unackedMessageConsumerAssociation.getMessageId());
-      }
-    }
-    if (!nackedMessages.isEmpty()) {
-      unblockConsumers();
-    } else {
-      // Note: This error is sent by RabbitMQ but not by Qpid
-      closeChannel(ErrorCodes.IN_USE, "precondition-failed: Delivery tag '%d' is not valid.");
-    }
+    nackMessages(deliveryTag == 0 && multiple ? _deliveryTag : deliveryTag, multiple, requeue);
   }
 
   @Override
@@ -912,7 +880,54 @@ public class AMQChannel implements ServerChannelMethodProcessor {
   }
 
   @Override
-  public void receiveBasicReject(long deliveryTag, boolean requeue) {}
+  public void receiveBasicReject(long deliveryTag, boolean requeue) {
+    if (LOGGER.isDebugEnabled()) {
+      LOGGER.debug(
+          "RECV["
+              + _channelId
+              + "] BasicReject["
+              + " deliveryTag: "
+              + deliveryTag
+              + " requeue: "
+              + requeue
+              + " ]");
+    }
+    nackMessages(deliveryTag, false, requeue);
+  }
+
+  private void nackMessages(long deliveryTag, boolean multiple, boolean requeue) {
+    Collection<MessageConsumerAssociation> nackedMessages =
+        _unacknowledgedMessageMap.acknowledge(deliveryTag, multiple);
+
+    for (MessageConsumerAssociation unackedMessageConsumerAssociation : nackedMessages) {
+      if (LOGGER.isDebugEnabled()) {
+        LOGGER.debug(
+            "Nack-ing: DT:"
+                + deliveryTag
+                + "-"
+                + Arrays.toString(unackedMessageConsumerAssociation.getMessageId().toByteArray())
+                + ": Requeue:"
+                + requeue);
+      }
+
+      if (requeue) {
+        unackedMessageConsumerAssociation
+            .getBinding()
+            .nackMessage(unackedMessageConsumerAssociation.getMessageId());
+      } else {
+        // TODO: send message to DLQ
+        unackedMessageConsumerAssociation
+            .getBinding()
+            .ackMessage(unackedMessageConsumerAssociation.getMessageId());
+      }
+    }
+    if (!nackedMessages.isEmpty()) {
+      unblockConsumers();
+    } else {
+      // Note: This error is sent by RabbitMQ but not by Qpid
+      closeChannel(ErrorCodes.IN_USE, "precondition-failed: Delivery tag '%d' is not valid.");
+    }
+  }
 
   @Override
   public void receiveTxSelect() {}
