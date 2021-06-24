@@ -19,7 +19,10 @@ import static org.apache.qpid.server.protocol.v0_8.transport.ConnectionCloseOkBo
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Matchers.any;
+import static org.mockito.Matchers.anyBoolean;
 import static org.mockito.Matchers.anyListOf;
+import static org.mockito.Matchers.anyLong;
 import static org.mockito.Matchers.anyString;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
@@ -31,9 +34,11 @@ import io.netty.buffer.ByteBufAllocator;
 import io.netty.channel.embedded.EmbeddedChannel;
 import java.util.Collections;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 import org.apache.pulsar.client.api.ConsumerBuilder;
 import org.apache.pulsar.client.api.ProducerBuilder;
 import org.apache.pulsar.client.api.PulsarClient;
+import org.apache.pulsar.client.api.SubscriptionType;
 import org.apache.pulsar.client.impl.ConsumerBase;
 import org.apache.pulsar.client.impl.ProducerBase;
 import org.apache.qpid.server.bytebuffer.QpidByteBuffer;
@@ -72,12 +77,16 @@ public class AbstractBaseTest {
     ProducerBuilder producerBuilder = mock(ProducerBuilder.class);
     when(pulsarClient.newProducer()).thenReturn(producerBuilder);
     when(producerBuilder.topic(anyString())).thenReturn(producerBuilder);
+    when(producerBuilder.enableBatching(anyBoolean())).thenReturn(producerBuilder);
     when(producerBuilder.create()).thenReturn(producer);
 
     ConsumerBuilder consumerBuilder = mock(ConsumerBuilder.class);
     when(pulsarClient.newConsumer()).thenReturn(consumerBuilder);
     when(consumerBuilder.topics(anyListOf(String.class))).thenReturn(consumerBuilder);
     when(consumerBuilder.subscriptionName(anyString())).thenReturn(consumerBuilder);
+    when(consumerBuilder.subscriptionType(any(SubscriptionType.class))).thenReturn(consumerBuilder);
+    when(consumerBuilder.negativeAckRedeliveryDelay(anyLong(), any(TimeUnit.class)))
+        .thenReturn(consumerBuilder);
     when(consumerBuilder.subscribe()).thenReturn(consumer);
 
     when(consumer.receiveAsync()).thenReturn(new CompletableFuture<>());
@@ -85,10 +94,14 @@ public class AbstractBaseTest {
     doReturn(pulsarClient).when(gatewayService).getPulsarClient();
   }
 
-  protected <T> T exchangeData(AMQDataBlock data) {
+  protected void sendData(AMQDataBlock data) {
     ByteBuf byteBuf = ByteBufAllocator.DEFAULT.buffer();
     data.writePayload(new NettyByteBufferSender(byteBuf));
     channel.writeInbound(byteBuf);
+  }
+
+  protected <T> T exchangeData(AMQDataBlock data) {
+    sendData(data);
     return channel.readOutbound();
   }
 

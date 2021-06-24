@@ -19,12 +19,14 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import org.apache.pulsar.client.api.Consumer;
 import org.apache.pulsar.client.api.Message;
 import org.apache.pulsar.client.api.MessageId;
 import org.apache.pulsar.client.api.PulsarClient;
 import org.apache.pulsar.client.api.PulsarClientException;
+import org.apache.pulsar.client.api.SubscriptionType;
 
 public class Binding {
 
@@ -67,16 +69,19 @@ public class Binding {
             .stream()
             .map(key -> Exchange.getTopicName(vHost, exchange.getName(), routingKey).toString())
             .collect(Collectors.toList());
-    // TODO: make this part async
     if (pulsarConsumer != null) {
       // TODO: verify that it also removes the subscription
       pulsarConsumer.close();
     }
+    // TODO: make this part async
     pulsarConsumer =
         pulsarClient
             .newConsumer()
             .topics(topics)
+            // TODO: subscription name
             .subscriptionName(exchange.getName() + "-" + queue.getName() + "-" + UUID.randomUUID())
+            .subscriptionType(SubscriptionType.Shared)
+            .negativeAckRedeliveryDelay(0, TimeUnit.MILLISECONDS)
             .subscribe();
     if (lastReceivedmessageId != null) {
       pulsarConsumer.seek(lastReceivedmessageId);
@@ -90,6 +95,14 @@ public class Binding {
 
   public CompletableFuture<Void> ackMessage(Message<byte[]> message) {
     return pulsarConsumer.acknowledgeAsync(message);
+  }
+
+  public CompletableFuture<Void> ackMessage(MessageId messageId) {
+    return pulsarConsumer.acknowledgeAsync(messageId);
+  }
+
+  public void nackMessage(MessageId messageId) {
+    pulsarConsumer.negativeAcknowledge(messageId);
   }
 
   @Override

@@ -23,6 +23,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Matchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -34,6 +35,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.concurrent.CompletableFuture;
 import org.apache.commons.codec.binary.Base64;
+import org.apache.pulsar.client.api.MessageId;
 import org.apache.pulsar.client.api.PulsarClientException;
 import org.apache.pulsar.client.api.TypedMessageBuilder;
 import org.apache.pulsar.client.impl.MessageIdImpl;
@@ -58,6 +60,7 @@ import org.apache.qpid.server.protocol.v0_8.transport.BasicDeliverBody;
 import org.apache.qpid.server.protocol.v0_8.transport.BasicGetBody;
 import org.apache.qpid.server.protocol.v0_8.transport.BasicGetEmptyBody;
 import org.apache.qpid.server.protocol.v0_8.transport.BasicGetOkBody;
+import org.apache.qpid.server.protocol.v0_8.transport.BasicNackBody;
 import org.apache.qpid.server.protocol.v0_8.transport.BasicPublishBody;
 import org.apache.qpid.server.protocol.v0_8.transport.BasicQosBody;
 import org.apache.qpid.server.protocol.v0_8.transport.BasicQosOkBody;
@@ -696,9 +699,7 @@ public class AMQChannelTest extends AbstractBaseTest {
 
   @Test
   void testConsumerDeliver() throws Exception {
-    MessageImpl message = mock(MessageImpl.class);
-    when(message.getData()).thenReturn(TEST_MESSAGE);
-    when(message.getTopicName()).thenReturn(TEST_EXCHANGE + "$$" + TEST_QUEUE);
+    MessageImpl message = createMessageMock();
     when(message.getRedeliveryCount()).thenReturn(2);
 
     BasicContentHeaderProperties props = new BasicContentHeaderProperties();
@@ -769,10 +770,7 @@ public class AMQChannelTest extends AbstractBaseTest {
 
   @Test
   void testReceiveBasicCancel() throws Exception {
-    MessageImpl message = mock(MessageImpl.class);
-    when(message.getData()).thenReturn(TEST_MESSAGE);
-    when(message.getTopicName()).thenReturn(TEST_EXCHANGE + "$$" + TEST_QUEUE);
-    when(message.getRedeliveryCount()).thenReturn(0);
+    MessageImpl message = createMessageMock();
 
     // Binding always has a message ready for delivery
     when(consumer.receiveAsync()).thenReturn(CompletableFuture.completedFuture(message));
@@ -790,7 +788,7 @@ public class AMQChannelTest extends AbstractBaseTest {
 
     assertNotNull(compositeAMQBodyBlock);
 
-    AMQDataBlock frame = sendBasicCancel(TEST_CONSUMER_TAG);
+    AMQDataBlock frame = sendBasicCancel();
 
     long now = System.currentTimeMillis();
     while (System.currentTimeMillis() - now < 5000 && !(frame instanceof AMQFrame)) {
@@ -804,61 +802,223 @@ public class AMQChannelTest extends AbstractBaseTest {
     assertEquals(TEST_CONSUMER_TAG, ((BasicCancelOkBody) body).getConsumerTag().toString());
 
     // Check nothing is received anymore
-    Thread.sleep(1000);
+    // TODO: flaky test ! Do something !!
+    Thread.sleep(100);
     assertNull(channel.readOutbound());
   }
 
   @Test
   void testReceiveBasicQos() throws Exception {
-    MessageImpl message = mock(MessageImpl.class);
-    when(message.getData()).thenReturn(TEST_MESSAGE);
-    when(message.getTopicName()).thenReturn(TEST_EXCHANGE + "$$" + TEST_QUEUE);
-    when(message.getRedeliveryCount()).thenReturn(0);
+    MessageImpl message = createMessageMock();
 
     // Binding always has a message ready for delivery
     when(consumer.receiveAsync()).thenReturn(CompletableFuture.completedFuture(message));
 
     openChannel();
 
-    AMQFrame frame = sendBasicQos(0, 2);
-    assertIsBasicQosOk(frame);
+    sendBasicQos(0, 2);
+    assertIsBasicQosOk(channel.readOutbound());
 
     sendQueueDeclare();
 
     sendBasicConsume(null, TEST_QUEUE, false);
 
     // Check that only 2 messages are received
-    Thread.sleep(1000);
+    Thread.sleep(100);
     assertTrue(channel.readOutbound() instanceof ProtocolOutputConverter.CompositeAMQBodyBlock);
     assertTrue(channel.readOutbound() instanceof ProtocolOutputConverter.CompositeAMQBodyBlock);
     assertNull(channel.readOutbound());
 
-    AMQDataBlock read = sendBasicQos(0, 3);
+    sendBasicQos(0, 3);
 
     // Check that consumption resumed and only 1 message was received
-    Thread.sleep(1000);
-    assertTrue(read instanceof ProtocolOutputConverter.CompositeAMQBodyBlock);
+    Thread.sleep(100);
+    assertTrue(channel.readOutbound() instanceof ProtocolOutputConverter.CompositeAMQBodyBlock);
     assertIsBasicQosOk(channel.readOutbound());
     assertNull(channel.readOutbound());
 
     // Limit by size. 3 unacked messages were already sent so we should only receive one more
     // message
-    read = sendBasicQos(TEST_MESSAGE.length * 4L, 0);
+    sendBasicQos(TEST_MESSAGE.length * 4L, 0);
 
-    Thread.sleep(1000);
-    assertTrue(read instanceof ProtocolOutputConverter.CompositeAMQBodyBlock);
+    Thread.sleep(100);
+    assertTrue(channel.readOutbound() instanceof ProtocolOutputConverter.CompositeAMQBodyBlock);
     assertIsBasicQosOk(channel.readOutbound());
     assertNull(channel.readOutbound());
 
-    read = sendBasicQos(0, 0);
+    sendBasicQos(0, 0);
 
     // Check that consumption resumes without limits
-    Thread.sleep(1000);
-    assertTrue(read instanceof ProtocolOutputConverter.CompositeAMQBodyBlock);
+    Thread.sleep(100);
+    assertTrue(channel.readOutbound() instanceof ProtocolOutputConverter.CompositeAMQBodyBlock);
     assertIsBasicQosOk(channel.readOutbound());
     for (int i = 0; i < 10; i++) {
       assertTrue(channel.readOutbound() instanceof ProtocolOutputConverter.CompositeAMQBodyBlock);
     }
+  }
+
+  @Test
+  void testReceiveAck() throws Exception {
+    MessageImpl message = createMessageMock();
+
+    // Binding always has a message ready for delivery
+    when(consumer.receiveAsync()).thenReturn(CompletableFuture.completedFuture(message));
+
+    openChannel();
+    sendBasicQos(0, 3);
+    assertIsBasicQosOk(channel.readOutbound());
+    sendQueueDeclare();
+    sendBasicConsume(null, TEST_QUEUE, false);
+
+    // Check that only 3 messages are received
+    Thread.sleep(100);
+    assertTrue(channel.readOutbound() instanceof ProtocolOutputConverter.CompositeAMQBodyBlock);
+    assertTrue(channel.readOutbound() instanceof ProtocolOutputConverter.CompositeAMQBodyBlock);
+    assertTrue(channel.readOutbound() instanceof ProtocolOutputConverter.CompositeAMQBodyBlock);
+    assertNull(channel.readOutbound());
+
+    sendBasicAck(2, false);
+
+    // Check that one more message is received after acking one message
+    Thread.sleep(100);
+    assertTrue(channel.readOutbound() instanceof ProtocolOutputConverter.CompositeAMQBodyBlock);
+    assertNull(channel.readOutbound());
+
+    verify(consumer).acknowledgeAsync(MessageId.latest);
+  }
+
+  @Test
+  void testReceiveAckMultiple() throws Exception {
+    MessageImpl message = createMessageMock();
+
+    // Binding always has a message ready for delivery
+    when(consumer.receiveAsync()).thenReturn(CompletableFuture.completedFuture(message));
+
+    openChannel();
+    sendBasicQos(0, 3);
+    assertIsBasicQosOk(channel.readOutbound());
+    sendQueueDeclare();
+    sendBasicConsume(null, TEST_QUEUE, false);
+
+    // Check that only 3 messages are received
+    Thread.sleep(100);
+    assertTrue(channel.readOutbound() instanceof ProtocolOutputConverter.CompositeAMQBodyBlock);
+    assertTrue(channel.readOutbound() instanceof ProtocolOutputConverter.CompositeAMQBodyBlock);
+    assertTrue(channel.readOutbound() instanceof ProtocolOutputConverter.CompositeAMQBodyBlock);
+    assertNull(channel.readOutbound());
+
+    sendBasicAck(2, true);
+
+    // Check that 2 more messages are received after acking multiple
+    Thread.sleep(100);
+    assertTrue(channel.readOutbound() instanceof ProtocolOutputConverter.CompositeAMQBodyBlock);
+    assertTrue(channel.readOutbound() instanceof ProtocolOutputConverter.CompositeAMQBodyBlock);
+    assertNull(channel.readOutbound());
+
+    verify(consumer, times(2)).acknowledgeAsync(MessageId.latest);
+  }
+
+  @Test
+  void testReceiveAckInvalidDeliveryTag() {
+    openChannel();
+    sendBasicQos(0, 1);
+    assertIsBasicQosOk(channel.readOutbound());
+    sendQueueDeclare();
+    sendBasicConsume(null, TEST_QUEUE, false);
+
+    sendBasicAck(1, true);
+    assertIsChannelCloseFrame(channel.readOutbound(), ErrorCodes.IN_USE);
+  }
+
+  @Test
+  void testReceiveNack() throws Exception {
+    MessageImpl message = createMessageMock();
+
+    // Binding always has a message ready for delivery
+    when(consumer.receiveAsync()).thenReturn(CompletableFuture.completedFuture(message));
+
+    openChannel();
+    sendBasicQos(0, 3);
+    assertIsBasicQosOk(channel.readOutbound());
+    sendQueueDeclare();
+    sendBasicConsume(null, TEST_QUEUE, false);
+
+    // Check that only 3 messages are received
+    Thread.sleep(100);
+    assertTrue(channel.readOutbound() instanceof ProtocolOutputConverter.CompositeAMQBodyBlock);
+    assertTrue(channel.readOutbound() instanceof ProtocolOutputConverter.CompositeAMQBodyBlock);
+    assertTrue(channel.readOutbound() instanceof ProtocolOutputConverter.CompositeAMQBodyBlock);
+    assertNull(channel.readOutbound());
+
+    sendBasicNack(2, false, false);
+
+    // Check that one more message is received after acking one message
+    Thread.sleep(100);
+    assertTrue(channel.readOutbound() instanceof ProtocolOutputConverter.CompositeAMQBodyBlock);
+    assertNull(channel.readOutbound());
+
+    verify(consumer).acknowledgeAsync(MessageId.latest);
+  }
+
+  @Test
+  void testReceiveNackMultiple() throws Exception {
+    MessageImpl message = createMessageMock();
+
+    // Binding always has a message ready for delivery
+    when(consumer.receiveAsync()).thenReturn(CompletableFuture.completedFuture(message));
+
+    openChannel();
+    sendBasicQos(0, 3);
+    assertIsBasicQosOk(channel.readOutbound());
+    sendQueueDeclare();
+    sendBasicConsume(null, TEST_QUEUE, false);
+
+    // Check that only 3 messages are received
+    Thread.sleep(100);
+    assertTrue(channel.readOutbound() instanceof ProtocolOutputConverter.CompositeAMQBodyBlock);
+    assertTrue(channel.readOutbound() instanceof ProtocolOutputConverter.CompositeAMQBodyBlock);
+    assertTrue(channel.readOutbound() instanceof ProtocolOutputConverter.CompositeAMQBodyBlock);
+    assertNull(channel.readOutbound());
+
+    sendBasicNack(2, true, false);
+
+    // Check that 2 more messages are received after acking multiple
+    Thread.sleep(100);
+    assertTrue(channel.readOutbound() instanceof ProtocolOutputConverter.CompositeAMQBodyBlock);
+    assertTrue(channel.readOutbound() instanceof ProtocolOutputConverter.CompositeAMQBodyBlock);
+    assertNull(channel.readOutbound());
+
+    verify(consumer, times(2)).acknowledgeAsync(MessageId.latest);
+  }
+
+  @Test
+  void testReceiveNackRequeue() throws Exception {
+    MessageImpl message = createMessageMock();
+
+    // Binding always has a message ready for delivery
+    when(consumer.receiveAsync()).thenReturn(CompletableFuture.completedFuture(message));
+
+    openChannel();
+    sendBasicQos(0, 3);
+    assertIsBasicQosOk(channel.readOutbound());
+    sendQueueDeclare();
+    sendBasicConsume(null, TEST_QUEUE, false);
+
+    // Check that only 3 messages are received
+    Thread.sleep(100);
+    assertTrue(channel.readOutbound() instanceof ProtocolOutputConverter.CompositeAMQBodyBlock);
+    assertTrue(channel.readOutbound() instanceof ProtocolOutputConverter.CompositeAMQBodyBlock);
+    assertTrue(channel.readOutbound() instanceof ProtocolOutputConverter.CompositeAMQBodyBlock);
+    assertNull(channel.readOutbound());
+
+    sendBasicNack(2, false, true);
+
+    // Check that one more message is received after acking one message
+    Thread.sleep(100);
+    assertTrue(channel.readOutbound() instanceof ProtocolOutputConverter.CompositeAMQBodyBlock);
+    assertNull(channel.readOutbound());
+
+    verify(consumer).negativeAcknowledge(MessageId.latest);
   }
 
   private void openChannel() {
@@ -866,14 +1026,24 @@ public class AMQChannelTest extends AbstractBaseTest {
     sendChannelOpen();
   }
 
-  private <T> T sendBasicQos(long prefetchSize, int prefetchCount) {
-    BasicQosBody basicQosBody = new BasicQosBody(prefetchSize, prefetchCount, true);
-    return exchangeData(basicQosBody.generateFrame(CHANNEL_ID));
+  private void sendBasicNack(long deliveryTag, boolean multiple, boolean requeue) {
+    BasicNackBody basicNackBody = new BasicNackBody(deliveryTag, multiple, requeue);
+    sendData(basicNackBody.generateFrame(CHANNEL_ID));
   }
 
-  private <T> T sendBasicCancel(String consumerTag) {
+  private void sendBasicAck(long deliveryTag, boolean multiple) {
+    BasicAckBody basicAckBody = new BasicAckBody(deliveryTag, multiple);
+    sendData(basicAckBody.generateFrame(CHANNEL_ID));
+  }
+
+  private void sendBasicQos(long prefetchSize, int prefetchCount) {
+    BasicQosBody basicQosBody = new BasicQosBody(prefetchSize, prefetchCount, true);
+    sendData(basicQosBody.generateFrame(CHANNEL_ID));
+  }
+
+  private <T> T sendBasicCancel() {
     BasicCancelBody basicConsumeBody =
-        new BasicCancelBody(AMQShortString.createAMQShortString(consumerTag), false);
+        new BasicCancelBody(AMQShortString.createAMQShortString(TEST_CONSUMER_TAG), false);
     return exchangeData(basicConsumeBody.generateFrame(CHANNEL_ID));
   }
 
@@ -1003,5 +1173,14 @@ public class AMQChannelTest extends AbstractBaseTest {
   private void assertIsBasicQosOk(AMQDataBlock read) {
     assertTrue(read instanceof AMQFrame);
     assertTrue(((AMQFrame) read).getBodyFrame() instanceof BasicQosOkBody);
+  }
+
+  private MessageImpl createMessageMock() {
+    MessageImpl message = mock(MessageImpl.class);
+    when(message.getData()).thenReturn(TEST_MESSAGE);
+    when(message.getTopicName()).thenReturn(TEST_EXCHANGE + "$$" + TEST_QUEUE);
+    when(message.getRedeliveryCount()).thenReturn(0);
+    when(message.getMessageId()).thenReturn(MessageId.latest);
+    return message;
   }
 }

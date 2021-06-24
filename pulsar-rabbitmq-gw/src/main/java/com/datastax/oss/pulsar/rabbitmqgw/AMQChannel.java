@@ -20,6 +20,7 @@ import static org.apache.qpid.server.transport.util.Functions.hex;
 import java.nio.ByteBuffer;
 import java.util.Arrays;
 import java.util.Base64;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
@@ -497,11 +498,15 @@ public class AMQChannel implements ServerChannelMethodProcessor {
     // TODO: per consumer QoS. Warning: RabbitMQ has reinterpreted the "global" field of AMQP.
     _creditManager.setCreditLimits(prefetchSize, prefetchCount);
 
-    _tag2SubscriptionTargetMap.values().forEach(AMQConsumer::unblock);
+    unblockConsumers();
 
     MethodRegistry methodRegistry = _connection.getMethodRegistry();
     AMQMethodBody responseBody = methodRegistry.createBasicQosOkBody();
     _connection.writeFrame(responseBody.generateFrame(getChannelId()));
+  }
+
+  private void unblockConsumers() {
+    _tag2SubscriptionTargetMap.values().forEach(AMQConsumer::unblock);
   }
 
   @Override
@@ -826,10 +831,85 @@ public class AMQChannel implements ServerChannelMethodProcessor {
   }
 
   @Override
-  public void receiveBasicNack(long deliveryTag, boolean multiple, boolean requeue) {}
+  public void receiveBasicNack(long deliveryTag, boolean multiple, boolean requeue) {
+    if (LOGGER.isDebugEnabled()) {
+      LOGGER.debug(
+          "RECV["
+              + _channelId
+              + "] BasicNack["
+              + " deliveryTag: "
+              + deliveryTag
+              + " multiple: "
+              + multiple
+              + " requeue: "
+              + requeue
+              + " ]");
+    }
+
+    // Note : A delivery tag equal to 0 nacks all messages in RabbitMQ, not in Qpid
+    Collection<MessageConsumerAssociation> nackedMessages =
+        _unacknowledgedMessageMap.acknowledge(
+            deliveryTag == 0 && multiple ? _deliveryTag : deliveryTag, multiple);
+
+    for (MessageConsumerAssociation unackedMessageConsumerAssociation : nackedMessages) {
+      if (LOGGER.isDebugEnabled()) {
+        LOGGER.debug(
+            "Nack-ing: DT:"
+                + deliveryTag
+                + "-"
+                + Arrays.toString(unackedMessageConsumerAssociation.getMessageId().toByteArray())
+                + ": Requeue:"
+                + requeue);
+      }
+
+      if (requeue) {
+        unackedMessageConsumerAssociation
+            .getBinding()
+            .nackMessage(unackedMessageConsumerAssociation.getMessageId());
+      } else {
+        // TODO: send message to DLQ
+        unackedMessageConsumerAssociation
+            .getBinding()
+            .ackMessage(unackedMessageConsumerAssociation.getMessageId());
+      }
+    }
+    if (!nackedMessages.isEmpty()) {
+      unblockConsumers();
+    } else {
+      // Note: This error is sent by RabbitMQ but not by Qpid
+      closeChannel(ErrorCodes.IN_USE, "precondition-failed: Delivery tag '%d' is not valid.");
+    }
+  }
 
   @Override
-  public void receiveBasicAck(long deliveryTag, boolean multiple) {}
+  public void receiveBasicAck(long deliveryTag, boolean multiple) {
+    if (LOGGER.isDebugEnabled()) {
+      LOGGER.debug(
+          "RECV["
+              + _channelId
+              + "] BasicAck["
+              + " deliveryTag: "
+              + deliveryTag
+              + " multiple: "
+              + multiple
+              + " ]");
+    }
+
+    Collection<MessageConsumerAssociation> ackedMessages =
+        _unacknowledgedMessageMap.acknowledge(deliveryTag, multiple);
+
+    if (!ackedMessages.isEmpty()) {
+      ackedMessages.forEach(
+          messageConsumerAssociation ->
+              messageConsumerAssociation
+                  .getBinding()
+                  .ackMessage(messageConsumerAssociation.getMessageId()));
+      unblockConsumers();
+    } else {
+      // Note: This error is sent by RabbitMQ but not by Qpid
+      closeChannel(ErrorCodes.IN_USE, "precondition-failed: Delivery tag '%d' is not valid.");
+    }
+  }
 
   @Override
   public void receiveBasicReject(long deliveryTag, boolean requeue) {}
@@ -1105,6 +1185,8 @@ public class AMQChannel implements ServerChannelMethodProcessor {
           .getGatewayService()
           .getPulsarClient()
           .newProducer()
+          // TODO: optionally activate batching ?
+          .enableBatching(false)
           .topic(topicName)
           .create();
     } catch (PulsarClientException e) {

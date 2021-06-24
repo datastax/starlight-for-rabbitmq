@@ -30,30 +30,6 @@ import org.apache.qpid.server.util.ConnectionScopedRuntimeException;
  */
 public class UnacknowledgedMessageMap {
 
-  private static final class MessageConsumerAssociation {
-    private final MessageId messageId;
-    private final Binding binding;
-    private final int size;
-
-    private MessageConsumerAssociation(MessageId messageId, Binding binding, int size) {
-      this.messageId = messageId;
-      this.binding = binding;
-      this.size = size;
-    }
-
-    public MessageId getMessageId() {
-      return messageId;
-    }
-
-    public int getSize() {
-      return size;
-    }
-
-    public Binding getBinding() {
-      return binding;
-    }
-  }
-
   private final Map<Long, MessageConsumerAssociation> _map = new ConcurrentHashMap<>();
 
   private final FlowCreditManager creditManager;
