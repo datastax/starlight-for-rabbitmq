@@ -115,7 +115,7 @@ public class BrokerTestCase {
   }
 
   private static PulsarCluster cluster;
-  private static GatewayService gatewayService;
+  protected static GatewayService gatewayService;
 
   @ClassRule public static TemporaryFolder tempDir = new TemporaryFolder();
 

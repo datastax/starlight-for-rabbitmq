@@ -566,10 +566,11 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
     } catch (QpidException | AMQProtocolHeaderException e) {
       LOGGER.debug(
           "Received unsupported protocol initiation for protocol version: {} ",
-          getProtocolVersion());
+          getProtocolVersion(),
+          e);
 
       writeFrame(new ProtocolInitiation(ProtocolVersion.getLatestSupportedVersion()));
-      // TODO: shouldn't the connection be closed ?
+      closeNetworkConnection();
     }
   }
 

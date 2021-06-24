@@ -66,8 +66,7 @@ class GatewayConnectionTest extends AbstractBaseTest {
 
     assertEquals(9, pi.getProtocolMajor());
     assertEquals(1, pi.getProtocolMinor());
-    // TODO: should close connection ?
-    assertTrue(channel.isOpen());
+    assertFalse(channel.isOpen());
   }
 
   @Test
