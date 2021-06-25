@@ -17,6 +17,7 @@ package com.datastax.oss.pulsar.rabbitmqgw;
 
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -75,6 +76,10 @@ public class UnacknowledgedMessageMap {
   public MessageId get(long key) {
     MessageConsumerAssociation association = _map.get(key);
     return association == null ? null : association.getMessageId();
+  }
+
+  public Map<Long, MessageConsumerAssociation> all() {
+    return new HashMap<>(_map);
   }
 
   public Collection<MessageConsumerAssociation> acknowledge(long deliveryTag, boolean multiple) {

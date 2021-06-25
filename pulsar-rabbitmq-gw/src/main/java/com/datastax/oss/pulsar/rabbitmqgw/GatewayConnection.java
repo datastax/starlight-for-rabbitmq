@@ -24,10 +24,8 @@ import io.netty.channel.ChannelInboundHandlerAdapter;
 import io.netty.handler.timeout.IdleState;
 import io.netty.handler.timeout.IdleStateEvent;
 import io.netty.handler.timeout.IdleStateHandler;
-import java.io.IOException;
 import java.lang.reflect.Proxy;
 import java.net.SocketAddress;
-import java.nio.BufferUnderflowException;
 import java.util.Collections;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -41,7 +39,6 @@ import org.apache.qpid.server.protocol.ErrorCodes;
 import org.apache.qpid.server.protocol.ProtocolVersion;
 import org.apache.qpid.server.protocol.v0_8.AMQDecoder;
 import org.apache.qpid.server.protocol.v0_8.AMQFrameDecodingException;
-import org.apache.qpid.server.protocol.v0_8.AMQPInvalidClassException;
 import org.apache.qpid.server.protocol.v0_8.AMQShortString;
 import org.apache.qpid.server.protocol.v0_8.FieldTable;
 import org.apache.qpid.server.protocol.v0_8.ServerDecoder;
@@ -149,14 +146,18 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
       if (_netInputBuffer != null) {
         restoreApplicationBufferForWrite();
       }
-    } catch (AMQFrameDecodingException
-        | IOException
-        | AMQPInvalidClassException
-        | IllegalArgumentException
-        | IllegalStateException
-        | BufferUnderflowException e) {
+    } catch (AMQFrameDecodingException e) {
+      LOGGER.debug("Invalid frame", e);
+      sendConnectionClose(
+          // Hack to be compliant with RabbitMQ expectations
+          e.getMessage().startsWith("Unsupported content header class id:")
+              ? 505
+              : e.getErrorCode(),
+          e.getMessage(),
+          0);
+    } catch (Exception e) {
       LOGGER.warn("Unexpected exception", e);
-      throw new ConnectionScopedRuntimeException(e);
+      closeNetworkConnection();
     } finally {
       buffer.release();
     }

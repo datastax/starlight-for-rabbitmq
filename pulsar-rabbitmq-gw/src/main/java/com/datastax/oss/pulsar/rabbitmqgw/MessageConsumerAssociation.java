@@ -15,6 +15,7 @@
  */
 package com.datastax.oss.pulsar.rabbitmqgw;
 
+import java.util.concurrent.CompletableFuture;
 import org.apache.pulsar.client.api.MessageId;
 
 public final class MessageConsumerAssociation {
@@ -38,5 +39,13 @@ public final class MessageConsumerAssociation {
 
   public Binding getBinding() {
     return binding;
+  }
+
+  public CompletableFuture<Void> ack() {
+    return binding.ackMessage(messageId);
+  }
+
+  public void requeue() {
+    binding.nackMessage(messageId);
   }
 }

@@ -377,7 +377,7 @@ public class AMQChannelTest extends AbstractBaseTest {
 
     AMQFrame frame = sendMessageHeader(1);
 
-    assertIsConnectionCloseFrame(frame, ErrorCodes.COMMAND_INVALID);
+    assertIsConnectionCloseFrame(frame, 505);
   }
 
   @Test
@@ -408,7 +408,7 @@ public class AMQChannelTest extends AbstractBaseTest {
 
     AMQFrame frame = sendMessageContent();
 
-    assertIsConnectionCloseFrame(frame, ErrorCodes.COMMAND_INVALID);
+    assertIsConnectionCloseFrame(frame, 505);
   }
 
   @Test

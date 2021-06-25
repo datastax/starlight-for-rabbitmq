@@ -784,7 +784,8 @@ public class AMQChannel implements ServerChannelMethodProcessor {
       publishContentBody(new ContentBody(data));
     } else {
       _connection.sendConnectionClose(
-          ErrorCodes.COMMAND_INVALID,
+          // Note: RabbitMQ sends error 505 while Qpid sends 503
+          505,
           "Attempt to send a content header without first sending a publish frame",
           _channelId);
     }
@@ -819,7 +820,8 @@ public class AMQChannel implements ServerChannelMethodProcessor {
     } else {
       properties.dispose();
       _connection.sendConnectionClose(
-          ErrorCodes.COMMAND_INVALID,
+          // Note: RabbitMQ sends error 505 while Qpid sends 503
+          505,
           "Attempt to send a content header without first sending a publish frame",
           _channelId);
     }
@@ -867,11 +869,7 @@ public class AMQChannel implements ServerChannelMethodProcessor {
         _unacknowledgedMessageMap.acknowledge(deliveryTag, multiple);
 
     if (!ackedMessages.isEmpty()) {
-      ackedMessages.forEach(
-          messageConsumerAssociation ->
-              messageConsumerAssociation
-                  .getBinding()
-                  .ackMessage(messageConsumerAssociation.getMessageId()));
+      ackedMessages.forEach(MessageConsumerAssociation::ack);
       unblockConsumers();
     } else {
       // Note: This error is sent by RabbitMQ but not by Qpid
@@ -911,14 +909,10 @@ public class AMQChannel implements ServerChannelMethodProcessor {
       }
 
       if (requeue) {
-        unackedMessageConsumerAssociation
-            .getBinding()
-            .nackMessage(unackedMessageConsumerAssociation.getMessageId());
+        unackedMessageConsumerAssociation.requeue();
       } else {
         // TODO: send message to DLQ
-        unackedMessageConsumerAssociation
-            .getBinding()
-            .ackMessage(unackedMessageConsumerAssociation.getMessageId());
+        unackedMessageConsumerAssociation.ack();
       }
     }
     if (!nackedMessages.isEmpty()) {
@@ -966,6 +960,11 @@ public class AMQChannel implements ServerChannelMethodProcessor {
     }
 
     try {
+      if (_currentMessage.getContentHeader() == null) {
+        _connection.sendConnectionClose(
+            505, "Content body received without content header", _channelId);
+        return;
+      }
       long currentSize = _currentMessage.addContentBodyFrame(contentBody);
       if (currentSize > _currentMessage.getSize()) {
         _connection.sendConnectionClose(
@@ -1120,6 +1119,7 @@ public class AMQChannel implements ServerChannelMethodProcessor {
     try {
       unsubscribeAllConsumers();
       setDefaultQueue(null);
+      requeue();
     } finally {
       LogMessage operationalLogMessage =
           cause == 0 ? ChannelMessages.CLOSE() : ChannelMessages.CLOSE_FORCED(cause, message);
@@ -1145,6 +1145,26 @@ public class AMQChannel implements ServerChannelMethodProcessor {
     }
 
     _unacknowledgedMessageMap.add(deliveryTag, messageId, binding, size);
+  }
+
+  /**
+   * Called to attempt re-delivery all outstanding unacknowledged messages on the channel. May
+   * result in delivery to this same channel or to other subscribers.
+   */
+  private void requeue() {
+    final Map<Long, MessageConsumerAssociation> copy = _unacknowledgedMessageMap.all();
+
+    if (!copy.isEmpty()) {
+      if (LOGGER.isDebugEnabled()) {
+        LOGGER.debug("Requeuing {} unacked messages", copy.size());
+      }
+    }
+
+    for (Map.Entry<Long, MessageConsumerAssociation> entry : copy.entrySet()) {
+      // here we wish to restore credit
+      _unacknowledgedMessageMap.remove(entry.getKey(), true);
+      entry.getValue().requeue();
+    }
   }
 
   private void messageWithSubject(final LogMessage operationalLogMessage) {
