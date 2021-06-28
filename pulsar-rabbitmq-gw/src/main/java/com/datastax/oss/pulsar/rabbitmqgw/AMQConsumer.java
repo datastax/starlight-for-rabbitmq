@@ -70,6 +70,7 @@ public class AMQConsumer {
                 } else {
                   channel.addUnacknowledgedMessage(
                       message.getMessageId(),
+                      this,
                       deliveryTag,
                       messageResponse.getBinding(),
                       contentBody.getSize());

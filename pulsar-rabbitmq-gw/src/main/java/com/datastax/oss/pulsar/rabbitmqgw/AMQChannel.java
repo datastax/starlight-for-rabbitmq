@@ -478,7 +478,38 @@ public class AMQChannel implements ServerChannelMethodProcessor {
       FieldTable arguments) {}
 
   @Override
-  public void receiveBasicRecover(boolean requeue, boolean sync) {}
+  public void receiveBasicRecover(boolean requeue, boolean sync) {
+    if (LOGGER.isDebugEnabled()) {
+      LOGGER.debug(
+          "RECV["
+              + _channelId
+              + "] BasicRecover["
+              + " requeue: "
+              + requeue
+              + " sync: "
+              + sync
+              + " ]");
+    }
+
+    if (requeue) {
+      requeue();
+
+      if (sync) {
+        MethodRegistry methodRegistry = _connection.getMethodRegistry();
+        AMQMethodBody recoverOk = methodRegistry.createBasicRecoverSyncOkBody();
+        _connection.writeFrame(recoverOk.generateFrame(getChannelId()));
+      }
+      unblockConsumers();
+    } else {
+      // Note: RabbitMQ doesn't support requeue=false.
+      // Should it be supported for Qpid clients ? This would mean storing the unacked message
+      // content in the proxy :-(
+      _connection.sendConnectionClose(
+          ErrorCodes.NOT_IMPLEMENTED,
+          "Recover to same consumer is currently not supported",
+          _channelId);
+    }
+  }
 
   @Override
   public void receiveBasicQos(long prefetchSize, int prefetchCount, boolean global) {
@@ -498,11 +529,11 @@ public class AMQChannel implements ServerChannelMethodProcessor {
     // TODO: per consumer QoS. Warning: RabbitMQ has reinterpreted the "global" field of AMQP.
     _creditManager.setCreditLimits(prefetchSize, prefetchCount);
 
-    unblockConsumers();
-
     MethodRegistry methodRegistry = _connection.getMethodRegistry();
     AMQMethodBody responseBody = methodRegistry.createBasicQosOkBody();
     _connection.writeFrame(responseBody.generateFrame(getChannelId()));
+
+    unblockConsumers();
   }
 
   private void unblockConsumers() {
@@ -717,7 +748,7 @@ public class AMQChannel implements ServerChannelMethodProcessor {
             binding.ackMessage(message);
           } else {
             _unacknowledgedMessageMap.add(
-                deliveryTag, message.getMessageId(), binding, contentBody.getSize());
+                deliveryTag, message.getMessageId(), null, binding, contentBody.getSize());
           }
         } else {
           MethodRegistry methodRegistry = _connection.getMethodRegistry();
@@ -868,6 +899,8 @@ public class AMQChannel implements ServerChannelMethodProcessor {
     Collection<MessageConsumerAssociation> ackedMessages =
         _unacknowledgedMessageMap.acknowledge(deliveryTag, multiple);
 
+    // TODO: optimize by acknowledging multiple on each binding with highest messageId /
+    // deliveryTag.
     if (!ackedMessages.isEmpty()) {
       ackedMessages.forEach(MessageConsumerAssociation::ack);
       unblockConsumers();
@@ -1133,7 +1166,7 @@ public class AMQChannel implements ServerChannelMethodProcessor {
 
   /** Add a message to the channel-based list of unacknowledged messages */
   public void addUnacknowledgedMessage(
-      MessageId messageId, long deliveryTag, Binding binding, int size) {
+      MessageId messageId, AMQConsumer consumer, long deliveryTag, Binding binding, int size) {
     if (LOGGER.isDebugEnabled()) {
       LOGGER.debug(
           "Adding unacked message("
@@ -1144,7 +1177,7 @@ public class AMQChannel implements ServerChannelMethodProcessor {
               + binding);
     }
 
-    _unacknowledgedMessageMap.add(deliveryTag, messageId, binding, size);
+    _unacknowledgedMessageMap.add(deliveryTag, messageId, consumer, binding, size);
   }
 
   /**

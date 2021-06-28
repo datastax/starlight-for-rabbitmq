@@ -44,6 +44,7 @@ import org.apache.qpid.server.bytebuffer.QpidByteBuffer;
 import org.apache.qpid.server.exchange.ExchangeDefaults;
 import org.apache.qpid.server.model.Queue;
 import org.apache.qpid.server.protocol.ErrorCodes;
+import org.apache.qpid.server.protocol.ProtocolVersion;
 import org.apache.qpid.server.protocol.v0_8.AMQShortString;
 import org.apache.qpid.server.protocol.v0_8.FieldTable;
 import org.apache.qpid.server.protocol.v0_8.FieldTableFactory;
@@ -64,6 +65,9 @@ import org.apache.qpid.server.protocol.v0_8.transport.BasicNackBody;
 import org.apache.qpid.server.protocol.v0_8.transport.BasicPublishBody;
 import org.apache.qpid.server.protocol.v0_8.transport.BasicQosBody;
 import org.apache.qpid.server.protocol.v0_8.transport.BasicQosOkBody;
+import org.apache.qpid.server.protocol.v0_8.transport.BasicRecoverBody;
+import org.apache.qpid.server.protocol.v0_8.transport.BasicRecoverSyncBody;
+import org.apache.qpid.server.protocol.v0_8.transport.BasicRecoverSyncOkBody;
 import org.apache.qpid.server.protocol.v0_8.transport.BasicRejectBody;
 import org.apache.qpid.server.protocol.v0_8.transport.ChannelCloseBody;
 import org.apache.qpid.server.protocol.v0_8.transport.ChannelCloseOkBody;
@@ -502,9 +506,7 @@ public class AMQChannelTest extends AbstractBaseTest {
   @Test
   void testReceiveBasicGet() {
     openChannel();
-    MessageImpl message = mock(MessageImpl.class);
-    when(message.getData()).thenReturn(TEST_MESSAGE);
-    when(message.getTopicName()).thenReturn(TEST_EXCHANGE + "$$" + TEST_QUEUE);
+    MessageImpl message = createMessageMock();
     when(message.getRedeliveryCount()).thenReturn(2);
 
     BasicContentHeaderProperties props = new BasicContentHeaderProperties();
@@ -516,10 +518,7 @@ public class AMQChannelTest extends AbstractBaseTest {
     String headers = java.util.Base64.getEncoder().encodeToString(bytes);
     when(message.getProperty(MessageUtils.MESSAGE_PROPERTY_AMQP_HEADERS)).thenReturn(headers);
 
-    MessageImpl message2 = mock(MessageImpl.class);
-    when(message2.getData()).thenReturn(TEST_MESSAGE);
-    when(message2.getTopicName()).thenReturn(TEST_EXCHANGE + "$$" + TEST_QUEUE);
-    when(message2.getRedeliveryCount()).thenReturn(0);
+    MessageImpl message2 = createMessageMock();
 
     when(consumer.receiveAsync())
         .thenReturn(
@@ -544,10 +543,8 @@ public class AMQChannelTest extends AbstractBaseTest {
     assertEquals(TEST_MESSAGE.length, contentHeaderBody.getBodySize());
     assertEquals("application/json", contentHeaderBody.getProperties().getContentTypeAsString());
 
-    AMQBody contentBody = compositeAMQBodyBlock.getContentBody();
-    ByteBuf byteBuf = Unpooled.buffer(contentBody.getSize());
-    contentBody.writePayload(new NettyByteBufferSender(byteBuf));
-    assertArrayEquals(TEST_MESSAGE, byteBuf.array());
+    byte[] content = getContent(compositeAMQBodyBlock);
+    assertArrayEquals(TEST_MESSAGE, content);
 
     compositeAMQBodyBlock = sendBasicGet();
     assertNotNull(compositeAMQBodyBlock);
@@ -589,12 +586,10 @@ public class AMQChannelTest extends AbstractBaseTest {
 
   @Test
   void testReceiveBasicGetDefaultQueue() {
-    openChannel();
-    MessageImpl message = mock(MessageImpl.class);
-    when(message.getData()).thenReturn(TEST_MESSAGE);
-    when(message.getTopicName()).thenReturn(TEST_EXCHANGE + "$$" + TEST_QUEUE);
-    when(message.getRedeliveryCount()).thenReturn(0);
+    MessageImpl message = createMessageMock();
     when(consumer.receiveAsync()).thenReturn(CompletableFuture.completedFuture(message));
+
+    openChannel();
     sendQueueDeclare();
 
     ProtocolOutputConverter.CompositeAMQBodyBlock compositeAMQBodyBlock = sendBasicGet("");
@@ -712,10 +707,7 @@ public class AMQChannelTest extends AbstractBaseTest {
     String headers = java.util.Base64.getEncoder().encodeToString(bytes);
     when(message.getProperty(MessageUtils.MESSAGE_PROPERTY_AMQP_HEADERS)).thenReturn(headers);
 
-    MessageImpl message2 = mock(MessageImpl.class);
-    when(message2.getData()).thenReturn(TEST_MESSAGE);
-    when(message2.getTopicName()).thenReturn(TEST_EXCHANGE + "$$" + TEST_QUEUE);
-    when(message2.getRedeliveryCount()).thenReturn(0);
+    MessageImpl message2 = createMessageMock();
 
     when(consumer.receiveAsync())
         .thenReturn(
@@ -772,8 +764,6 @@ public class AMQChannelTest extends AbstractBaseTest {
   @Test
   void testReceiveBasicCancel() throws Exception {
     MessageImpl message = createMessageMock();
-
-    // Binding always has a message ready for delivery
     when(consumer.receiveAsync()).thenReturn(CompletableFuture.completedFuture(message));
 
     openChannel();
@@ -817,42 +807,31 @@ public class AMQChannelTest extends AbstractBaseTest {
 
     openChannel();
 
-    sendBasicQos(0, 2);
-    assertIsBasicQosOk(channel.readOutbound());
+    AMQFrame frame = sendBasicQos(0, 2);
+    assertIsBasicQosOk(frame);
 
     sendQueueDeclare();
-
     sendBasicConsume(null, TEST_QUEUE, false);
 
-    // Check that only 2 messages are received
-    Thread.sleep(100);
-    assertTrue(channel.readOutbound() instanceof ProtocolOutputConverter.CompositeAMQBodyBlock);
-    assertTrue(channel.readOutbound() instanceof ProtocolOutputConverter.CompositeAMQBodyBlock);
-    assertNull(channel.readOutbound());
+    assertReceivesMessages(2);
 
-    sendBasicQos(0, 3);
+    frame = sendBasicQos(0, 3);
+    assertIsBasicQosOk(frame);
 
-    // Check that consumption resumed and only 1 message was received
-    Thread.sleep(100);
-    assertTrue(channel.readOutbound() instanceof ProtocolOutputConverter.CompositeAMQBodyBlock);
-    assertIsBasicQosOk(channel.readOutbound());
-    assertNull(channel.readOutbound());
+    assertReceivesMessages(1);
 
     // Limit by size. 3 unacked messages were already sent so we should only receive one more
     // message
-    sendBasicQos(TEST_MESSAGE.length * 4L, 0);
+    frame = sendBasicQos(TEST_MESSAGE.length * 4L, 0);
+    assertIsBasicQosOk(frame);
 
-    Thread.sleep(100);
-    assertTrue(channel.readOutbound() instanceof ProtocolOutputConverter.CompositeAMQBodyBlock);
-    assertIsBasicQosOk(channel.readOutbound());
-    assertNull(channel.readOutbound());
+    assertReceivesMessages(1);
 
-    sendBasicQos(0, 0);
+    frame = sendBasicQos(0, 0);
+    assertIsBasicQosOk(frame);
 
     // Check that consumption resumes without limits
     Thread.sleep(100);
-    assertTrue(channel.readOutbound() instanceof ProtocolOutputConverter.CompositeAMQBodyBlock);
-    assertIsBasicQosOk(channel.readOutbound());
     for (int i = 0; i < 10; i++) {
       assertTrue(channel.readOutbound() instanceof ProtocolOutputConverter.CompositeAMQBodyBlock);
     }
@@ -867,23 +846,14 @@ public class AMQChannelTest extends AbstractBaseTest {
 
     openChannel();
     sendBasicQos(0, 3);
-    assertIsBasicQosOk(channel.readOutbound());
     sendQueueDeclare();
     sendBasicConsume(null, TEST_QUEUE, false);
 
-    // Check that only 3 messages are received
-    Thread.sleep(100);
-    assertTrue(channel.readOutbound() instanceof ProtocolOutputConverter.CompositeAMQBodyBlock);
-    assertTrue(channel.readOutbound() instanceof ProtocolOutputConverter.CompositeAMQBodyBlock);
-    assertTrue(channel.readOutbound() instanceof ProtocolOutputConverter.CompositeAMQBodyBlock);
-    assertNull(channel.readOutbound());
+    assertReceivesMessages(3);
 
     sendBasicAck(2, false);
 
-    // Check that one more message is received after acking one message
-    Thread.sleep(100);
-    assertTrue(channel.readOutbound() instanceof ProtocolOutputConverter.CompositeAMQBodyBlock);
-    assertNull(channel.readOutbound());
+    assertReceivesMessages(1);
 
     verify(consumer).acknowledgeAsync(MessageId.latest);
   }
@@ -897,24 +867,14 @@ public class AMQChannelTest extends AbstractBaseTest {
 
     openChannel();
     sendBasicQos(0, 3);
-    assertIsBasicQosOk(channel.readOutbound());
     sendQueueDeclare();
     sendBasicConsume(null, TEST_QUEUE, false);
 
-    // Check that only 3 messages are received
-    Thread.sleep(100);
-    assertTrue(channel.readOutbound() instanceof ProtocolOutputConverter.CompositeAMQBodyBlock);
-    assertTrue(channel.readOutbound() instanceof ProtocolOutputConverter.CompositeAMQBodyBlock);
-    assertTrue(channel.readOutbound() instanceof ProtocolOutputConverter.CompositeAMQBodyBlock);
-    assertNull(channel.readOutbound());
+    assertReceivesMessages(3);
 
     sendBasicAck(2, true);
 
-    // Check that 2 more messages are received after acking multiple
-    Thread.sleep(100);
-    assertTrue(channel.readOutbound() instanceof ProtocolOutputConverter.CompositeAMQBodyBlock);
-    assertTrue(channel.readOutbound() instanceof ProtocolOutputConverter.CompositeAMQBodyBlock);
-    assertNull(channel.readOutbound());
+    assertReceivesMessages(2);
 
     verify(consumer, times(2)).acknowledgeAsync(MessageId.latest);
   }
@@ -923,7 +883,6 @@ public class AMQChannelTest extends AbstractBaseTest {
   void testReceiveBasicAckInvalidDeliveryTag() {
     openChannel();
     sendBasicQos(0, 1);
-    assertIsBasicQosOk(channel.readOutbound());
     sendQueueDeclare();
     sendBasicConsume(null, TEST_QUEUE, false);
 
@@ -940,23 +899,14 @@ public class AMQChannelTest extends AbstractBaseTest {
 
     openChannel();
     sendBasicQos(0, 3);
-    assertIsBasicQosOk(channel.readOutbound());
     sendQueueDeclare();
     sendBasicConsume(null, TEST_QUEUE, false);
 
-    // Check that only 3 messages are received
-    Thread.sleep(100);
-    assertTrue(channel.readOutbound() instanceof ProtocolOutputConverter.CompositeAMQBodyBlock);
-    assertTrue(channel.readOutbound() instanceof ProtocolOutputConverter.CompositeAMQBodyBlock);
-    assertTrue(channel.readOutbound() instanceof ProtocolOutputConverter.CompositeAMQBodyBlock);
-    assertNull(channel.readOutbound());
+    assertReceivesMessages(3);
 
     sendBasicNack(2, false, false);
 
-    // Check that one more message is received after acking one message
-    Thread.sleep(100);
-    assertTrue(channel.readOutbound() instanceof ProtocolOutputConverter.CompositeAMQBodyBlock);
-    assertNull(channel.readOutbound());
+    assertReceivesMessages(1);
 
     verify(consumer).acknowledgeAsync(MessageId.latest);
   }
@@ -970,24 +920,14 @@ public class AMQChannelTest extends AbstractBaseTest {
 
     openChannel();
     sendBasicQos(0, 3);
-    assertIsBasicQosOk(channel.readOutbound());
     sendQueueDeclare();
     sendBasicConsume(null, TEST_QUEUE, false);
 
-    // Check that only 3 messages are received
-    Thread.sleep(100);
-    assertTrue(channel.readOutbound() instanceof ProtocolOutputConverter.CompositeAMQBodyBlock);
-    assertTrue(channel.readOutbound() instanceof ProtocolOutputConverter.CompositeAMQBodyBlock);
-    assertTrue(channel.readOutbound() instanceof ProtocolOutputConverter.CompositeAMQBodyBlock);
-    assertNull(channel.readOutbound());
+    assertReceivesMessages(3);
 
     sendBasicNack(2, true, false);
 
-    // Check that 2 more messages are received after acking multiple
-    Thread.sleep(100);
-    assertTrue(channel.readOutbound() instanceof ProtocolOutputConverter.CompositeAMQBodyBlock);
-    assertTrue(channel.readOutbound() instanceof ProtocolOutputConverter.CompositeAMQBodyBlock);
-    assertNull(channel.readOutbound());
+    assertReceivesMessages(2);
 
     verify(consumer, times(2)).acknowledgeAsync(MessageId.latest);
   }
@@ -1001,23 +941,14 @@ public class AMQChannelTest extends AbstractBaseTest {
 
     openChannel();
     sendBasicQos(0, 3);
-    assertIsBasicQosOk(channel.readOutbound());
     sendQueueDeclare();
     sendBasicConsume(null, TEST_QUEUE, false);
 
-    // Check that only 3 messages are received
-    Thread.sleep(100);
-    assertTrue(channel.readOutbound() instanceof ProtocolOutputConverter.CompositeAMQBodyBlock);
-    assertTrue(channel.readOutbound() instanceof ProtocolOutputConverter.CompositeAMQBodyBlock);
-    assertTrue(channel.readOutbound() instanceof ProtocolOutputConverter.CompositeAMQBodyBlock);
-    assertNull(channel.readOutbound());
+    assertReceivesMessages(3);
 
     sendBasicNack(2, false, true);
 
-    // Check that one more message is received after acking one message
-    Thread.sleep(100);
-    assertTrue(channel.readOutbound() instanceof ProtocolOutputConverter.CompositeAMQBodyBlock);
-    assertNull(channel.readOutbound());
+    assertReceivesMessages(1);
 
     verify(consumer).negativeAcknowledge(MessageId.latest);
   }
@@ -1031,23 +962,14 @@ public class AMQChannelTest extends AbstractBaseTest {
 
     openChannel();
     sendBasicQos(0, 3);
-    assertIsBasicQosOk(channel.readOutbound());
     sendQueueDeclare();
     sendBasicConsume(null, TEST_QUEUE, false);
 
-    // Check that only 3 messages are received
-    Thread.sleep(100);
-    assertTrue(channel.readOutbound() instanceof ProtocolOutputConverter.CompositeAMQBodyBlock);
-    assertTrue(channel.readOutbound() instanceof ProtocolOutputConverter.CompositeAMQBodyBlock);
-    assertTrue(channel.readOutbound() instanceof ProtocolOutputConverter.CompositeAMQBodyBlock);
-    assertNull(channel.readOutbound());
+    assertReceivesMessages(3);
 
     sendBasicReject(2, false);
 
-    // Check that one more message is received after acking one message
-    Thread.sleep(100);
-    assertTrue(channel.readOutbound() instanceof ProtocolOutputConverter.CompositeAMQBodyBlock);
-    assertNull(channel.readOutbound());
+    assertReceivesMessages(1);
 
     verify(consumer).acknowledgeAsync(MessageId.latest);
   }
@@ -1061,30 +983,72 @@ public class AMQChannelTest extends AbstractBaseTest {
 
     openChannel();
     sendBasicQos(0, 3);
-    assertIsBasicQosOk(channel.readOutbound());
     sendQueueDeclare();
     sendBasicConsume(null, TEST_QUEUE, false);
 
-    // Check that only 3 messages are received
-    Thread.sleep(100);
-    assertTrue(channel.readOutbound() instanceof ProtocolOutputConverter.CompositeAMQBodyBlock);
-    assertTrue(channel.readOutbound() instanceof ProtocolOutputConverter.CompositeAMQBodyBlock);
-    assertTrue(channel.readOutbound() instanceof ProtocolOutputConverter.CompositeAMQBodyBlock);
-    assertNull(channel.readOutbound());
+    assertReceivesMessages(3);
 
     sendBasicReject(2, true);
 
-    // Check that one more message is received after acking one message
-    Thread.sleep(100);
-    assertTrue(channel.readOutbound() instanceof ProtocolOutputConverter.CompositeAMQBodyBlock);
-    assertNull(channel.readOutbound());
+    assertReceivesMessages(1);
 
     verify(consumer).negativeAcknowledge(MessageId.latest);
+  }
+
+  @Test
+  void testReceiveBasicRecover() throws Exception {
+    MessageImpl message = createMessageMock();
+    when(consumer.receiveAsync()).thenReturn(CompletableFuture.completedFuture(message));
+
+    openChannel();
+    sendBasicQos(0, 3);
+    sendQueueDeclare();
+    sendBasicConsume(null, TEST_QUEUE, false);
+
+    assertReceivesMessages(3);
+
+    sendBasicRecover(true);
+
+    assertReceivesMessages(3);
+
+    verify(consumer, times(3)).negativeAcknowledge(MessageId.latest);
+  }
+
+  @Test
+  void testReceiveBasicRecoverSync() throws Exception {
+    MessageImpl message = createMessageMock();
+    when(consumer.receiveAsync()).thenReturn(CompletableFuture.completedFuture(message));
+
+    openChannel();
+    sendBasicQos(0, 3);
+    sendQueueDeclare();
+    sendBasicConsume(null, TEST_QUEUE, false);
+
+    assertReceivesMessages(3);
+
+    AMQFrame frame = sendBasicRecoverSync(true);
+    assertNotNull(frame);
+    assert (frame.getBodyFrame() instanceof BasicRecoverSyncOkBody);
+
+    assertReceivesMessages(3);
+
+    verify(consumer, times(3)).negativeAcknowledge(MessageId.latest);
   }
 
   private void openChannel() {
     openConnection();
     sendChannelOpen();
+  }
+
+  private AMQFrame sendBasicRecoverSync(boolean requeue) {
+    BasicRecoverSyncBody basicRecoverBody =
+        new BasicRecoverSyncBody(ProtocolVersion.v0_91, requeue);
+    return exchangeData(basicRecoverBody.generateFrame(CHANNEL_ID));
+  }
+
+  private void sendBasicRecover(boolean requeue) {
+    BasicRecoverBody basicRecoverBody = new BasicRecoverBody(requeue);
+    sendData(basicRecoverBody.generateFrame(CHANNEL_ID));
   }
 
   private void sendBasicReject(long deliveryTag, boolean requeue) {
@@ -1102,9 +1066,9 @@ public class AMQChannelTest extends AbstractBaseTest {
     sendData(basicAckBody.generateFrame(CHANNEL_ID));
   }
 
-  private void sendBasicQos(long prefetchSize, int prefetchCount) {
+  private AMQFrame sendBasicQos(long prefetchSize, int prefetchCount) {
     BasicQosBody basicQosBody = new BasicQosBody(prefetchSize, prefetchCount, true);
-    sendData(basicQosBody.generateFrame(CHANNEL_ID));
+    return exchangeData(basicQosBody.generateFrame(CHANNEL_ID));
   }
 
   private <T> T sendBasicCancel() {
@@ -1241,12 +1205,31 @@ public class AMQChannelTest extends AbstractBaseTest {
     assertTrue(((AMQFrame) read).getBodyFrame() instanceof BasicQosOkBody);
   }
 
+  private void assertReceivesMessages(int numberOfMessages) throws InterruptedException {
+    Thread.sleep(100);
+    for (int i = 0; i < numberOfMessages; i++) {
+      assertTrue(channel.readOutbound() instanceof ProtocolOutputConverter.CompositeAMQBodyBlock);
+    }
+    assertNull(channel.readOutbound());
+  }
+
   private MessageImpl createMessageMock() {
+    return createMessageMock("test-message");
+  }
+
+  private MessageImpl createMessageMock(String content) {
     MessageImpl message = mock(MessageImpl.class);
-    when(message.getData()).thenReturn(TEST_MESSAGE);
+    when(message.getData()).thenReturn(content.getBytes(StandardCharsets.UTF_8));
     when(message.getTopicName()).thenReturn(TEST_EXCHANGE + "$$" + TEST_QUEUE);
     when(message.getRedeliveryCount()).thenReturn(0);
     when(message.getMessageId()).thenReturn(MessageId.latest);
     return message;
+  }
+
+  private byte[] getContent(ProtocolOutputConverter.CompositeAMQBodyBlock compositeAMQBodyBlock) {
+    AMQBody contentBody = compositeAMQBodyBlock.getContentBody();
+    ByteBuf byteBuf = Unpooled.buffer(contentBody.getSize());
+    contentBody.writePayload(new NettyByteBufferSender(byteBuf));
+    return byteBuf.array();
   }
 }

@@ -506,6 +506,9 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
   }
 
   public void closeNetworkConnection() {
+    if (!_orderlyClose.get()) {
+      completeAndCloseAllChannels();
+    }
     ctx.close();
   }
 

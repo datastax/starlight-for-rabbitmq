@@ -20,11 +20,13 @@ import org.apache.pulsar.client.api.MessageId;
 
 public final class MessageConsumerAssociation {
   private final MessageId messageId;
+  private final AMQConsumer consumer;
   private final Binding binding;
   private final int size;
 
-  MessageConsumerAssociation(MessageId messageId, Binding binding, int size) {
+  MessageConsumerAssociation(MessageId messageId, AMQConsumer consumer, Binding binding, int size) {
     this.messageId = messageId;
+    this.consumer = consumer;
     this.binding = binding;
     this.size = size;
   }
@@ -39,6 +41,10 @@ public final class MessageConsumerAssociation {
 
   public Binding getBinding() {
     return binding;
+  }
+
+  public AMQConsumer getConsumer() {
+    return consumer;
   }
 
   public CompletableFuture<Void> ack() {
