@@ -26,6 +26,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
+import org.apache.pulsar.client.admin.PulsarAdminException;
 import org.apache.pulsar.client.api.Message;
 import org.apache.pulsar.client.api.MessageId;
 import org.apache.pulsar.client.api.Producer;
@@ -424,7 +425,6 @@ public class AMQChannel implements ServerChannelMethodProcessor {
             }
           }
         } else {
-
           queue = new Queue(lifetimePolicy, exclusivityPolicy, queueName.toString());
           addQueue(queue);
           _connection
@@ -457,11 +457,90 @@ public class AMQChannel implements ServerChannelMethodProcessor {
 
   @Override
   public void receiveQueueBind(
-      AMQShortString queue,
+      AMQShortString queueName,
       AMQShortString exchange,
       AMQShortString bindingKey,
       boolean nowait,
-      FieldTable arguments) {}
+      FieldTable argumentsTable) {
+    if (LOGGER.isDebugEnabled()) {
+      LOGGER.debug(
+          "RECV["
+              + _channelId
+              + "] QueueBind["
+              + " queue: "
+              + queueName
+              + " exchange: "
+              + exchange
+              + " bindingKey: "
+              + bindingKey
+              + " nowait: "
+              + nowait
+              + " arguments: "
+              + argumentsTable
+              + " ]");
+    }
+
+    Queue queue;
+    if (queueName == null) {
+
+      queue = getDefaultQueue();
+
+      if (queue != null) {
+        if (bindingKey == null) {
+          bindingKey = AMQShortString.valueOf(queue.getName());
+        }
+      }
+    } else {
+      queue = getQueue(queueName.toString());
+    }
+
+    if (queue == null) {
+      String message =
+          queueName == null
+              ? "No default queue defined on channel and queue was null"
+              : "Queue " + queueName + " does not exist.";
+      closeChannel(ErrorCodes.NOT_FOUND, message);
+    } else if (isDefaultExchange(exchange)) {
+      _connection.sendConnectionClose(
+          ErrorCodes.NOT_ALLOWED,
+          "Cannot bind the queue '" + queueName + "' to the default exchange",
+          getChannelId());
+
+    } else {
+
+      final String exchangeName = exchange.toString();
+
+      final Exchange exch = getExchange(exchangeName);
+      if (exch == null) {
+        closeChannel(ErrorCodes.NOT_FOUND, "Exchange '" + exchangeName + "' does not exist.");
+      } else {
+
+        try {
+          String bindingKeyStr = bindingKey == null ? "" : AMQShortString.toString(bindingKey);
+
+          exch.bind(queue, bindingKeyStr, _connection);
+
+          if (LOGGER.isDebugEnabled()) {
+            LOGGER.debug(
+                "Binding queue "
+                    + queue
+                    + " to exchange "
+                    + exch
+                    + " with routing key "
+                    + bindingKeyStr);
+          }
+          if (!nowait) {
+            MethodRegistry methodRegistry = _connection.getMethodRegistry();
+            AMQMethodBody responseBody = methodRegistry.createQueueBindOkBody();
+            _connection.writeFrame(responseBody.generateFrame(getChannelId()));
+          }
+        } catch (PulsarClientException e) {
+          _connection.sendConnectionClose(
+              ErrorCodes.INTERNAL_ERROR, e.getMessage(), getChannelId());
+        }
+      }
+    }
+  }
 
   @Override
   public void receiveQueuePurge(AMQShortString queue, boolean nowait) {}
@@ -472,10 +551,63 @@ public class AMQChannel implements ServerChannelMethodProcessor {
 
   @Override
   public void receiveQueueUnbind(
-      AMQShortString queue,
+      AMQShortString queueName,
       AMQShortString exchange,
       AMQShortString bindingKey,
-      FieldTable arguments) {}
+      FieldTable arguments) {
+    if (LOGGER.isDebugEnabled()) {
+      LOGGER.debug(
+          "RECV["
+              + _channelId
+              + "] QueueUnbind["
+              + " queue: "
+              + queueName
+              + " exchange: "
+              + exchange
+              + " bindingKey: "
+              + bindingKey
+              + " arguments: "
+              + arguments
+              + " ]");
+    }
+
+    final boolean useDefaultQueue = queueName == null;
+    final Queue queue = useDefaultQueue ? getDefaultQueue() : getQueue(queueName.toString());
+
+    if (queue == null) {
+      String message =
+          useDefaultQueue
+              ? "No default queue defined on channel and queue was null"
+              : "Queue '" + queueName + "' does not exist.";
+      closeChannel(ErrorCodes.NOT_FOUND, message);
+    } else if (isDefaultExchange(exchange)) {
+      _connection.sendConnectionClose(
+          ErrorCodes.NOT_ALLOWED,
+          "Cannot unbind the queue '" + queue.getName() + "' from the default exchange",
+          getChannelId());
+
+    } else {
+      final Exchange exch = getExchange(exchange.toString());
+      final String bindingKeyStr = bindingKey == null ? "" : AMQShortString.toString(bindingKey);
+
+      if (exch == null) {
+        closeChannel(ErrorCodes.NOT_FOUND, "Exchange '" + exchange + "' does not exist.");
+      } else if (!exch.hasBinding(bindingKeyStr, queue)) {
+        closeChannel(ErrorCodes.NOT_FOUND, "No such binding");
+      } else {
+        try {
+          exch.unbind(queue, bindingKeyStr, _connection);
+
+          final AMQMethodBody responseBody =
+              _connection.getMethodRegistry().createQueueUnbindOkBody();
+          _connection.writeFrame(responseBody.generateFrame(getChannelId()));
+        } catch (PulsarClientException | PulsarAdminException e) {
+          _connection.sendConnectionClose(
+              ErrorCodes.INTERNAL_ERROR, e.getMessage(), getChannelId());
+        }
+      }
+    }
+  }
 
   @Override
   public void receiveBasicRecover(boolean requeue, boolean sync) {
@@ -728,10 +860,10 @@ public class AMQChannel implements ServerChannelMethodProcessor {
                 + "' as it already has an existing exclusive consumer",
             _channelId);
       } else {
-        Queue.MessageResponse messageResponse = queue.receive();
+        PulsarConsumer.PulsarConsumerMessage messageResponse = queue.receive();
         if (messageResponse != null) {
           Message<byte[]> message = messageResponse.getMessage();
-          Binding binding = messageResponse.getBinding();
+          PulsarConsumer pulsarConsumer = messageResponse.getConsumer();
           long deliveryTag = getNextDeliveryTag();
           ContentBody contentBody = new ContentBody(ByteBuffer.wrap(message.getData()));
           _connection
@@ -745,10 +877,10 @@ public class AMQChannel implements ServerChannelMethodProcessor {
                   deliveryTag,
                   queue.getQueueDepthMessages());
           if (noAck) {
-            binding.ackMessage(message);
+            pulsarConsumer.ackMessage(message.getMessageId());
           } else {
             _unacknowledgedMessageMap.add(
-                deliveryTag, message.getMessageId(), null, binding, contentBody.getSize());
+                deliveryTag, message.getMessageId(), null, pulsarConsumer, contentBody.getSize());
           }
         } else {
           MethodRegistry methodRegistry = _connection.getMethodRegistry();
@@ -899,8 +1031,7 @@ public class AMQChannel implements ServerChannelMethodProcessor {
     Collection<MessageConsumerAssociation> ackedMessages =
         _unacknowledgedMessageMap.acknowledge(deliveryTag, multiple);
 
-    // TODO: optimize by acknowledging multiple on each binding with highest messageId /
-    // deliveryTag.
+    // TODO: optimize by acknowledging multiple message IDs at once
     if (!ackedMessages.isEmpty()) {
       ackedMessages.forEach(MessageConsumerAssociation::ack);
       unblockConsumers();
@@ -1166,7 +1297,11 @@ public class AMQChannel implements ServerChannelMethodProcessor {
 
   /** Add a message to the channel-based list of unacknowledged messages */
   public void addUnacknowledgedMessage(
-      MessageId messageId, AMQConsumer consumer, long deliveryTag, Binding binding, int size) {
+      MessageId messageId,
+      AMQConsumer consumer,
+      long deliveryTag,
+      PulsarConsumer pulsarConsumer,
+      int size) {
     if (LOGGER.isDebugEnabled()) {
       LOGGER.debug(
           "Adding unacked message("
@@ -1174,10 +1309,10 @@ public class AMQChannel implements ServerChannelMethodProcessor {
               + " DT:"
               + deliveryTag
               + ") for "
-              + binding);
+              + pulsarConsumer);
     }
 
-    _unacknowledgedMessageMap.add(deliveryTag, messageId, consumer, binding, size);
+    _unacknowledgedMessageMap.add(deliveryTag, messageId, consumer, pulsarConsumer, size);
   }
 
   /**
@@ -1205,6 +1340,10 @@ public class AMQChannel implements ServerChannelMethodProcessor {
     logger.info(operationalLogMessage.toString());
   }
 
+  private boolean isDefaultExchange(final AMQShortString exchangeName) {
+    return exchangeName == null || AMQShortString.EMPTY_STRING.equals(exchangeName);
+  }
+
   private void setDefaultQueue(Queue queue) {
     _defaultQueue = queue;
   }
@@ -1222,6 +1361,7 @@ public class AMQChannel implements ServerChannelMethodProcessor {
   }
 
   private void deleteExchange(Exchange exchange) {
+    // TODO: delete bindings on the exchange
     _connection.getVhost().deleteExchange(exchange);
   }
 

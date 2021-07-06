@@ -20,6 +20,7 @@ import static org.apache.commons.lang3.StringUtils.isNotBlank;
 
 import java.util.HashMap;
 import java.util.Map;
+import org.apache.pulsar.client.admin.PulsarAdminException;
 import org.apache.pulsar.client.api.PulsarClientException;
 import org.apache.pulsar.common.naming.NamespaceName;
 import org.apache.pulsar.common.naming.TopicName;
@@ -38,7 +39,7 @@ public class Exchange {
   private final Type type;
   private final boolean durable;
   private final LifetimePolicy lifetimePolicy;
-  private final Map<String, Binding> bindings = new HashMap<>();
+  private final Map<String, Map<String, PulsarConsumer>> bindings = new HashMap<>();
 
   public Exchange(String name, Type type, boolean durable, LifetimePolicy lifetimePolicy) {
     this.name = name;
@@ -72,12 +73,38 @@ public class Exchange {
     String vHost = connection.getNamespace();
 
     if (!bindings.containsKey(queue.getName())) {
-      bindings.put(
-          queue.getName(),
-          new Binding(vHost, this, queue, connection.getGatewayService().getPulsarClient()));
+      bindings.put(queue.getName(), new HashMap<>());
     }
-    Binding binding = bindings.get(queue.getName());
-    binding.addKey(routingKey);
-    queue.addBinding(binding);
+    Map<String, PulsarConsumer> binding = bindings.get(queue.getName());
+    if (!binding.containsKey(routingKey)) {
+      PulsarConsumer pulsarConsumer =
+          new PulsarConsumer(
+              getTopicName(vHost, name, routingKey).toString(),
+              connection.getGatewayService(),
+              queue);
+      pulsarConsumer.receiveAndDeliverMessages();
+      binding.put(routingKey, pulsarConsumer);
+    }
+  }
+
+  public void unbind(Queue queue, String routingKey, GatewayConnection connection)
+      throws PulsarClientException, PulsarAdminException {
+    String queueName = queue.getName();
+    if (bindings.containsKey(queueName)) {
+      Map<String, PulsarConsumer> binding = bindings.get(queueName);
+      if (binding.containsKey(routingKey)) {
+        PulsarConsumer pulsarConsumer = binding.get(routingKey);
+        pulsarConsumer.close();
+        binding.remove(routingKey);
+      }
+    }
+  }
+
+  public boolean hasBinding(String bindingKey, final Queue queue) {
+    if (bindingKey == null) {
+      bindingKey = "";
+    }
+    return bindings.containsKey(queue.getName())
+        && bindings.get(queue.getName()).containsKey(bindingKey);
   }
 }

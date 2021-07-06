@@ -17,9 +17,7 @@ package com.datastax.oss.pulsar.rabbitmqgw;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import org.apache.pulsar.client.api.Message;
 import org.apache.qpid.server.model.ExclusivityPolicy;
@@ -31,9 +29,9 @@ public class Queue {
   private final LifetimePolicy lifetimePolicy;
   private final ExclusivityPolicy exclusivityPolicy;
 
-  private final Map<String, Binding> bindings = new ConcurrentHashMap<>();
   private final java.util.Queue<MessageRequest> messageRequests = new ConcurrentLinkedQueue<>();
-  private final java.util.Queue<Binding> pendingBindings = new ConcurrentLinkedQueue<>();
+  private final java.util.Queue<PulsarConsumer.PulsarConsumerMessage> pendingBindings =
+      new ConcurrentLinkedQueue<>();
 
   private volatile AMQConsumer _exclusiveSubscriber;
   private final List<AMQConsumer> consumers = new ArrayList<>();
@@ -46,10 +44,6 @@ public class Queue {
 
   public String getName() {
     return name;
-  }
-
-  public void addBinding(Binding binding) {
-    bindings.put(binding.getExchange().getName(), binding);
   }
 
   public int getQueueDepthMessages() {
@@ -69,7 +63,8 @@ public class Queue {
     return lifetimePolicy;
   }
 
-  public CompletableFuture<MessageResponse> receiveAsync(AMQConsumer consumer) {
+  public CompletableFuture<PulsarConsumer.PulsarConsumerMessage> receiveAsync(
+      AMQConsumer consumer) {
     // TODO: support consumer priority
     MessageRequest request = new MessageRequest(consumer);
     messageRequests.add(request);
@@ -77,76 +72,60 @@ public class Queue {
     return request.getResponse();
   }
 
-  public MessageResponse receive() {
-    Binding binding = getReadyBinding();
-    if (binding != null) {
-      Message<byte[]> message = binding.getReceive().join();
-      binding.receiveMessageAsync().thenAcceptAsync(this::deliverMessage);
-      return new MessageResponse(message, binding);
+  public PulsarConsumer.PulsarConsumerMessage receive() {
+    PulsarConsumer.PulsarConsumerMessage consumerMessage = getReadyBinding();
+    if (consumerMessage != null) {
+      consumerMessage.getConsumer().receiveAndDeliverMessages();
+      return consumerMessage;
     }
     return null;
   }
 
-  public Binding getReadyBinding() {
+  public PulsarConsumer.PulsarConsumerMessage getReadyBinding() {
     return pendingBindings.poll();
   }
 
   public void deliverMessageIfAvailable() {
-    Binding binding = getReadyBinding();
-    if (binding != null) {
-      deliverMessage(binding);
+    PulsarConsumer.PulsarConsumerMessage consumerMessage = getReadyBinding();
+    if (consumerMessage != null) {
+      deliverMessage(consumerMessage);
     }
   }
 
-  public void deliverMessage(Binding binding) {
-    Message<byte[]> message = binding.getReceive().join();
-    boolean messageDelivered = false;
-    while (!messageRequests.isEmpty()) {
-      MessageRequest request = messageRequests.poll();
-      if (request != null && !request.getResponse().isDone()) {
-        boolean allocated = request.getConsumer().useCreditForMessage(message.getData().length);
-        if (allocated) {
-          request.getResponse().complete(new MessageResponse(message, binding));
-          binding.receiveMessageAsync().thenAcceptAsync(this::deliverMessage);
-          messageDelivered = true;
-          break;
-        } else {
-          request.getConsumer().block();
+  public void deliverMessage(PulsarConsumer.PulsarConsumerMessage consumerMessage) {
+    if (consumerMessage != null) {
+      Message<byte[]> message = consumerMessage.getMessage();
+      boolean messageDelivered = false;
+      while (!messageRequests.isEmpty()) {
+        MessageRequest request = messageRequests.poll();
+        if (request != null && !request.getResponse().isDone()) {
+          boolean allocated = request.getConsumer().useCreditForMessage(message.getData().length);
+          if (allocated) {
+            request.getResponse().complete(consumerMessage);
+            consumerMessage.getConsumer().receiveAndDeliverMessages();
+            messageDelivered = true;
+            break;
+          } else {
+            request.getConsumer().block();
+          }
         }
       }
-    }
-    if (!messageDelivered) {
-      pendingBindings.add(binding);
-    }
-  }
-
-  public static class MessageResponse {
-    private final Message<byte[]> message;
-    private final Binding binding;
-
-    public MessageResponse(Message<byte[]> message, Binding binding) {
-      this.message = message;
-      this.binding = binding;
-    }
-
-    public Message<byte[]> getMessage() {
-      return message;
-    }
-
-    public Binding getBinding() {
-      return binding;
+      if (!messageDelivered) {
+        pendingBindings.add(consumerMessage);
+      }
     }
   }
 
   public static class MessageRequest {
     private final AMQConsumer consumer;
-    private final CompletableFuture<MessageResponse> response = new CompletableFuture<>();
+    private final CompletableFuture<PulsarConsumer.PulsarConsumerMessage> response =
+        new CompletableFuture<>();
 
     public MessageRequest(AMQConsumer consumer) {
       this.consumer = consumer;
     }
 
-    public CompletableFuture<MessageResponse> getResponse() {
+    public CompletableFuture<PulsarConsumer.PulsarConsumerMessage> getResponse() {
       return response;
     }
 

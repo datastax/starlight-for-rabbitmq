@@ -68,8 +68,13 @@ public class UnacknowledgedMessageMap {
   }
 
   public void add(
-      long deliveryTag, MessageId message, AMQConsumer consumer, Binding binding, int size) {
-    if (_map.put(deliveryTag, new MessageConsumerAssociation(message, consumer, binding, size))
+      long deliveryTag,
+      MessageId message,
+      AMQConsumer consumer,
+      PulsarConsumer pulsarConsumer,
+      int size) {
+    if (_map.put(
+            deliveryTag, new MessageConsumerAssociation(message, consumer, pulsarConsumer, size))
         != null) {
       throw new ConnectionScopedRuntimeException("Unexpected duplicate delivery tag created");
     }

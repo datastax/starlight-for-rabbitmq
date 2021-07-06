@@ -45,6 +45,12 @@ public class GatewayConfiguration implements PulsarConfiguration {
   )
   private String brokerServiceURL;
 
+  @FieldContext(
+    category = CATEGORY_BROKER_DISCOVERY,
+    doc = "The web service url points to the broker cluster"
+  )
+  private String brokerWebServiceURL;
+
   @FieldContext(category = CATEGORY_SERVER, doc = "Hostname or IP address the service binds on")
   private String bindAddress = "0.0.0.0";
 

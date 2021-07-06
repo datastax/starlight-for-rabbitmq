@@ -35,7 +35,7 @@ public class AMQConsumer {
   private final Queue queue;
   private final boolean noAck;
   private final AtomicReference<State> _state = new AtomicReference<>(State.OPEN);
-  private CompletableFuture<Queue.MessageResponse> messageCompletableFuture;
+  private CompletableFuture<PulsarConsumer.PulsarConsumerMessage> messageCompletableFuture;
   private final AtomicBoolean blocked = new AtomicBoolean(false);
 
   public AMQConsumer(AMQChannel channel, AMQShortString tag, Queue queue, boolean noAck) {
@@ -66,13 +66,13 @@ public class AMQConsumer {
                         deliveryTag,
                         tag);
                 if (noAck) {
-                  messageResponse.getBinding().ackMessage(message);
+                  messageResponse.getConsumer().ackMessage(message.getMessageId());
                 } else {
                   channel.addUnacknowledgedMessage(
                       message.getMessageId(),
                       this,
                       deliveryTag,
-                      messageResponse.getBinding(),
+                      messageResponse.getConsumer(),
                       contentBody.getSize());
                 }
               })

@@ -21,6 +21,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Matchers.any;
 import static org.mockito.Matchers.anyBoolean;
+import static org.mockito.Matchers.anyInt;
 import static org.mockito.Matchers.anyListOf;
 import static org.mockito.Matchers.anyLong;
 import static org.mockito.Matchers.anyString;
@@ -35,7 +36,10 @@ import io.netty.channel.embedded.EmbeddedChannel;
 import java.util.Collections;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+import org.apache.pulsar.client.admin.PulsarAdmin;
+import org.apache.pulsar.client.admin.Topics;
 import org.apache.pulsar.client.api.ConsumerBuilder;
+import org.apache.pulsar.client.api.MessageId;
 import org.apache.pulsar.client.api.ProducerBuilder;
 import org.apache.pulsar.client.api.PulsarClient;
 import org.apache.pulsar.client.api.SubscriptionType;
@@ -83,15 +87,25 @@ public class AbstractBaseTest {
     ConsumerBuilder consumerBuilder = mock(ConsumerBuilder.class);
     when(pulsarClient.newConsumer()).thenReturn(consumerBuilder);
     when(consumerBuilder.topics(anyListOf(String.class))).thenReturn(consumerBuilder);
+    when(consumerBuilder.topic(anyString())).thenReturn(consumerBuilder);
     when(consumerBuilder.subscriptionName(anyString())).thenReturn(consumerBuilder);
     when(consumerBuilder.subscriptionType(any(SubscriptionType.class))).thenReturn(consumerBuilder);
     when(consumerBuilder.negativeAckRedeliveryDelay(anyLong(), any(TimeUnit.class)))
         .thenReturn(consumerBuilder);
+    when(consumerBuilder.receiverQueueSize(anyInt())).thenReturn(consumerBuilder);
     when(consumerBuilder.subscribe()).thenReturn(consumer);
 
     when(consumer.receiveAsync()).thenReturn(new CompletableFuture<>());
+    when(consumer.acknowledgeAsync(any(MessageId.class))).thenReturn(new CompletableFuture<>());
 
     doReturn(pulsarClient).when(gatewayService).getPulsarClient();
+
+    PulsarAdmin pulsarAdmin = mock(PulsarAdmin.class);
+    Topics topics = mock(Topics.class);
+
+    doReturn(MessageId.latest).when(topics).getLastMessageId(anyString());
+    doReturn(topics).when(pulsarAdmin).topics();
+    doReturn(pulsarAdmin).when(gatewayService).getPulsarAdmin();
   }
 
   protected void sendData(AMQDataBlock data) {
