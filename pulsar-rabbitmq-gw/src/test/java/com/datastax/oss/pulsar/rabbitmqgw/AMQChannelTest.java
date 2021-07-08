@@ -15,6 +15,8 @@
  */
 package com.datastax.oss.pulsar.rabbitmqgw;
 
+import static org.apache.qpid.server.model.ConfiguredObject.LIFETIME_POLICY;
+import static org.apache.qpid.server.model.Queue.EXCLUSIVE;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -33,6 +35,7 @@ import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import org.apache.commons.codec.binary.Base64;
 import org.apache.pulsar.client.api.MessageId;
@@ -42,7 +45,6 @@ import org.apache.pulsar.client.impl.MessageIdImpl;
 import org.apache.pulsar.client.impl.MessageImpl;
 import org.apache.qpid.server.bytebuffer.QpidByteBuffer;
 import org.apache.qpid.server.exchange.ExchangeDefaults;
-import org.apache.qpid.server.model.Queue;
 import org.apache.qpid.server.protocol.ErrorCodes;
 import org.apache.qpid.server.protocol.ProtocolVersion;
 import org.apache.qpid.server.protocol.v0_8.AMQShortString;
@@ -83,6 +85,8 @@ import org.apache.qpid.server.protocol.v0_8.transport.QueueBindBody;
 import org.apache.qpid.server.protocol.v0_8.transport.QueueBindOkBody;
 import org.apache.qpid.server.protocol.v0_8.transport.QueueDeclareBody;
 import org.apache.qpid.server.protocol.v0_8.transport.QueueDeclareOkBody;
+import org.apache.qpid.server.protocol.v0_8.transport.QueueDeleteBody;
+import org.apache.qpid.server.protocol.v0_8.transport.QueueDeleteOkBody;
 import org.apache.qpid.server.protocol.v0_8.transport.QueueUnbindBody;
 import org.apache.qpid.server.protocol.v0_8.transport.QueueUnbindOkBody;
 import org.junit.jupiter.api.Test;
@@ -493,6 +497,57 @@ public class AMQChannelTest extends AbstractBaseTest {
   }
 
   @Test
+  void testReceiveQueueDelete() {
+    openChannel();
+    sendQueueDeclare();
+
+    Map<String, Map<String, PulsarConsumer>> bindings =
+        connection.getVhost().getExchange(ExchangeDefaults.DEFAULT_EXCHANGE_NAME).getBindings();
+
+    assertNotNull(bindings.get(TEST_QUEUE));
+    assertNotNull(bindings.get(TEST_QUEUE).get(TEST_QUEUE));
+
+    AMQFrame frame = sendQueueDelete(TEST_QUEUE, false);
+
+    assertNotNull(frame);
+    assertTrue(frame.getBodyFrame() instanceof QueueDeleteOkBody);
+
+    assertNull(bindings.get(TEST_QUEUE));
+    verify(consumer, times(1)).closeAsync();
+  }
+
+  @Test
+  void testReceiveQueueDeleteNotFound() {
+    openChannel();
+
+    AMQFrame frame = sendQueueDelete(TEST_QUEUE, false);
+
+    assertIsChannelCloseFrame(frame, ErrorCodes.NOT_FOUND);
+  }
+
+  @Test
+  void testReceiveQueueDeleteDefaultQueue() {
+    openChannel();
+    sendQueueDeclare();
+
+    AMQFrame frame = sendQueueDelete("", false);
+
+    assertNotNull(frame);
+    assertTrue(frame.getBodyFrame() instanceof QueueDeleteOkBody);
+  }
+
+  @Test
+  void testReceiveQueueDeleteInUse() {
+    openChannel();
+    sendQueueDeclare();
+    sendBasicConsume(null, TEST_QUEUE, false);
+
+    AMQFrame frame = sendQueueDelete(TEST_QUEUE, true);
+
+    assertIsChannelCloseFrame(frame, ErrorCodes.IN_USE);
+  }
+
+  @Test
   void testReceiveBasicPublishExchangeNotFound() {
     openChannel();
 
@@ -656,11 +711,7 @@ public class AMQChannelTest extends AbstractBaseTest {
 
     Thread.sleep(100);
 
-    // ProtocolOutputConverter.CompositeAMQBodyBlock compositeAMQBodyBlock = sendBasicGet();
-    Object o = sendBasicGet();
-
-    ProtocolOutputConverter.CompositeAMQBodyBlock compositeAMQBodyBlock =
-        (ProtocolOutputConverter.CompositeAMQBodyBlock) o;
+    ProtocolOutputConverter.CompositeAMQBodyBlock compositeAMQBodyBlock = sendBasicGet();
 
     assertNotNull(compositeAMQBodyBlock);
     assertTrue(compositeAMQBodyBlock.getMethodBody() instanceof BasicGetOkBody);
@@ -1300,10 +1351,10 @@ public class AMQChannelTest extends AbstractBaseTest {
       String queue, boolean passive, String lifetimePolicy, String exclusivityPolicy) {
     HashMap<String, Object> attributes = new HashMap<>();
     if (lifetimePolicy != null) {
-      attributes.put(Queue.LIFETIME_POLICY, lifetimePolicy);
+      attributes.put(LIFETIME_POLICY, lifetimePolicy);
     }
     if (exclusivityPolicy != null) {
-      attributes.put(Queue.EXCLUSIVE, exclusivityPolicy);
+      attributes.put(EXCLUSIVE, exclusivityPolicy);
     }
     QueueDeclareBody queueDeclareBody =
         new QueueDeclareBody(
@@ -1316,6 +1367,12 @@ public class AMQChannelTest extends AbstractBaseTest {
             false,
             FieldTable.convertToFieldTable(attributes));
     return exchangeData(queueDeclareBody.generateFrame(CHANNEL_ID));
+  }
+
+  private AMQFrame sendQueueDelete(String queue, boolean ifUnused) {
+    QueueDeleteBody queueDeleteBody =
+        new QueueDeleteBody(0, AMQShortString.createAMQShortString(queue), ifUnused, false, false);
+    return exchangeData(queueDeleteBody.generateFrame(CHANNEL_ID));
   }
 
   private AMQFrame sendExchangeDelete(String exchange, boolean ifUnused) {

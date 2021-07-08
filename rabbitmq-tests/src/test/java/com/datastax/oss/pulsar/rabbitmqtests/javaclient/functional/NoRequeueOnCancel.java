@@ -34,8 +34,7 @@ public class NoRequeueOnCancel extends BrokerTestCase {
   }
 
   protected void releaseResources() throws IOException {
-    // TODO: uncomment when Queue delete implemented
-    // channel.queueDelete(Q);
+    channel.queueDelete(Q);
   }
 
   @Test

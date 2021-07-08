@@ -125,6 +125,7 @@ public class BrokerTestCase {
     cluster.start();
     GatewayConfiguration config = new GatewayConfiguration();
     config.setBrokerServiceURL(cluster.getAddress());
+    config.setBrokerWebServiceURL(cluster.getAddress());
     config.setServicePort(Optional.of(PortManager.nextFreePort()));
     gatewayService = new GatewayService(config);
     gatewayService.start();

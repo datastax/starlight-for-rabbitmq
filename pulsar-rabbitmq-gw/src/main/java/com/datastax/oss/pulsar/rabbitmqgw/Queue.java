@@ -35,6 +35,7 @@ public class Queue {
 
   private volatile AMQConsumer _exclusiveSubscriber;
   private final List<AMQConsumer> consumers = new ArrayList<>();
+  private final List<Exchange> boundExchanges = new ArrayList<>();
 
   public Queue(LifetimePolicy lifetimePolicy, ExclusivityPolicy exclusivityPolicy, String name) {
     this.name = name;
@@ -53,6 +54,14 @@ public class Queue {
 
   public int getConsumerCount() {
     return consumers.size();
+  }
+
+  public boolean isUnused() {
+    return getConsumerCount() == 0;
+  }
+
+  public boolean isEmpty() {
+    return getQueueDepthMessages() == 0;
   }
 
   public boolean isExclusive() {
@@ -116,6 +125,15 @@ public class Queue {
     }
   }
 
+  public List<Exchange> getBoundExchanges() {
+    return boundExchanges;
+  }
+
+  public long clearQueue() {
+    // TODO: implement queue purge
+    return 0;
+  }
+
   public static class MessageRequest {
     private final AMQConsumer consumer;
     private final CompletableFuture<PulsarConsumer.PulsarConsumerMessage> response =
@@ -145,6 +163,10 @@ public class Queue {
   public void unregisterConsumer(AMQConsumer consumer) {
     consumers.remove(consumer);
     _exclusiveSubscriber = null;
+  }
+
+  public List<AMQConsumer> getConsumers() {
+    return consumers;
   }
 
   public boolean hasExclusiveConsumer() {

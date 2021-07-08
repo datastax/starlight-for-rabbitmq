@@ -22,10 +22,14 @@ import java.util.Arrays;
 import java.util.Base64;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Collectors;
 import org.apache.pulsar.client.admin.PulsarAdminException;
 import org.apache.pulsar.client.api.Message;
 import org.apache.pulsar.client.api.MessageId;
@@ -50,6 +54,7 @@ import org.apache.qpid.server.protocol.v0_8.transport.BasicAckBody;
 import org.apache.qpid.server.protocol.v0_8.transport.BasicCancelOkBody;
 import org.apache.qpid.server.protocol.v0_8.transport.BasicContentHeaderProperties;
 import org.apache.qpid.server.protocol.v0_8.transport.BasicGetEmptyBody;
+import org.apache.qpid.server.protocol.v0_8.transport.BasicNackBody;
 import org.apache.qpid.server.protocol.v0_8.transport.ConfirmSelectOkBody;
 import org.apache.qpid.server.protocol.v0_8.transport.ContentBody;
 import org.apache.qpid.server.protocol.v0_8.transport.ContentHeaderBody;
@@ -57,6 +62,7 @@ import org.apache.qpid.server.protocol.v0_8.transport.ExchangeDeleteOkBody;
 import org.apache.qpid.server.protocol.v0_8.transport.MessagePublishInfo;
 import org.apache.qpid.server.protocol.v0_8.transport.MethodRegistry;
 import org.apache.qpid.server.protocol.v0_8.transport.QueueDeclareOkBody;
+import org.apache.qpid.server.protocol.v0_8.transport.QueueDeleteOkBody;
 import org.apache.qpid.server.protocol.v0_8.transport.ServerChannelMethodProcessor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -543,11 +549,89 @@ public class AMQChannel implements ServerChannelMethodProcessor {
   }
 
   @Override
-  public void receiveQueuePurge(AMQShortString queue, boolean nowait) {}
+  public void receiveQueuePurge(AMQShortString queueName, boolean nowait) {
+    if (LOGGER.isDebugEnabled()) {
+      LOGGER.debug(
+          "RECV["
+              + _channelId
+              + "] QueuePurge["
+              + " queue: "
+              + queueName
+              + " nowait: "
+              + nowait
+              + " ]");
+    }
+
+    Queue queue = null;
+    if (queueName == null && (queue = getDefaultQueue()) == null) {
+      _connection.sendConnectionClose(
+          ErrorCodes.NOT_ALLOWED, "No queue specified.", getChannelId());
+    } else if ((queueName != null) && (queue = getQueue(queueName.toString())) == null) {
+      closeChannel(ErrorCodes.NOT_FOUND, "Queue '" + queueName + "' does not exist.");
+    } else {
+      long purged = queue.clearQueue();
+      if (!nowait) {
+        MethodRegistry methodRegistry = _connection.getMethodRegistry();
+        AMQMethodBody responseBody = methodRegistry.createQueuePurgeOkBody(purged);
+        _connection.writeFrame(responseBody.generateFrame(getChannelId()));
+      }
+    }
+  }
 
   @Override
   public void receiveQueueDelete(
-      AMQShortString queue, boolean ifUnused, boolean ifEmpty, boolean nowait) {}
+      AMQShortString queueName, boolean ifUnused, boolean ifEmpty, boolean nowait) {
+    if (LOGGER.isDebugEnabled()) {
+      LOGGER.debug(
+          "RECV["
+              + _channelId
+              + "] QueueDelete["
+              + " queue: "
+              + queueName
+              + " ifUnused: "
+              + ifUnused
+              + " ifEmpty: "
+              + ifEmpty
+              + " nowait: "
+              + nowait
+              + " ]");
+    }
+
+    Queue queue;
+    if (queueName == null) {
+      // get the default queue on the channel:
+      queue = getDefaultQueue();
+    } else {
+      queue = getQueue(queueName.toString());
+    }
+
+    if (queue == null) {
+      closeChannel(ErrorCodes.NOT_FOUND, "Queue '" + queueName + "' does not exist.");
+    } else {
+      if (ifEmpty && !queue.isEmpty()) {
+        closeChannel(ErrorCodes.IN_USE, "Queue: '" + queueName + "' is not empty.");
+      } else if (ifUnused && !queue.isUnused()) {
+        closeChannel(ErrorCodes.IN_USE, "Queue: '" + queueName + "' is still used.");
+      } else {
+        // TODO: check if exclusive queue owned by another connection
+        _connection.getVhost().deleteQueue(queue);
+
+        List<AMQShortString> tags =
+            queue.getConsumers().stream().map(AMQConsumer::getTag).collect(Collectors.toList());
+
+        tags.forEach(this::unsubscribeConsumer);
+
+        queue.getBoundExchanges().forEach(exchange -> exchange.queueRemoved(queue));
+        queue.getBoundExchanges().clear();
+      }
+
+      if (!nowait) {
+        MethodRegistry methodRegistry = _connection.getMethodRegistry();
+        QueueDeleteOkBody responseBody = methodRegistry.createQueueDeleteOkBody(0);
+        _connection.writeFrame(responseBody.generateFrame(getChannelId()));
+      }
+    }
+  }
 
   @Override
   public void receiveQueueUnbind(
@@ -596,7 +680,7 @@ public class AMQChannel implements ServerChannelMethodProcessor {
         closeChannel(ErrorCodes.NOT_FOUND, "No such binding");
       } else {
         try {
-          exch.unbind(queue, bindingKeyStr, _connection);
+          exch.unbind(queue, bindingKeyStr);
 
           final AMQMethodBody responseBody =
               _connection.getMethodRegistry().createQueueUnbindOkBody();
@@ -1190,8 +1274,9 @@ public class AMQChannel implements ServerChannelMethodProcessor {
 
       messageBuilder.property(
           MessageUtils.MESSAGE_PROPERTY_AMQP_IMMEDIATE, String.valueOf(info.isImmediate()));
+      boolean mandatory = info.isMandatory();
       messageBuilder.property(
-          MessageUtils.MESSAGE_PROPERTY_AMQP_MANDATORY, String.valueOf(info.isMandatory()));
+          MessageUtils.MESSAGE_PROPERTY_AMQP_MANDATORY, String.valueOf(mandatory));
 
       ContentHeaderBody contentHeader = _currentMessage.getContentHeader();
       byte[] bytes = new byte[contentHeader.getSize()];
@@ -1203,6 +1288,8 @@ public class AMQChannel implements ServerChannelMethodProcessor {
       if (contentHeader.getProperties().getTimestamp() > 0) {
         messageBuilder.eventTime(contentHeader.getProperties().getTimestamp());
       }
+
+      QpidByteBuffer returnPayload = qpidByteBuffer.rewind();
 
       messageBuilder
           .sendAsync()
@@ -1216,7 +1303,55 @@ public class AMQChannel implements ServerChannelMethodProcessor {
               })
           .exceptionally(
               throwable -> {
-                LOGGER.error("Failed to write message to exchange", throwable);
+                if (LOGGER.isDebugEnabled()) {
+                  LOGGER.debug(
+                      "Unroutable message exchange='{}', routing key='{}', mandatory={},"
+                          + " confirmOnPublish={}",
+                      exchangeName,
+                      routingKey,
+                      mandatory,
+                      _confirmOnPublish,
+                      throwable);
+                }
+
+                /* TODO: review this error management.
+                 *  NO_ROUTE should probably be checked before (no queue bound to exchange and
+                 *  mandatory flag)
+                 *  NO_CONSUMERS should probably be checked before (no consumer to queue bound to
+                 *  exchange and immediate flag)
+                 *  PulsarClientException should probably close the connection with internal error.
+                 */
+                int errorCode = ErrorCodes.NO_ROUTE;
+                String errorMessage =
+                    String.format(
+                        "No route for message with exchange '%s' and routing key '%s'",
+                        exchangeName, routingKey);
+                if (throwable instanceof PulsarClientException.ProducerQueueIsFullError) {
+                  errorCode = ErrorCodes.RESOURCE_ERROR;
+                  errorMessage = errorMessage + ":" + throwable.getMessage();
+                }
+                if (mandatory || info.isImmediate()) {
+                  if (_confirmOnPublish) {
+                    _connection.writeFrame(
+                        new AMQFrame(
+                            _channelId, new BasicNackBody(_confirmedMessageCounter, false, false)));
+                  }
+                  _connection
+                      .getProtocolOutputConverter()
+                      .writeReturn(
+                          info,
+                          contentHeader,
+                          returnPayload,
+                          _channelId,
+                          errorCode,
+                          AMQShortString.validValueOf(errorMessage));
+                } else {
+                  if (_confirmOnPublish) {
+                    _connection.writeFrame(
+                        new AMQFrame(
+                            _channelId, new BasicAckBody(_confirmedMessageCounter, false)));
+                  }
+                }
                 return null;
               });
     }
@@ -1229,6 +1364,20 @@ public class AMQChannel implements ServerChannelMethodProcessor {
 
   private void closeChannel(int cause, final String message) {
     _connection.closeChannelAndWriteFrame(this, cause, message);
+  }
+
+  @Override
+  public String toString() {
+    return "("
+        + _closing.get()
+        + ", "
+        + _connection.isClosing()
+        + ") "
+        + "["
+        + _connection.toString()
+        + ":"
+        + _channelId
+        + "]";
   }
 
   public boolean isClosing() {
@@ -1292,7 +1441,18 @@ public class AMQChannel implements ServerChannelMethodProcessor {
   }
 
   private void unsubscribeAllConsumers() {
-    // TODO unsubscribeAllConsumers
+    if (LOGGER.isDebugEnabled()) {
+      if (!_tag2SubscriptionTargetMap.isEmpty()) {
+        LOGGER.debug("Unsubscribing all consumers on channel " + toString());
+      } else {
+        LOGGER.debug("No consumers to unsubscribe on channel " + toString());
+      }
+    }
+
+    Set<AMQShortString> subscriptionTags = new HashSet<>(_tag2SubscriptionTargetMap.keySet());
+    for (AMQShortString tag : subscriptionTags) {
+      unsubscribeConsumer(tag);
+    }
   }
 
   /** Add a message to the channel-based list of unacknowledged messages */

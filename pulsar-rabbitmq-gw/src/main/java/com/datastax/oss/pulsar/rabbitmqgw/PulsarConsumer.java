@@ -110,12 +110,20 @@ public class PulsarConsumer {
     return receiveAndDeliverMessages();
   }
 
-  public void close() throws PulsarClientException {
+  public void shutdown() throws PulsarClientException {
     lastMessageId = pulsarConsumer.getLastMessageId();
     scheduledFuture =
         gatewayService
             .getWorkerGroup()
             .scheduleAtFixedRate(this::checkIfSubscriptionCanBeRemoved, 1, 1, TimeUnit.SECONDS);
+  }
+
+  public void close() {
+    pulsarConsumer.closeAsync();
+    pulsarAdmin.topics().deleteSubscriptionAsync(topic, subscriptionName, true);
+    if (scheduledFuture != null) {
+      scheduledFuture.cancel(false);
+    }
   }
 
   private void checkIfSubscriptionCanBeRemoved() {
@@ -136,9 +144,7 @@ public class PulsarConsumer {
                 }
               }
               // All messages have been acked, can close the consumer
-              pulsarConsumer.closeAsync();
-              pulsarAdmin.topics().deleteSubscriptionAsync(topic, subscriptionName, true);
-              scheduledFuture.cancel(false);
+              close();
             });
   }
 

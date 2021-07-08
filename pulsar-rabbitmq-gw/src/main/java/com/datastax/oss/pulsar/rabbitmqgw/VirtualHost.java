@@ -68,6 +68,10 @@ public class VirtualHost {
     queues.put(queue.getName(), queue);
   }
 
+  public void deleteQueue(Queue queue) {
+    queues.remove(queue.getName());
+  }
+
   private void addStandardExchange(String directExchangeName, String directExchangeClass) {
     addExchange(
         new Exchange(

@@ -18,6 +18,7 @@ package com.datastax.oss.pulsar.rabbitmqgw;
 import static org.apache.commons.lang3.StringUtils.isBlank;
 import static org.apache.commons.lang3.StringUtils.isNotBlank;
 
+import com.google.common.annotations.VisibleForTesting;
 import java.util.HashMap;
 import java.util.Map;
 import org.apache.pulsar.client.admin.PulsarAdminException;
@@ -39,6 +40,7 @@ public class Exchange {
   private final Type type;
   private final boolean durable;
   private final LifetimePolicy lifetimePolicy;
+
   private final Map<String, Map<String, PulsarConsumer>> bindings = new HashMap<>();
 
   public Exchange(String name, Type type, boolean durable, LifetimePolicy lifetimePolicy) {
@@ -74,6 +76,7 @@ public class Exchange {
 
     if (!bindings.containsKey(queue.getName())) {
       bindings.put(queue.getName(), new HashMap<>());
+      queue.getBoundExchanges().add(this);
     }
     Map<String, PulsarConsumer> binding = bindings.get(queue.getName());
     if (!binding.containsKey(routingKey)) {
@@ -87,16 +90,29 @@ public class Exchange {
     }
   }
 
-  public void unbind(Queue queue, String routingKey, GatewayConnection connection)
+  public void unbind(Queue queue, String routingKey)
       throws PulsarClientException, PulsarAdminException {
     String queueName = queue.getName();
     if (bindings.containsKey(queueName)) {
       Map<String, PulsarConsumer> binding = bindings.get(queueName);
       if (binding.containsKey(routingKey)) {
         PulsarConsumer pulsarConsumer = binding.get(routingKey);
-        pulsarConsumer.close();
+        pulsarConsumer.shutdown();
         binding.remove(routingKey);
       }
+      if (binding.size() == 0) {
+        bindings.remove(queueName);
+        queue.getBoundExchanges().remove(this);
+      }
+    }
+  }
+
+  public void queueRemoved(Queue queue) {
+    String queueName = queue.getName();
+    if (bindings.containsKey(queueName)) {
+      Map<String, PulsarConsumer> binding = bindings.get(queueName);
+      binding.values().forEach(PulsarConsumer::close);
+      bindings.remove(queueName);
     }
   }
 
@@ -106,5 +122,10 @@ public class Exchange {
     }
     return bindings.containsKey(queue.getName())
         && bindings.get(queue.getName()).containsKey(bindingKey);
+  }
+
+  @VisibleForTesting
+  public Map<String, Map<String, PulsarConsumer>> getBindings() {
+    return bindings;
   }
 }

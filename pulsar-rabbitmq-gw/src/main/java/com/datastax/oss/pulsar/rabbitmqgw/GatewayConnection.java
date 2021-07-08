@@ -139,7 +139,18 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
   public void channelRead(ChannelHandlerContext ctx, Object msg) {
     ByteBuf buffer = (ByteBuf) msg;
     try {
-      _netInputBuffer.put(QpidByteBuffer.wrap(buffer.nioBuffer()));
+      QpidByteBuffer buf = QpidByteBuffer.wrap(buffer.nioBuffer());
+      if (_netInputBuffer.remaining() < buf.remaining()) {
+        QpidByteBuffer oldBuffer = _netInputBuffer;
+        _netInputBuffer = QpidByteBuffer.allocateDirect(_networkBufferSize);
+        if (oldBuffer.position() != 0) {
+          oldBuffer.limit(oldBuffer.position());
+          oldBuffer.slice();
+          oldBuffer.flip();
+          _netInputBuffer.put(oldBuffer);
+        }
+      }
+      _netInputBuffer.put(buf);
       _netInputBuffer.flip();
       _decoder.decodeBuffer(_netInputBuffer);
       receivedCompleteAllChannels();

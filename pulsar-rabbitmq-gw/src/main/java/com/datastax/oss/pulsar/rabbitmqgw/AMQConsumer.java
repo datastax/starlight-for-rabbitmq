@@ -105,4 +105,8 @@ public class AMQConsumer {
       consume();
     }
   }
+
+  public AMQShortString getTag() {
+    return tag;
+  }
 }
