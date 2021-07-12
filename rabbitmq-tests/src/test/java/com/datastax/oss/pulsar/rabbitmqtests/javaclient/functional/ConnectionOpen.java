@@ -93,7 +93,7 @@ public class ConnectionOpen extends BrokerTestCase {
 
   @Test
   public void frameMaxLessThanFrameMinSize() throws IOException, TimeoutException {
-    ConnectionFactory factory = TestUtils.connectionFactory();
+    ConnectionFactory factory = newConnectionFactory();
     factory.setRequestedFrameMax(100);
     try {
       factory.newConnection();

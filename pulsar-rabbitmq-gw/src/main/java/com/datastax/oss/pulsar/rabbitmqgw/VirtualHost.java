@@ -15,6 +15,7 @@
  */
 package com.datastax.oss.pulsar.rabbitmqgw;
 
+import com.datastax.oss.pulsar.rabbitmqgw.AbstractExchange.Type;
 import java.util.HashMap;
 import java.util.Map;
 import org.apache.qpid.server.exchange.ExchangeDefaults;
@@ -23,21 +24,16 @@ import org.apache.qpid.server.model.LifetimePolicy;
 public class VirtualHost {
   private final String namespace;
 
-  private final Map<String, Exchange> exchanges = new HashMap<>();
+  private final Map<String, AbstractExchange> exchanges = new HashMap<>();
   private final Map<String, Queue> queues = new HashMap<>();
 
   public VirtualHost(String namespace) {
     this.namespace = namespace;
-    addStandardExchange(
-        ExchangeDefaults.DEFAULT_EXCHANGE_NAME, ExchangeDefaults.DIRECT_EXCHANGE_CLASS);
-    addStandardExchange(
-        ExchangeDefaults.DIRECT_EXCHANGE_NAME, ExchangeDefaults.DIRECT_EXCHANGE_CLASS);
-    addStandardExchange(
-        ExchangeDefaults.FANOUT_EXCHANGE_NAME, ExchangeDefaults.FANOUT_EXCHANGE_CLASS);
-    addStandardExchange(
-        ExchangeDefaults.TOPIC_EXCHANGE_NAME, ExchangeDefaults.TOPIC_EXCHANGE_CLASS);
-    addStandardExchange(
-        ExchangeDefaults.HEADERS_EXCHANGE_NAME, ExchangeDefaults.HEADERS_EXCHANGE_CLASS);
+    addStandardExchange(ExchangeDefaults.DEFAULT_EXCHANGE_NAME, Type.direct);
+    addStandardExchange(ExchangeDefaults.DIRECT_EXCHANGE_NAME, Type.direct);
+    addStandardExchange(ExchangeDefaults.FANOUT_EXCHANGE_NAME, Type.fanout);
+    addStandardExchange(ExchangeDefaults.TOPIC_EXCHANGE_NAME, Type.topic);
+    addStandardExchange(ExchangeDefaults.HEADERS_EXCHANGE_NAME, Type.headers);
   }
 
   public String getNamespace() {
@@ -48,15 +44,15 @@ public class VirtualHost {
     return exchanges.containsKey(name);
   }
 
-  public Exchange getExchange(String name) {
+  public AbstractExchange getExchange(String name) {
     return exchanges.get(name);
   }
 
-  public void addExchange(Exchange exchange) {
+  public void addExchange(AbstractExchange exchange) {
     exchanges.put(exchange.getName(), exchange);
   }
 
-  public void deleteExchange(Exchange exchange) {
+  public void deleteExchange(AbstractExchange exchange) {
     exchanges.remove(exchange.getName());
   }
 
@@ -72,12 +68,8 @@ public class VirtualHost {
     queues.remove(queue.getName());
   }
 
-  private void addStandardExchange(String directExchangeName, String directExchangeClass) {
+  private void addStandardExchange(String directExchangeName, Type type) {
     addExchange(
-        new Exchange(
-            directExchangeName,
-            Exchange.Type.valueOf(directExchangeClass),
-            true,
-            LifetimePolicy.PERMANENT));
+        AbstractExchange.createExchange(type, directExchangeName, true, LifetimePolicy.PERMANENT));
   }
 }

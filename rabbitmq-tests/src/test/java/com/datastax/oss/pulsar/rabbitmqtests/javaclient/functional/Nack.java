@@ -70,11 +70,8 @@ public class Nack extends AbstractRejectTest {
 
     channel.waitForConfirmsOrDie(100000);
 
-    // Pulsar RMQ edit
-    Thread.sleep(100);
-
-    long tag1 = checkDelivery(channel.basicGet(q, false), m1, false);
-    long tag2 = checkDelivery(channel.basicGet(q, false), m2, false);
+    long tag1 = checkDelivery(TestUtils.basicGet(channel, q, false), m1, false);
+    long tag2 = checkDelivery(TestUtils.basicGet(channel, q, false), m2, false);
 
     QueueingConsumer c = new QueueingConsumer(secondaryChannel);
     String consumerTag = secondaryChannel.basicConsume(q, false, c);
@@ -89,7 +86,7 @@ public class Nack extends AbstractRejectTest {
     // no requeue
     secondaryChannel.basicNack(tag3, false, false);
 
-    assertNull(channel.basicGet(q, false));
+    assertNull(TestUtils.basicGet(channel, q, false));
     channel.basicAck(tag1, false);
     channel.basicNack(tag3, false, true);
 
@@ -114,13 +111,10 @@ public class Nack extends AbstractRejectTest {
 
     channel.waitForConfirmsOrDie(1000);
 
-    // Pulsar RMQ edit
-    Thread.sleep(100);
-
-    checkDelivery(channel.basicGet(q, false), m1, false);
-    long tag1 = checkDelivery(channel.basicGet(q, false), m2, false);
-    checkDelivery(channel.basicGet(q, false), m3, false);
-    long tag2 = checkDelivery(channel.basicGet(q, false), m4, false);
+    checkDelivery(TestUtils.basicGet(channel, q, false), m1, false);
+    long tag1 = checkDelivery(TestUtils.basicGet(channel, q, false), m2, false);
+    checkDelivery(TestUtils.basicGet(channel, q, false), m3, false);
+    long tag2 = checkDelivery(TestUtils.basicGet(channel, q, false), m4, false);
 
     // ack, leaving a gap in un-acked sequence
     channel.basicAck(tag1, false);
@@ -138,7 +132,7 @@ public class Nack extends AbstractRejectTest {
     // no requeue
     secondaryChannel.basicNack(tag3, true, false);
 
-    assertNull(channel.basicGet(q, false));
+    assertNull(TestUtils.basicGet(channel, q, false));
 
     channel.basicNack(tag3, true, true);
 
@@ -159,11 +153,8 @@ public class Nack extends AbstractRejectTest {
 
     channel.waitForConfirmsOrDie(1000);
 
-    // Pulsar RMQ edit
-    Thread.sleep(100);
-
-    checkDelivery(channel.basicGet(q, false), m1, false);
-    checkDelivery(channel.basicGet(q, false), m2, false);
+    checkDelivery(TestUtils.basicGet(channel, q, false), m1, false);
+    checkDelivery(TestUtils.basicGet(channel, q, false), m2, false);
 
     // nack all
     channel.basicNack(0, true, true);

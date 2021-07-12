@@ -213,7 +213,8 @@ public class GatewayConfiguration implements PulsarConfiguration {
   private int amqpHeartbeatTimeoutFactor = 2;
 
   @FieldContext(category = CATEGORY_AMQP, doc = "Network buffer size.")
-  // TODO: Network buffer size must be bigger than Netty's receive buffer. Also configure Netty with this.
+  // TODO: Network buffer size must be bigger than Netty's receive buffer. Also configure Netty with
+  // this.
   private int amqpNetworkBufferSize = 2 * 1024 * 1024;
 
   @FieldContext(category = CATEGORY_AMQP, doc = "Max message size.")

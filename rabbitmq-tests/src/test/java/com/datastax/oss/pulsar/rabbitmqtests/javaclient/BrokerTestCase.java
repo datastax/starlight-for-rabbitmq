@@ -246,7 +246,7 @@ public class BrokerTestCase {
   }
 
   protected GetResponse basicGet(String q) throws IOException {
-    return channel.basicGet(q, true);
+    return TestUtils.basicGet(channel, q, true);
   }
 
   protected void basicPublishPersistent(String q) throws IOException {

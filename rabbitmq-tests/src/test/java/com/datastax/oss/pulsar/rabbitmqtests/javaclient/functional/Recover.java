@@ -22,6 +22,7 @@ import static org.junit.Assert.fail;
 
 import com.datastax.oss.pulsar.rabbitmqtests.javaclient.BrokerTestCase;
 import com.datastax.oss.pulsar.rabbitmqtests.javaclient.QueueingConsumer;
+import com.datastax.oss.pulsar.rabbitmqtests.javaclient.TestUtils;
 import com.rabbitmq.client.*;
 import java.io.IOException;
 import java.util.Arrays;
@@ -81,7 +82,7 @@ public class Recover extends BrokerTestCase {
     assertTrue(latch.await(5, TimeUnit.SECONDS));
     assertTrue("consumed message body not as sent", Arrays.equals(body, bodyReference.get()));
     call.recover(channel);
-    assertNull("should be no message available", channel.basicGet(queue, true));
+    assertNull("should be no message available", TestUtils.basicGet(channel, queue, true));
   }
 
   final RecoverCallback recoverSync =

@@ -20,6 +20,7 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import com.datastax.oss.pulsar.rabbitmqtests.javaclient.BrokerTestCase;
+import com.datastax.oss.pulsar.rabbitmqtests.javaclient.TestUtils;
 import com.rabbitmq.client.*;
 import java.io.IOException;
 import java.util.concurrent.CountDownLatch;
@@ -56,15 +57,11 @@ public class NoRequeueOnCancel extends BrokerTestCase {
 
     channel.basicCancel(consumerTag);
 
-    Thread.sleep(200L);
-
-    assertNull(channel.basicGet(Q, true));
+    assertNull(TestUtils.basicGet(channel, Q, true));
 
     closeChannel();
     openChannel();
 
-    Thread.sleep(200L);
-
-    assertNotNull(channel.basicGet(Q, true));
+    assertNotNull(TestUtils.basicGet(channel, Q, true));
   }
 }

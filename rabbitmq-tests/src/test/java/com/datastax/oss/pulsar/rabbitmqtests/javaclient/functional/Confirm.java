@@ -18,6 +18,7 @@ package com.datastax.oss.pulsar.rabbitmqtests.javaclient.functional;
 import static org.junit.Assert.*;
 
 import com.datastax.oss.pulsar.rabbitmqtests.javaclient.BrokerTestCase;
+import com.datastax.oss.pulsar.rabbitmqtests.javaclient.TestUtils;
 import com.rabbitmq.client.AMQP;
 import com.rabbitmq.client.Channel;
 import com.rabbitmq.client.ConfirmListener;
@@ -160,18 +161,13 @@ public class Confirm extends BrokerTestCase {
   public void basicRecover() throws IOException, InterruptedException, TimeoutException {
     publishN("", "confirm-test-noconsumer", true, false);
 
-    // Pulsar-RMQ edit
-    long now = System.currentTimeMillis();
-    for (long i = 0; i < NUM_MESSAGES; ) {
-      GetResponse resp = channel.basicGet("confirm-test-noconsumer", false);
+    // Pulsar RMQ edit
+    for (long i = 0; i < NUM_MESSAGES; i++) {
+      GetResponse resp = TestUtils.basicGet(channel, "confirm-test-noconsumer", false);
       if (resp != null) {
         resp.getEnvelope().getDeliveryTag();
         // not acking
-        i++;
       } else {
-        Thread.sleep(10);
-      }
-      if (System.currentTimeMillis() - now > 1000) {
         fail("Timeout while reading messages");
       }
     }
@@ -289,18 +285,13 @@ public class Confirm extends BrokerTestCase {
   private void basicRejectCommon(boolean requeue) throws IOException, InterruptedException {
     publishN("", "confirm-test-noconsumer", true, false);
 
-    // Pulsar-RMQ edit
-    long now = System.currentTimeMillis();
-    for (long i = 0; i < NUM_MESSAGES; ) {
-      GetResponse resp = channel.basicGet("confirm-test-noconsumer", false);
+    // Pulsar RMQ edit
+    for (long i = 0; i < NUM_MESSAGES; i++) {
+      GetResponse resp = TestUtils.basicGet(channel, "confirm-test-noconsumer", false);
       if (resp != null) {
         long dtag = resp.getEnvelope().getDeliveryTag();
         channel.basicReject(dtag, requeue);
-        i++;
       } else {
-        Thread.sleep(10);
-      }
-      if (System.currentTimeMillis() - now > 1000) {
         fail("Timeout while reading messages");
       }
     }

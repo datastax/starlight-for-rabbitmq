@@ -21,13 +21,12 @@ import static org.apache.commons.lang3.StringUtils.isNotBlank;
 import com.google.common.annotations.VisibleForTesting;
 import java.util.HashMap;
 import java.util.Map;
-import org.apache.pulsar.client.admin.PulsarAdminException;
 import org.apache.pulsar.client.api.PulsarClientException;
 import org.apache.pulsar.common.naming.NamespaceName;
 import org.apache.pulsar.common.naming.TopicName;
 import org.apache.qpid.server.model.LifetimePolicy;
 
-public class Exchange {
+public abstract class AbstractExchange {
 
   enum Type {
     direct,
@@ -36,14 +35,15 @@ public class Exchange {
     headers
   }
 
-  private final String name;
-  private final Type type;
-  private final boolean durable;
-  private final LifetimePolicy lifetimePolicy;
+  protected final String name;
+  protected final AbstractExchange.Type type;
+  protected final boolean durable;
+  protected final LifetimePolicy lifetimePolicy;
 
-  private final Map<String, Map<String, PulsarConsumer>> bindings = new HashMap<>();
+  protected final Map<String, Map<String, PulsarConsumer>> bindings = new HashMap<>();
 
-  public Exchange(String name, Type type, boolean durable, LifetimePolicy lifetimePolicy) {
+  protected AbstractExchange(
+      String name, Type type, boolean durable, LifetimePolicy lifetimePolicy) {
     this.name = name;
     this.type = type;
     this.durable = durable;
@@ -58,16 +58,24 @@ public class Exchange {
     return type.toString();
   }
 
+  public boolean isDurable() {
+    return durable;
+  }
+
+  public LifetimePolicy getLifetimePolicy() {
+    return lifetimePolicy;
+  }
+
   public boolean hasBindings() {
     return bindings.size() != 0;
   }
 
-  public static TopicName getTopicName(String vHost, String exchangeName, String routingKey) {
-    StringBuilder topic = new StringBuilder(isBlank(exchangeName) ? "amq.default" : exchangeName);
-    if (isNotBlank(routingKey)) {
-      topic.append("$$").append(routingKey);
+  public boolean hasBinding(String bindingKey, final Queue queue) {
+    if (bindingKey == null) {
+      bindingKey = "";
     }
-    return TopicName.get("persistent", NamespaceName.get(vHost), topic.toString());
+    return bindings.containsKey(queue.getName())
+        && bindings.get(queue.getName()).containsKey(bindingKey);
   }
 
   public void bind(Queue queue, String routingKey, GatewayConnection connection)
@@ -90,8 +98,7 @@ public class Exchange {
     }
   }
 
-  public void unbind(Queue queue, String routingKey)
-      throws PulsarClientException, PulsarAdminException {
+  public void unbind(Queue queue, String routingKey) throws PulsarClientException {
     String queueName = queue.getName();
     if (bindings.containsKey(queueName)) {
       Map<String, PulsarConsumer> binding = bindings.get(queueName);
@@ -116,12 +123,28 @@ public class Exchange {
     }
   }
 
-  public boolean hasBinding(String bindingKey, final Queue queue) {
-    if (bindingKey == null) {
-      bindingKey = "";
+  public static AbstractExchange createExchange(
+      Type type, String name, boolean durable, LifetimePolicy lifetimePolicy) {
+    switch (type) {
+      case direct:
+        return new DirectExchange(name, durable, lifetimePolicy);
+      case fanout:
+        return new FanoutExchange(name, durable, lifetimePolicy);
+      case topic:
+        return new TopicExchange(name, durable, lifetimePolicy);
+      case headers:
+        return new HeadersExchange(name, durable, lifetimePolicy);
+      default:
+        return null;
     }
-    return bindings.containsKey(queue.getName())
-        && bindings.get(queue.getName()).containsKey(bindingKey);
+  }
+
+  public TopicName getTopicName(String vHost, String exchangeName, String routingKey) {
+    StringBuilder topic = new StringBuilder(isBlank(exchangeName) ? "amq.default" : exchangeName);
+    if (isNotBlank(routingKey)) {
+      topic.append("$$").append(routingKey);
+    }
+    return TopicName.get("persistent", NamespaceName.get(vHost), topic.toString());
   }
 
   @VisibleForTesting

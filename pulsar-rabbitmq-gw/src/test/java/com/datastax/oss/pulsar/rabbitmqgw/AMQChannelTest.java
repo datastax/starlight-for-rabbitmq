@@ -141,7 +141,7 @@ public class AMQChannelTest extends AbstractBaseTest {
         sendExchangeDeclare(
             ExchangeDefaults.DEFAULT_EXCHANGE_NAME, ExchangeDefaults.DIRECT_EXCHANGE_CLASS, false);
 
-    assertIsExchangeDeclareOk(frame);
+    assertIsChannelCloseFrame(frame, ErrorCodes.ACCESS_REFUSED);
   }
 
   @Test
@@ -152,7 +152,7 @@ public class AMQChannelTest extends AbstractBaseTest {
         sendExchangeDeclare(
             ExchangeDefaults.DEFAULT_EXCHANGE_NAME, ExchangeDefaults.FANOUT_EXCHANGE_CLASS, false);
 
-    assertIsConnectionCloseFrame(frame, ErrorCodes.NOT_ALLOWED);
+    assertIsChannelCloseFrame(frame, ErrorCodes.ACCESS_REFUSED);
   }
 
   @Test
@@ -184,7 +184,7 @@ public class AMQChannelTest extends AbstractBaseTest {
     AMQFrame frame =
         sendExchangeDeclare(TEST_EXCHANGE, ExchangeDefaults.FANOUT_EXCHANGE_CLASS, true);
 
-    assertIsConnectionCloseFrame(frame, ErrorCodes.NOT_ALLOWED);
+    assertIsChannelCloseFrame(frame, ErrorCodes.NOT_ALLOWED);
   }
 
   @Test
@@ -193,7 +193,7 @@ public class AMQChannelTest extends AbstractBaseTest {
 
     AMQFrame frame = sendExchangeDeclare("amq.test", ExchangeDefaults.DIRECT_EXCHANGE_CLASS, false);
 
-    assertIsConnectionCloseFrame(frame, ErrorCodes.NOT_ALLOWED);
+    assertIsChannelCloseFrame(frame, ErrorCodes.ACCESS_REFUSED);
   }
 
   @Test
@@ -214,7 +214,7 @@ public class AMQChannelTest extends AbstractBaseTest {
     AMQFrame frame =
         sendExchangeDeclare(TEST_EXCHANGE, ExchangeDefaults.FANOUT_EXCHANGE_CLASS, false);
 
-    assertIsConnectionCloseFrame(frame, ErrorCodes.NOT_ALLOWED);
+    assertIsChannelCloseFrame(frame, ErrorCodes.IN_USE);
   }
 
   @Test
@@ -243,7 +243,9 @@ public class AMQChannelTest extends AbstractBaseTest {
 
     AMQFrame frame = sendExchangeDelete(TEST_EXCHANGE, false);
 
-    assertIsChannelCloseFrame(frame, ErrorCodes.NOT_FOUND);
+    // Exchange delete made idempotent op in RabbitMQ 3.2+
+    assertNotNull(frame);
+    assertTrue(frame.getBodyFrame() instanceof ExchangeDeleteOkBody);
   }
 
   // TODO: test ExchangeDelete with ifUnused when bindings implemented
@@ -262,7 +264,7 @@ public class AMQChannelTest extends AbstractBaseTest {
 
     AMQFrame frame = sendExchangeDelete(ExchangeDefaults.FANOUT_EXCHANGE_NAME, false);
 
-    assertIsChannelCloseFrame(frame, ErrorCodes.NOT_ALLOWED);
+    assertIsChannelCloseFrame(frame, ErrorCodes.ACCESS_REFUSED);
   }
 
   @Test
@@ -413,7 +415,7 @@ public class AMQChannelTest extends AbstractBaseTest {
 
     AMQFrame frame = sendQueueBind(TEST_QUEUE, ExchangeDefaults.DEFAULT_EXCHANGE_NAME, TEST_KEY);
 
-    assertIsConnectionCloseFrame(frame, ErrorCodes.NOT_ALLOWED);
+    assertIsChannelCloseFrame(frame, ErrorCodes.ACCESS_REFUSED);
   }
 
   @Test
@@ -435,10 +437,10 @@ public class AMQChannelTest extends AbstractBaseTest {
     sendQueueDeclare();
     sendQueueBind(TEST_KEY);
 
-    AMQFrame frame = sendQueueBind(TEST_KEY);
+    AMQFrame frame = sendQueueUnbind(TEST_KEY);
 
     assertNotNull(frame);
-    assertTrue(frame.getBodyFrame() instanceof QueueBindOkBody);
+    assertTrue(frame.getBodyFrame() instanceof QueueUnbindOkBody);
   }
 
   @Test
@@ -448,7 +450,9 @@ public class AMQChannelTest extends AbstractBaseTest {
 
     AMQFrame frame = sendQueueUnbind(TEST_KEY);
 
-    assertIsChannelCloseFrame(frame, ErrorCodes.NOT_FOUND);
+    // Queue unbind made idempotent op in RabbitMQ 3.2+
+    assertNotNull(frame);
+    assertTrue(frame.getBodyFrame() instanceof QueueUnbindOkBody);
   }
 
   @Test
@@ -458,7 +462,9 @@ public class AMQChannelTest extends AbstractBaseTest {
 
     AMQFrame frame = sendQueueUnbind(TEST_KEY);
 
-    assertIsChannelCloseFrame(frame, ErrorCodes.NOT_FOUND);
+    // Queue unbind made idempotent op in RabbitMQ 3.2+
+    assertNotNull(frame);
+    assertTrue(frame.getBodyFrame() instanceof QueueUnbindOkBody);
   }
 
   @Test
@@ -469,7 +475,9 @@ public class AMQChannelTest extends AbstractBaseTest {
 
     AMQFrame frame = sendQueueUnbind(TEST_KEY);
 
-    assertIsChannelCloseFrame(frame, ErrorCodes.NOT_FOUND);
+    // Queue unbind made idempotent op in RabbitMQ 3.2+
+    assertNotNull(frame);
+    assertTrue(frame.getBodyFrame() instanceof QueueUnbindOkBody);
   }
 
   @Test
@@ -480,7 +488,7 @@ public class AMQChannelTest extends AbstractBaseTest {
 
     AMQFrame frame = sendQueueUnbind(TEST_QUEUE, ExchangeDefaults.DEFAULT_EXCHANGE_NAME, TEST_KEY);
 
-    assertIsConnectionCloseFrame(frame, ErrorCodes.NOT_ALLOWED);
+    assertIsChannelCloseFrame(frame, ErrorCodes.ACCESS_REFUSED);
   }
 
   @Test
@@ -522,7 +530,9 @@ public class AMQChannelTest extends AbstractBaseTest {
 
     AMQFrame frame = sendQueueDelete(TEST_QUEUE, false);
 
-    assertIsChannelCloseFrame(frame, ErrorCodes.NOT_FOUND);
+    // Queue delete made idempotent op in RabbitMQ 3.2+
+    assertNotNull(frame);
+    assertTrue(frame.getBodyFrame() instanceof QueueDeleteOkBody);
   }
 
   @Test

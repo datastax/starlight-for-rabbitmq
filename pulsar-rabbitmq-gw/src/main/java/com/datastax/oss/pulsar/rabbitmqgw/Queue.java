@@ -35,7 +35,7 @@ public class Queue {
 
   private volatile AMQConsumer _exclusiveSubscriber;
   private final List<AMQConsumer> consumers = new ArrayList<>();
-  private final List<Exchange> boundExchanges = new ArrayList<>();
+  private final List<AbstractExchange> boundExchanges = new ArrayList<>();
 
   public Queue(LifetimePolicy lifetimePolicy, ExclusivityPolicy exclusivityPolicy, String name) {
     this.name = name;
@@ -125,7 +125,7 @@ public class Queue {
     }
   }
 
-  public List<Exchange> getBoundExchanges() {
+  public List<AbstractExchange> getBoundExchanges() {
     return boundExchanges;
   }
 

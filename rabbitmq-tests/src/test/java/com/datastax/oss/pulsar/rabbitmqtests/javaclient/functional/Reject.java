@@ -67,18 +67,15 @@ public class Reject extends AbstractRejectTest {
 
     channel.waitForConfirmsOrDie(1000);
 
-    // Pulsar RMQ edit
-    Thread.sleep(100);
-
-    long tag1 = checkDelivery(channel.basicGet(q, false), m1, false);
-    long tag2 = checkDelivery(channel.basicGet(q, false), m2, false);
+    long tag1 = checkDelivery(TestUtils.basicGet(channel, q, false), m1, false);
+    long tag2 = checkDelivery(TestUtils.basicGet(channel, q, false), m2, false);
     QueueingConsumer c = new QueueingConsumer(secondaryChannel);
     String consumerTag = secondaryChannel.basicConsume(q, false, c);
     channel.basicReject(tag2, true);
     long tag3 = checkDelivery(c.nextDelivery(), m2, true);
     secondaryChannel.basicCancel(consumerTag);
     secondaryChannel.basicReject(tag3, false);
-    assertNull(channel.basicGet(q, false));
+    assertNull(TestUtils.basicGet(channel, q, false));
     channel.basicAck(tag1, false);
     channel.basicReject(tag3, false);
     expectError(AMQP.PRECONDITION_FAILED);

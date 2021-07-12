@@ -16,39 +16,27 @@
 package com.datastax.oss.pulsar.rabbitmqtests.javaclient.functional;
 
 import com.datastax.oss.pulsar.rabbitmqtests.javaclient.BrokerTestCase;
-import com.datastax.oss.pulsar.rabbitmqtests.javaclient.TestUtils;
 import com.rabbitmq.client.AMQP;
 import java.io.IOException;
 import org.junit.Test;
 
-/**
- * See bug 21846: Basic.Ack is now required to signal a channel error immediately upon detecting an
- * invalid deliveryTag, even if the channel is (Tx-)transacted. Specifically, a client MUST not
- * acknowledge the same message more than once.
- */
-public abstract class InvalidAcksBase extends BrokerTestCase {
-  protected abstract void select() throws IOException;
-
-  protected abstract void commit() throws IOException;
+public class ExchangeDeletePredeclared extends BrokerTestCase {
 
   @Test
-  public void doubleAck() throws Exception {
-    select();
-    String q = channel.queueDeclare().getQueue();
-    basicPublishVolatile(q);
-    commit();
-
-    long tag = TestUtils.basicGet(channel, q, false).getEnvelope().getDeliveryTag();
-    channel.basicAck(tag, false);
-    channel.basicAck(tag, false);
-
-    expectError(AMQP.PRECONDITION_FAILED);
+  public void testDeletingPredeclaredAmqExchange() throws IOException {
+    try {
+      channel.exchangeDelete("amq.fanout");
+    } catch (IOException e) {
+      checkShutdownSignal(AMQP.ACCESS_REFUSED, e);
+    }
   }
 
   @Test
-  public void crazyAck() throws IOException {
-    select();
-    channel.basicAck(123456, false);
-    expectError(AMQP.PRECONDITION_FAILED);
+  public void testDeletingPredeclaredAmqRabbitMQExchange() throws IOException {
+    try {
+      channel.exchangeDelete("amq.rabbitmq.log");
+    } catch (IOException e) {
+      checkShutdownSignal(AMQP.ACCESS_REFUSED, e);
+    }
   }
 }

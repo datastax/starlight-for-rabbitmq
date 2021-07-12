@@ -44,6 +44,23 @@ public class TestUtils {
 
   public static final boolean USE_NIO = System.getProperty("use.nio") != null;
 
+  public static GetResponse basicGet(Channel channel, String queue, boolean autoAck)
+      throws IOException {
+    GetResponse r = null;
+    long now = System.currentTimeMillis();
+    while (System.currentTimeMillis() - now < 1000 && r == null) {
+      r = channel.basicGet(queue, autoAck);
+      if (r == null) {
+        try {
+          Thread.sleep(10);
+        } catch (InterruptedException e) {
+          throw new RuntimeException(e);
+        }
+      }
+    }
+    return r;
+  }
+
   public static ConnectionFactory connectionFactory() {
     ConnectionFactory connectionFactory = new ConnectionFactory();
     if (USE_NIO) {
