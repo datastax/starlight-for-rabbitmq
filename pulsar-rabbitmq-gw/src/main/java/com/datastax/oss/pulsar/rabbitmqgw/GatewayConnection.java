@@ -738,8 +738,10 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
     }
   }
 
+
+  // TODO: support message compression (Qpid only)
   public boolean isCompressionSupported() {
-    return true;
+    return false;
   }
 
   public MethodRegistry getMethodRegistry() {
