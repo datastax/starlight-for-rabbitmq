@@ -983,8 +983,13 @@ public class AMQChannel implements ServerChannelMethodProcessor {
           if (noAck) {
             pulsarConsumer.ackMessage(message.getMessageId());
           } else {
-            _unacknowledgedMessageMap.add(
-                deliveryTag, message.getMessageId(), null, pulsarConsumer, contentBody.getSize());
+            addUnacknowledgedMessage(
+                message.getMessageId(),
+                null,
+                deliveryTag,
+                false,
+                pulsarConsumer,
+                contentBody.getSize());
           }
         } else {
           MethodRegistry methodRegistry = _connection.getMethodRegistry();
@@ -1480,6 +1485,7 @@ public class AMQChannel implements ServerChannelMethodProcessor {
       MessageId messageId,
       AMQConsumer consumer,
       long deliveryTag,
+      boolean usesCredit,
       PulsarConsumer pulsarConsumer,
       int size) {
     if (LOGGER.isDebugEnabled()) {
@@ -1492,7 +1498,8 @@ public class AMQChannel implements ServerChannelMethodProcessor {
               + pulsarConsumer);
     }
 
-    _unacknowledgedMessageMap.add(deliveryTag, messageId, consumer, pulsarConsumer, size);
+    _unacknowledgedMessageMap.add(
+        deliveryTag, messageId, consumer, usesCredit, pulsarConsumer, size);
   }
 
   /**

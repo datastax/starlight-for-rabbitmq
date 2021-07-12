@@ -60,7 +60,7 @@ public class UnacknowledgedMessageMap {
   public MessageConsumerAssociation remove(long deliveryTag, final boolean restoreCredit) {
     MessageConsumerAssociation entry = _map.remove(deliveryTag);
     if (entry != null) {
-      if (restoreCredit) {
+      if (restoreCredit && entry.isUsesCredit()) {
         creditManager.restoreCredit(1, entry.getSize());
       }
     }
@@ -71,10 +71,12 @@ public class UnacknowledgedMessageMap {
       long deliveryTag,
       MessageId message,
       AMQConsumer consumer,
+      boolean usesCredit,
       PulsarConsumer pulsarConsumer,
       int size) {
     if (_map.put(
-            deliveryTag, new MessageConsumerAssociation(message, consumer, pulsarConsumer, size))
+            deliveryTag,
+            new MessageConsumerAssociation(message, consumer, usesCredit, pulsarConsumer, size))
         != null) {
       throw new ConnectionScopedRuntimeException("Unexpected duplicate delivery tag created");
     }

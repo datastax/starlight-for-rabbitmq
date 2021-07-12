@@ -21,13 +21,19 @@ import org.apache.pulsar.client.api.MessageId;
 public final class MessageConsumerAssociation {
   private final MessageId messageId;
   private final AMQConsumer consumer;
+  private final boolean usesCredit;
   private final PulsarConsumer pulsarConsumer;
   private final int size;
 
   MessageConsumerAssociation(
-      MessageId messageId, AMQConsumer consumer, PulsarConsumer pulsarConsumer, int size) {
+      MessageId messageId,
+      AMQConsumer consumer,
+      boolean usesCredit,
+      PulsarConsumer pulsarConsumer,
+      int size) {
     this.messageId = messageId;
     this.consumer = consumer;
+    this.usesCredit = usesCredit;
     this.pulsarConsumer = pulsarConsumer;
     this.size = size;
   }
@@ -42,6 +48,10 @@ public final class MessageConsumerAssociation {
 
   public AMQConsumer getConsumer() {
     return consumer;
+  }
+
+  public boolean isUsesCredit() {
+    return usesCredit;
   }
 
   public CompletableFuture<Void> ack() {

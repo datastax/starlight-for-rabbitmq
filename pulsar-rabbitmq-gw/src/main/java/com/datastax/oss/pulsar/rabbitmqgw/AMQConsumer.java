@@ -72,6 +72,7 @@ public class AMQConsumer {
                       message.getMessageId(),
                       this,
                       deliveryTag,
+                      true,
                       messageResponse.getConsumer(),
                       contentBody.getSize());
                 }
@@ -81,7 +82,11 @@ public class AMQConsumer {
   }
 
   public boolean useCreditForMessage(int length) {
-    return noAck || channel.getCreditManager().useCreditForMessage(length);
+    boolean allocated = channel.getCreditManager().useCreditForMessage(length);
+    if (allocated && noAck) {
+      channel.getCreditManager().restoreCredit(1, length);
+    }
+    return allocated;
   }
 
   public boolean close() {
