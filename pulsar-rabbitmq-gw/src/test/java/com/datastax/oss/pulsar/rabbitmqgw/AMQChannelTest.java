@@ -372,7 +372,7 @@ public class AMQChannelTest extends AbstractBaseTest {
             FieldTable.convertToFieldTable(Collections.emptyMap()));
     AMQFrame frame = exchangeData(queueDeclareBody.generateFrame(CHANNEL_ID));
 
-    assertIsChannelCloseFrame(frame, ErrorCodes.ALREADY_EXISTS);
+    assertIsChannelCloseFrame(frame, ErrorCodes.IN_USE);
   }
 
   @Test

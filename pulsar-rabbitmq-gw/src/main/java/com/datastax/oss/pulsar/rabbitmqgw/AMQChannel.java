@@ -163,13 +163,14 @@ public class AMQChannel implements ServerChannelMethodProcessor {
       boolean nowait,
       FieldTable arguments) {
 
+    String name = sanitizeExchangeName(exchangeName);
     if (LOGGER.isDebugEnabled()) {
       LOGGER.debug(
           "RECV["
               + _channelId
               + "] ExchangeDeclare["
               + " exchange: "
-              + exchangeName
+              + name
               + " type: "
               + type
               + " passive: "
@@ -191,7 +192,6 @@ public class AMQChannel implements ServerChannelMethodProcessor {
     final AMQMethodBody declareOkBody = methodRegistry.createExchangeDeclareOkBody();
 
     AbstractExchange exchange;
-    String name = sanitizeExchangeName(exchangeName);
 
     if (passive) {
       exchange = getExchange(name);
@@ -219,17 +219,15 @@ public class AMQChannel implements ServerChannelMethodProcessor {
       LifetimePolicy lifetimePolicy =
           autoDelete ? LifetimePolicy.DELETE_ON_NO_LINKS : LifetimePolicy.PERMANENT;
 
-      AbstractExchange.Type exChangeType;
+      AbstractExchange.Type exchangeType;
       try {
-        exChangeType = AbstractExchange.Type.valueOf(typeString);
+        exchangeType = AbstractExchange.Type.valueOf(typeString);
         if (isReservedExchangeName(name)) {
           // Note: Qpid and RabbitMQ behave differently. Qpid would return OK if the exchange
           // exists.
           closeChannel(
               ErrorCodes.ACCESS_REFUSED,
-              "Attempt to declare exchange: '"
-                  + exchangeName
-                  + "' which begins with reserved prefix.");
+              "Attempt to declare exchange: '" + name + "' which begins with reserved prefix.");
         } else if (_connection.getVhost().hasExchange(name)) {
           exchange = getExchange(name);
           if (!exchange.getType().equals(typeString)
@@ -237,14 +235,14 @@ public class AMQChannel implements ServerChannelMethodProcessor {
               || exchange.isDurable() != durable) {
             closeChannel(
                 ErrorCodes.IN_USE,
-                "Attempt to redeclare exchange with different parameters: '" + exchangeName + ".");
+                "Attempt to redeclare exchange with different parameters: '" + name + ".");
           } else {
             if (!nowait) {
               _connection.writeFrame(declareOkBody.generateFrame(getChannelId()));
             }
           }
         } else {
-          exchange = AbstractExchange.createExchange(exChangeType, name, durable, lifetimePolicy);
+          exchange = AbstractExchange.createExchange(exchangeType, name, durable, lifetimePolicy);
           addExchange(exchange);
 
           if (!nowait) {
@@ -253,7 +251,7 @@ public class AMQChannel implements ServerChannelMethodProcessor {
         }
       } catch (IllegalArgumentException e) {
         String errorMessage =
-            "Unknown exchange type '" + typeString + "' for exchange '" + exchangeName + "'";
+            "Unknown exchange type '" + typeString + "' for exchange '" + name + "'";
         LOGGER.warn(errorMessage, e);
         _connection.sendConnectionClose(ErrorCodes.COMMAND_INVALID, errorMessage, getChannelId());
       }
@@ -276,7 +274,8 @@ public class AMQChannel implements ServerChannelMethodProcessor {
               + " ]");
     }
 
-    final String exchangeName = sanitizeExchangeName(exchangeStr);
+    final String exchangeName =
+        exchangeStr == null ? ExchangeDefaults.DEFAULT_EXCHANGE_NAME : exchangeStr.toString();
 
     final AbstractExchange exchange = getExchange(exchangeName);
     if (exchange == null) {
@@ -291,7 +290,7 @@ public class AMQChannel implements ServerChannelMethodProcessor {
     } else if (ifUnused && exchange.hasBindings()) {
       closeChannel(ErrorCodes.IN_USE, "Exchange has bindings");
     } else if (isReservedExchangeName(exchangeName)) {
-      closeChannel(ErrorCodes.ACCESS_REFUSED, "Exchange '" + exchangeStr + "' cannot be deleted");
+      closeChannel(ErrorCodes.ACCESS_REFUSED, "Exchange '" + exchangeName + "' cannot be deleted");
     } else {
       deleteExchange(exchange);
 
@@ -339,13 +338,13 @@ public class AMQChannel implements ServerChannelMethodProcessor {
               + " ]");
     }
 
-    final AMQShortString queueName;
+    final String queueName;
 
     // if we aren't given a queue name, we create one which we return to the client
     if ((queueStr == null) || (queueStr.length() == 0)) {
-      queueName = AMQShortString.createAMQShortString("tmp_" + UUID.randomUUID());
+      queueName = "tmp_" + UUID.randomUUID();
     } else {
-      queueName = queueStr;
+      queueName = sanitizeEntityName(queueStr.toString());
     }
 
     Queue queue;
@@ -354,7 +353,7 @@ public class AMQChannel implements ServerChannelMethodProcessor {
     // "configuration"?
 
     if (passive) {
-      queue = getQueue(queueName.toString());
+      queue = getQueue(queueName);
       if (queue == null) {
         closeChannel(
             ErrorCodes.NOT_FOUND,
@@ -372,7 +371,9 @@ public class AMQChannel implements ServerChannelMethodProcessor {
             MethodRegistry methodRegistry = _connection.getMethodRegistry();
             QueueDeclareOkBody responseBody =
                 methodRegistry.createQueueDeclareOkBody(
-                    queueName, queue.getQueueDepthMessages(), queue.getConsumerCount());
+                    AMQShortString.createAMQShortString(queueName),
+                    queue.getQueueDepthMessages(),
+                    queue.getConsumerCount());
             _connection.writeFrame(responseBody.generateFrame(getChannelId()));
 
             if (LOGGER.isDebugEnabled()) {
@@ -411,7 +412,7 @@ public class AMQChannel implements ServerChannelMethodProcessor {
                   attributes.get(org.apache.qpid.server.model.Queue.LIFETIME_POLICY).toString());
         }
 
-        queue = getQueue(queueName.toString());
+        queue = getQueue(queueName);
         if (queue != null) {
           // TODO; verify if queue is exclusive and opened by another connection
           if (queue.isExclusive() != exclusive) {
@@ -425,6 +426,16 @@ public class AMQChannel implements ServerChannelMethodProcessor {
                     + " requested "
                     + exclusive
                     + ")");
+          } else if (durable != queue.isDurable()) {
+            closeChannel(
+                ErrorCodes.IN_USE,
+                "Cannot re-declare queue '"
+                    + queue.getName()
+                    + "' with different durability (was: "
+                    + queue.isDurable()
+                    + " requested durable: "
+                    + durable
+                    + ")");
           } else if ((autoDelete && queue.getLifetimePolicy() == LifetimePolicy.PERMANENT)
               || (!autoDelete
                   && queue.getLifetimePolicy()
@@ -432,7 +443,7 @@ public class AMQChannel implements ServerChannelMethodProcessor {
                           ? LifetimePolicy.DELETE_ON_CONNECTION_CLOSE
                           : LifetimePolicy.PERMANENT))) {
             closeChannel(
-                ErrorCodes.ALREADY_EXISTS,
+                ErrorCodes.IN_USE,
                 "Cannot re-declare queue '"
                     + queue.getName()
                     + "' with different lifetime policy (was: "
@@ -446,7 +457,9 @@ public class AMQChannel implements ServerChannelMethodProcessor {
               MethodRegistry methodRegistry = _connection.getMethodRegistry();
               QueueDeclareOkBody responseBody =
                   methodRegistry.createQueueDeclareOkBody(
-                      queueName, queue.getQueueDepthMessages(), queue.getConsumerCount());
+                      AMQShortString.createAMQShortString(queueName),
+                      queue.getQueueDepthMessages(),
+                      queue.getConsumerCount());
               _connection.writeFrame(responseBody.generateFrame(getChannelId()));
 
               if (LOGGER.isDebugEnabled()) {
@@ -455,7 +468,7 @@ public class AMQChannel implements ServerChannelMethodProcessor {
             }
           }
         } else {
-          queue = new Queue(lifetimePolicy, exclusivityPolicy, queueName.toString());
+          queue = new Queue(queueName, durable, lifetimePolicy, exclusivityPolicy);
           addQueue(queue);
           _connection
               .getVhost()
@@ -468,7 +481,9 @@ public class AMQChannel implements ServerChannelMethodProcessor {
             MethodRegistry methodRegistry = _connection.getMethodRegistry();
             QueueDeclareOkBody responseBody =
                 methodRegistry.createQueueDeclareOkBody(
-                    queueName, queue.getQueueDepthMessages(), queue.getConsumerCount());
+                    AMQShortString.createAMQShortString(queueName),
+                    queue.getQueueDepthMessages(),
+                    queue.getConsumerCount());
             _connection.writeFrame(responseBody.generateFrame(getChannelId()));
 
             if (LOGGER.isDebugEnabled()) {
@@ -524,19 +539,20 @@ public class AMQChannel implements ServerChannelMethodProcessor {
       queue = getQueue(queueName.toString());
     }
 
-    final String exchangeName = sanitizeExchangeName(exchange);
     if (queue == null) {
       String message =
           queueName == null
               ? "No default queue defined on channel and queue was null"
               : "Queue " + queueName + " does not exist.";
       closeChannel(ErrorCodes.NOT_FOUND, message);
-    } else if (ExchangeDefaults.DEFAULT_EXCHANGE_NAME.equals(exchangeName)) {
+    } else if (isDefaultExchange(exchange)) {
       closeChannel(
           ErrorCodes.ACCESS_REFUSED,
           "Cannot bind the queue '" + queueName + "' to the default exchange");
 
     } else {
+      final String exchangeName = AMQShortString.toString(exchange);
+
       final AbstractExchange exch = getExchange(exchangeName);
       if (exch == null) {
         closeChannel(ErrorCodes.NOT_FOUND, "Exchange '" + exchangeName + "' does not exist.");
@@ -667,6 +683,7 @@ public class AMQChannel implements ServerChannelMethodProcessor {
       AMQShortString exchange,
       AMQShortString bindingKey,
       FieldTable arguments) {
+
     if (LOGGER.isDebugEnabled()) {
       LOGGER.debug(
           "RECV["
@@ -686,17 +703,16 @@ public class AMQChannel implements ServerChannelMethodProcessor {
     final boolean useDefaultQueue = queueName == null;
     final Queue queue = useDefaultQueue ? getDefaultQueue() : getQueue(queueName.toString());
 
-    final String exchangeName = sanitizeExchangeName(exchange);
     if (queue == null) {
       final AMQMethodBody responseBody = _connection.getMethodRegistry().createQueueUnbindOkBody();
       _connection.writeFrame(responseBody.generateFrame(getChannelId()));
-    } else if (ExchangeDefaults.DEFAULT_EXCHANGE_NAME.equals(exchangeName)) {
+    } else if (isDefaultExchange(exchange)) {
       closeChannel(
           ErrorCodes.ACCESS_REFUSED,
           "Cannot unbind the queue '" + queue.getName() + "' from the default exchange");
 
     } else {
-      final AbstractExchange exch = getExchange(exchangeName);
+      final AbstractExchange exch = getExchange(exchange.toString());
       final String bindingKeyStr = bindingKey == null ? "" : AMQShortString.toString(bindingKey);
 
       // Note: Since v3.2, RabbitMQ unbind queue is idempotent :
@@ -910,9 +926,13 @@ public class AMQChannel implements ServerChannelMethodProcessor {
               + " ]");
     }
 
-    String exchange = sanitizeExchangeName(exchangeName);
-    if (!_connection.getVhost().hasExchange(exchange)) {
-      closeChannel(ErrorCodes.NOT_FOUND, "Unknown exchange name: '" + exchange + "'");
+    if (!_connection
+        .getVhost()
+        .hasExchange(
+            exchangeName == null
+                ? ExchangeDefaults.DEFAULT_EXCHANGE_NAME
+                : exchangeName.toString())) {
+      closeChannel(ErrorCodes.NOT_FOUND, "Unknown exchange name: '" + exchangeName + "'");
     }
 
     MessagePublishInfo info =
@@ -1268,7 +1288,10 @@ public class AMQChannel implements ServerChannelMethodProcessor {
     if (_currentMessage.allContentReceived()) {
       MessagePublishInfo info = _currentMessage.getMessagePublishInfo();
       String routingKey = AMQShortString.toString(info.getRoutingKey());
-      String exchangeName = sanitizeExchangeName(info.getExchange());
+      String exchangeName =
+          info.getExchange() == null
+              ? ExchangeDefaults.DEFAULT_EXCHANGE_NAME
+              : info.getExchange().toString();
 
       Producer<byte[]> producer;
       try {
@@ -1569,9 +1592,12 @@ public class AMQChannel implements ServerChannelMethodProcessor {
 
   private String sanitizeExchangeName(AMQShortString exchange) {
     String name = exchange == null ? ExchangeDefaults.DEFAULT_EXCHANGE_NAME : exchange.toString();
+    return sanitizeEntityName(name);
+  }
 
+  private String sanitizeEntityName(String entityName) {
     // RabbitMQ strips CR and LR
-    return name.replace("\r", "").replace("\n", "");
+    return entityName.replace("\r", "").replace("\n", "");
   }
 
   private Producer<byte[]> getOrCreateProducerForExchange(String exchangeName, String routingKey) {

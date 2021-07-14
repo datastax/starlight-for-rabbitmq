@@ -26,6 +26,7 @@ import org.apache.qpid.server.model.LifetimePolicy;
 public class Queue {
 
   private final String name;
+  private final boolean durable;
   private final LifetimePolicy lifetimePolicy;
   private final ExclusivityPolicy exclusivityPolicy;
 
@@ -37,8 +38,13 @@ public class Queue {
   private final List<AMQConsumer> consumers = new ArrayList<>();
   private final List<AbstractExchange> boundExchanges = new ArrayList<>();
 
-  public Queue(LifetimePolicy lifetimePolicy, ExclusivityPolicy exclusivityPolicy, String name) {
+  public Queue(
+      String name,
+      boolean durable,
+      LifetimePolicy lifetimePolicy,
+      ExclusivityPolicy exclusivityPolicy) {
     this.name = name;
+    this.durable = durable;
     this.lifetimePolicy = lifetimePolicy;
     this.exclusivityPolicy = exclusivityPolicy;
   }
@@ -132,6 +138,10 @@ public class Queue {
   public long clearQueue() {
     // TODO: implement queue purge
     return 0;
+  }
+
+  public boolean isDurable() {
+    return durable;
   }
 
   public static class MessageRequest {
