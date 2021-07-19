@@ -41,7 +41,7 @@ public class PulsarConsumer {
       throws PulsarClientException {
     this.topic = topic;
     // TODO: Pulsar 2.8 has an issue with subscriptions containing a / in their name. Forge another
-    // name ?
+    //  name ?
     this.subscriptionName = (topic + "-" + UUID.randomUUID()).replace("/", "_");
     // this.subscriptionName = (topic).replace("/", "_");
     this.gatewayService = gatewayService;

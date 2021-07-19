@@ -350,7 +350,7 @@ public class AMQChannel implements ServerChannelMethodProcessor {
     Queue queue;
 
     // TODO: do we need to check that the queue already exists with exactly the same
-    // "configuration"?
+    //  "configuration"?
 
     if (passive) {
       queue = getQueue(queueName);
@@ -1513,12 +1513,7 @@ public class AMQChannel implements ServerChannelMethodProcessor {
       int size) {
     if (LOGGER.isDebugEnabled()) {
       LOGGER.debug(
-          "Adding unacked message("
-              + Arrays.toString(messageId.toByteArray())
-              + " DT:"
-              + deliveryTag
-              + ") for "
-              + pulsarConsumer);
+          "Adding unacked message(" + messageId + " DT:" + deliveryTag + ") for " + pulsarConsumer);
     }
 
     _unacknowledgedMessageMap.add(

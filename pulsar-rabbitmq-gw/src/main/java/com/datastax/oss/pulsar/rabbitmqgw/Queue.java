@@ -97,7 +97,9 @@ public class Queue {
   }
 
   public PulsarConsumer.PulsarConsumerMessage getReadyBinding() {
-    return pendingBindings.poll();
+    synchronized (this) {
+      return pendingBindings.poll();
+    }
   }
 
   public void deliverMessageIfAvailable() {
@@ -108,25 +110,27 @@ public class Queue {
   }
 
   public void deliverMessage(PulsarConsumer.PulsarConsumerMessage consumerMessage) {
-    if (consumerMessage != null) {
-      Message<byte[]> message = consumerMessage.getMessage();
-      boolean messageDelivered = false;
-      while (!messageRequests.isEmpty()) {
-        MessageRequest request = messageRequests.poll();
-        if (request != null && !request.getResponse().isDone()) {
-          boolean allocated = request.getConsumer().useCreditForMessage(message.getData().length);
-          if (allocated) {
-            request.getResponse().complete(consumerMessage);
-            consumerMessage.getConsumer().receiveAndDeliverMessages();
-            messageDelivered = true;
-            break;
-          } else {
-            request.getConsumer().block();
+    synchronized (this) {
+      if (consumerMessage != null) {
+        Message<byte[]> message = consumerMessage.getMessage();
+        boolean messageDelivered = false;
+        while (!messageRequests.isEmpty()) {
+          MessageRequest request = messageRequests.poll();
+          if (request != null && !request.getResponse().isDone()) {
+            boolean allocated = request.getConsumer().useCreditForMessage(message.size());
+            if (allocated) {
+              request.getResponse().complete(consumerMessage);
+              consumerMessage.getConsumer().receiveAndDeliverMessages();
+              messageDelivered = true;
+              break;
+            } else {
+              request.getConsumer().block();
+            }
           }
         }
-      }
-      if (!messageDelivered) {
-        pendingBindings.add(consumerMessage);
+        if (!messageDelivered) {
+          pendingBindings.add(consumerMessage);
+        }
       }
     }
   }

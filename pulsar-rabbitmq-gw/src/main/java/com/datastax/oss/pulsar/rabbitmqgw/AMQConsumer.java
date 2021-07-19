@@ -16,6 +16,7 @@
 package com.datastax.oss.pulsar.rabbitmqgw;
 
 import java.nio.ByteBuffer;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
@@ -51,30 +52,39 @@ public class AMQConsumer {
       messageCompletableFuture
           .thenAccept(
               messageResponse -> {
-                Message<byte[]> message = messageResponse.getMessage();
-                long deliveryTag = channel.getNextDeliveryTag();
-                ContentBody contentBody = new ContentBody(ByteBuffer.wrap(message.getData()));
-                channel
-                    .getConnection()
-                    .getProtocolOutputConverter()
-                    .writeDeliver(
-                        MessageUtils.getMessagePublishInfo(message),
-                        contentBody,
-                        MessageUtils.getContentHeaderBody(message),
-                        message.getRedeliveryCount() > 0,
-                        channel.getChannelId(),
-                        deliveryTag,
-                        tag);
-                if (noAck) {
-                  messageResponse.getConsumer().ackMessage(message.getMessageId());
-                } else {
-                  channel.addUnacknowledgedMessage(
-                      message.getMessageId(),
-                      this,
-                      deliveryTag,
-                      true,
-                      messageResponse.getConsumer(),
-                      contentBody.getSize());
+                synchronized (this) {
+                  if (!blocked.get()) {
+                    Message<byte[]> message = messageResponse.getMessage();
+                    long deliveryTag = channel.getNextDeliveryTag();
+                    ContentBody contentBody = new ContentBody(ByteBuffer.wrap(message.getData()));
+                    channel
+                        .getConnection()
+                        .getProtocolOutputConverter()
+                        .writeDeliver(
+                            MessageUtils.getMessagePublishInfo(message),
+                            contentBody,
+                            MessageUtils.getContentHeaderBody(message),
+                            message.getRedeliveryCount() > 0,
+                            channel.getChannelId(),
+                            deliveryTag,
+                            tag);
+
+                    if (noAck) {
+                      messageResponse.getConsumer().ackMessage(message.getMessageId());
+                    } else {
+                      channel.addUnacknowledgedMessage(
+                          message.getMessageId(),
+                          this,
+                          deliveryTag,
+                          true,
+                          messageResponse.getConsumer(),
+                          contentBody.getSize());
+                    }
+                  } else {
+                    queue.deliverMessage(messageResponse);
+                    channel.getCreditManager().restoreCredit(1, messageResponse.getMessage().size());
+                    throw new CancellationException();
+                  }
                 }
               })
           .thenRunAsync(this::consume);
@@ -100,8 +110,10 @@ public class AMQConsumer {
   }
 
   public void block() {
-    blocked.set(true);
-    messageCompletableFuture.cancel(true);
+    synchronized (this) {
+      blocked.set(true);
+      messageCompletableFuture.cancel(false);
+    }
   }
 
   public void unblock() {
