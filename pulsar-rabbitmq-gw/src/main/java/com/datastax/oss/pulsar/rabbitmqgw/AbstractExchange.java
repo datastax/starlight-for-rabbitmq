@@ -21,6 +21,7 @@ import static org.apache.commons.lang3.StringUtils.isNotBlank;
 import com.google.common.annotations.VisibleForTesting;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import org.apache.pulsar.client.api.PulsarClientException;
 import org.apache.pulsar.common.naming.NamespaceName;
 import org.apache.pulsar.common.naming.TopicName;
@@ -40,7 +41,7 @@ public abstract class AbstractExchange {
   protected final boolean durable;
   protected final LifetimePolicy lifetimePolicy;
 
-  protected final Map<String, Map<String, PulsarConsumer>> bindings = new HashMap<>();
+  protected final Map<String, Map<String, PulsarConsumer>> bindings = new ConcurrentHashMap<>();
 
   protected AbstractExchange(
       String name, Type type, boolean durable, LifetimePolicy lifetimePolicy) {
@@ -91,7 +92,7 @@ public abstract class AbstractExchange {
       PulsarConsumer pulsarConsumer =
           new PulsarConsumer(
               getTopicName(vHost, name, routingKey).toString(),
-              connection.getGatewayService(),
+              connection,
               queue);
       pulsarConsumer.receiveAndDeliverMessages();
       binding.put(routingKey, pulsarConsumer);

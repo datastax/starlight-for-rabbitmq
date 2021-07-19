@@ -285,7 +285,7 @@ public class AMQChannelTest extends AbstractBaseTest {
     assertEquals(CHANNEL_ID, frame.getChannel());
     assertTrue(frame.getBodyFrame() instanceof QueueDeclareOkBody);
     QueueDeclareOkBody queueDeclareOkBody = (QueueDeclareOkBody) frame.getBodyFrame();
-    assertTrue(queueDeclareOkBody.getQueue().toString().startsWith("tmp_"));
+    assertTrue(queueDeclareOkBody.getQueue().toString().startsWith("auto_"));
   }
 
   @Test

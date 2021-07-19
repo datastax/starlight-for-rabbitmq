@@ -29,7 +29,7 @@ import org.apache.pulsar.client.api.SubscriptionType;
 public class PulsarConsumer {
 
   private final String topic;
-  private final GatewayService gatewayService;
+  private final GatewayConnection connection;
   private final PulsarAdmin pulsarAdmin;
   private final Queue queue;
   private final Consumer<byte[]> pulsarConsumer;
@@ -37,18 +37,17 @@ public class PulsarConsumer {
   private volatile MessageId lastMessageId;
   ScheduledFuture<?> scheduledFuture;
 
-  PulsarConsumer(String topic, GatewayService gatewayService, Queue queue)
+  PulsarConsumer(String topic, GatewayConnection connection, Queue queue)
       throws PulsarClientException {
     this.topic = topic;
     // TODO: Pulsar 2.8 has an issue with subscriptions containing a / in their name. Forge another
     //  name ?
     this.subscriptionName = (topic + "-" + UUID.randomUUID()).replace("/", "_");
-    // this.subscriptionName = (topic).replace("/", "_");
-    this.gatewayService = gatewayService;
-    this.pulsarAdmin = gatewayService.getPulsarAdmin();
+    this.connection = connection;
+    this.pulsarAdmin = connection.getGatewayService().getPulsarAdmin();
     this.queue = queue;
     this.pulsarConsumer =
-        gatewayService
+        connection.getGatewayService()
             .getPulsarClient()
             .newConsumer()
             .topic(topic)
@@ -88,8 +87,7 @@ public class PulsarConsumer {
 
                   // Receive messages again after some time to check if we get unacked messages
                   // Note: unacked messages are sent in priority by the broker
-                  gatewayService
-                      .getWorkerGroup()
+                  connection.getEventloop()
                       .schedule(this::resumeConsumption, 100, TimeUnit.MILLISECONDS);
                   return null;
                 } else {
@@ -102,7 +100,7 @@ public class PulsarConsumer {
 
   public CompletableFuture<Void> receiveAndDeliverMessages() {
     return receiveMessageAsync()
-        .thenAcceptAsync(queue::deliverMessage, gatewayService.getWorkerGroup());
+        .thenAcceptAsync(queue::deliverMessage, connection.getEventloop());
   }
 
   private CompletableFuture<Void> resumeConsumption() {
@@ -113,8 +111,7 @@ public class PulsarConsumer {
   public void shutdown() throws PulsarClientException {
     lastMessageId = pulsarConsumer.getLastMessageId();
     scheduledFuture =
-        gatewayService
-            .getWorkerGroup()
+        connection.getEventloop()
             .scheduleAtFixedRate(this::checkIfSubscriptionCanBeRemoved, 1, 1, TimeUnit.SECONDS);
   }
 

@@ -342,7 +342,7 @@ public class AMQChannel implements ServerChannelMethodProcessor {
 
     // if we aren't given a queue name, we create one which we return to the client
     if ((queueStr == null) || (queueStr.length() == 0)) {
-      queueName = "tmp_" + UUID.randomUUID();
+      queueName = "auto_" + UUID.randomUUID();
     } else {
       queueName = sanitizeEntityName(queueStr.toString());
     }
@@ -495,6 +495,7 @@ public class AMQChannel implements ServerChannelMethodProcessor {
         String message = String.format("Error creating queue '%s': %s", queueName, e.getMessage());
         _connection.sendConnectionClose(ErrorCodes.INVALID_ARGUMENT, message, getChannelId());
       } catch (PulsarClientException e) {
+        LOGGER.error("Error creating queue '" + queueName + "': " + e.getMessage(), e);
         _connection.sendConnectionClose(ErrorCodes.INTERNAL_ERROR, e.getMessage(), getChannelId());
       }
     }

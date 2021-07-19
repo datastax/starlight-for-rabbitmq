@@ -21,6 +21,7 @@ import com.google.common.annotations.VisibleForTesting;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
+import io.netty.channel.EventLoop;
 import io.netty.handler.timeout.IdleState;
 import io.netty.handler.timeout.IdleStateEvent;
 import io.netty.handler.timeout.IdleStateHandler;
@@ -736,6 +737,10 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
         }
       }
     }
+  }
+
+  public EventLoop getEventloop() {
+    return ctx.channel().eventLoop();
   }
 
   // TODO: support message compression (Qpid only)
