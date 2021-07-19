@@ -23,7 +23,7 @@
   <packaging>pom</packaging>
   <version>1.0.0-SNAPSHOT</version>
   <name>DataStax RabbitMQ (R) gateway for Apache Pulsar (R)</name>
-  <description>Gateway to connect RabbitMQ clients to Apache Pulsar seamlessly</description>
+  <description>Gateway to seamlessly connect RabbitMQ clients to Apache Pulsar</description>
   <url>https://github.com/datastax/pulsar-rabbitmq-gw</url>
   <inceptionYear>2021</inceptionYear>
   <organization>

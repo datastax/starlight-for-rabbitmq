@@ -17,13 +17,25 @@ package com.datastax.oss.pulsar.rabbitmqgw;
 
 import static org.apache.qpid.server.protocol.v0_8.transport.ConnectionCloseOkBody.CONNECTION_CLOSE_OK_0_9;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Matchers.anyListOf;
+import static org.mockito.Matchers.anyString;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.when;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufAllocator;
 import io.netty.channel.embedded.EmbeddedChannel;
 import java.util.Collections;
+import java.util.concurrent.CompletableFuture;
+import org.apache.pulsar.client.api.ConsumerBuilder;
+import org.apache.pulsar.client.api.ProducerBuilder;
+import org.apache.pulsar.client.api.PulsarClient;
+import org.apache.pulsar.client.impl.ConsumerBase;
+import org.apache.pulsar.client.impl.ProducerBase;
 import org.apache.qpid.server.bytebuffer.QpidByteBuffer;
 import org.apache.qpid.server.protocol.ErrorCodes;
 import org.apache.qpid.server.protocol.ProtocolVersion;
@@ -48,13 +60,32 @@ public class AbstractBaseTest {
   protected final GatewayService gatewayService = spy(new GatewayService(config));
   protected final GatewayConnection connection = new GatewayConnection(gatewayService);
   protected EmbeddedChannel channel;
+  protected ProducerBase producer = mock(ProducerBase.class);
+  protected ConsumerBase consumer = mock(ConsumerBase.class);
 
   @BeforeEach
-  void setup() {
+  void setup() throws Exception {
     channel = new EmbeddedChannel(connection, new AMQDataBlockEncoder());
+
+    PulsarClient pulsarClient = mock(PulsarClient.class);
+
+    ProducerBuilder producerBuilder = mock(ProducerBuilder.class);
+    when(pulsarClient.newProducer()).thenReturn(producerBuilder);
+    when(producerBuilder.topic(anyString())).thenReturn(producerBuilder);
+    when(producerBuilder.create()).thenReturn(producer);
+
+    ConsumerBuilder consumerBuilder = mock(ConsumerBuilder.class);
+    when(pulsarClient.newConsumer()).thenReturn(consumerBuilder);
+    when(consumerBuilder.topics(anyListOf(String.class))).thenReturn(consumerBuilder);
+    when(consumerBuilder.subscriptionName(anyString())).thenReturn(consumerBuilder);
+    when(consumerBuilder.subscribe()).thenReturn(consumer);
+
+    when(consumer.receiveAsync()).thenReturn(new CompletableFuture<>());
+
+    doReturn(pulsarClient).when(gatewayService).getPulsarClient();
   }
 
-  protected AMQFrame exchangeData(AMQDataBlock data) {
+  protected <T> T exchangeData(AMQDataBlock data) {
     ByteBuf byteBuf = ByteBufAllocator.DEFAULT.buffer();
     data.writePayload(new NettyByteBufferSender(byteBuf));
     channel.writeInbound(byteBuf);
@@ -138,6 +169,7 @@ public class AbstractBaseTest {
   }
 
   protected void assertIsConnectionCloseFrame(AMQFrame frame, int errorCode) {
+    assertNotNull(frame);
     assertEquals(0, frame.getChannel());
     AMQBody body = frame.getBodyFrame();
     assertTrue(body instanceof ConnectionCloseBody);

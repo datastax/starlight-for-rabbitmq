@@ -25,7 +25,7 @@
   <modelVersion>4.0.0</modelVersion>
   <artifactId>rabbitmq-tests</artifactId>
   <packaging>jar</packaging>
-  <name>DataStax RabbitMQ (R) gateway for Apache Pulsar (R)</name>
+  <name>Pulsar RabbitMQ integration tests with RabbitMQ client</name>
   <properties>
     <build.dir>${project.build.directory}</build.dir>
   </properties>
