@@ -95,7 +95,6 @@ public class BindingLifecycle extends BindingLifecycleBase {
    * well.
    */
   @Test
-  @Ignore("Need to implement unbind all on exchange delete")
   public void exchangeDelete() throws IOException {
 
     boolean durable = true;

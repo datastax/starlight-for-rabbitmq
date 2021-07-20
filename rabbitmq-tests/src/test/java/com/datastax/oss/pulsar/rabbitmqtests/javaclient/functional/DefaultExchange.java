@@ -30,7 +30,7 @@ public class DefaultExchange extends BrokerTestCase {
     queueName = channel.queueDeclare().getQueue();
   }
 
-  // See bug 22101: publish and declare are the only operations
+  // Publish and declare are the only operations
   // permitted on the default exchange
 
   @Test

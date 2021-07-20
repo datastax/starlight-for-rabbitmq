@@ -15,6 +15,7 @@
  */
 package com.datastax.oss.pulsar.rabbitmqgw;
 
+import java.util.concurrent.CompletableFuture;
 import org.apache.pulsar.client.api.PulsarClientException;
 import org.apache.pulsar.common.naming.TopicName;
 import org.apache.qpid.server.model.LifetimePolicy;
@@ -32,8 +33,9 @@ public class FanoutExchange extends AbstractExchange {
   }
 
   @Override
-  public void unbind(Queue queue, String routingKey) throws PulsarClientException {
+  public CompletableFuture<Void> unbind(Queue queue, String routingKey) {
     super.unbind(queue, "");
+    return null;
   }
 
   @Override

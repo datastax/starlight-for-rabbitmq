@@ -35,7 +35,7 @@ public class PulsarConsumer {
   private final Consumer<byte[]> pulsarConsumer;
   private final String subscriptionName;
   private volatile MessageId lastMessageId;
-  ScheduledFuture<?> scheduledFuture;
+  private volatile ScheduledFuture<?> scheduledFuture;
 
   PulsarConsumer(String topic, GatewayConnection connection, Queue queue)
       throws PulsarClientException {
@@ -47,7 +47,8 @@ public class PulsarConsumer {
     this.pulsarAdmin = connection.getGatewayService().getPulsarAdmin();
     this.queue = queue;
     this.pulsarConsumer =
-        connection.getGatewayService()
+        connection
+            .getGatewayService()
             .getPulsarClient()
             .newConsumer()
             .topic(topic)
@@ -87,7 +88,8 @@ public class PulsarConsumer {
 
                   // Receive messages again after some time to check if we get unacked messages
                   // Note: unacked messages are sent in priority by the broker
-                  connection.getEventloop()
+                  connection
+                      .getEventloop()
                       .schedule(this::resumeConsumption, 100, TimeUnit.MILLISECONDS);
                   return null;
                 } else {
@@ -99,8 +101,7 @@ public class PulsarConsumer {
   }
 
   public CompletableFuture<Void> receiveAndDeliverMessages() {
-    return receiveMessageAsync()
-        .thenAcceptAsync(queue::deliverMessage, connection.getEventloop());
+    return receiveMessageAsync().thenAcceptAsync(queue::deliverMessage, connection.getEventloop());
   }
 
   private CompletableFuture<Void> resumeConsumption() {
@@ -108,11 +109,19 @@ public class PulsarConsumer {
     return receiveAndDeliverMessages();
   }
 
-  public void shutdown() throws PulsarClientException {
-    lastMessageId = pulsarConsumer.getLastMessageId();
-    scheduledFuture =
-        connection.getEventloop()
-            .scheduleAtFixedRate(this::checkIfSubscriptionCanBeRemoved, 1, 1, TimeUnit.SECONDS);
+  public CompletableFuture<Void> shutdown() {
+    // TODO: prevent multiple shutdowns
+    return pulsarConsumer
+        .getLastMessageIdAsync()
+        .thenAccept(
+            messageId -> {
+              lastMessageId = messageId;
+              scheduledFuture =
+                  connection
+                      .getEventloop()
+                      .scheduleAtFixedRate(
+                          this::checkIfSubscriptionCanBeRemoved, 1, 1, TimeUnit.SECONDS);
+            });
   }
 
   public void close() {

@@ -52,7 +52,7 @@ public class AMQConsumer {
       messageCompletableFuture
           .thenAccept(
               messageResponse -> {
-                //synchronized (this) {
+                synchronized (this) {
                   if (!blocked.get()) {
                     Message<byte[]> message = messageResponse.getMessage();
                     long deliveryTag = channel.getNextDeliveryTag();
@@ -82,12 +82,17 @@ public class AMQConsumer {
                     }
                   } else {
                     queue.deliverMessage(messageResponse);
-                    channel.getCreditManager().restoreCredit(1, messageResponse.getMessage().size());
+                    channel
+                        .getCreditManager()
+                        .restoreCredit(1, messageResponse.getMessage().size());
+                    unblock();
                     throw new CancellationException();
                   }
-                //}
+                }
               })
-          .thenRunAsync(this::consume, channel.getConnection().getEventloop());
+          .thenRunAsync(this::consume);
+      // TODO: run the task on the channel event loop and remove the synchronization blocks
+      // .thenRunAsync(this::consume, channel.getConnection().getEventloop());
     }
   }
 
@@ -110,10 +115,10 @@ public class AMQConsumer {
   }
 
   public void block() {
-    //synchronized (this) {
+    synchronized (this) {
       blocked.set(true);
       messageCompletableFuture.cancel(false);
-    //}
+    }
   }
 
   public void unblock() {

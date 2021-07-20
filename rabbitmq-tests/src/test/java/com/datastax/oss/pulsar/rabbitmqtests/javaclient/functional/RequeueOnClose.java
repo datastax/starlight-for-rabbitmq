@@ -245,9 +245,9 @@ public abstract class RequeueOnClose extends BrokerTestCase {
     open();
 
     // FIXME: this shouldn't be needed. But currently, after unsubscribing a consumer, a few
-    // in-flight messages can still be received. To prevent this, messages written to Netty should
-    // be tracked for a given consumer and the BasicCancelOk frame should only be sent when all
-    // messages have been received by the client
+    //  in-flight messages can still be received. To prevent this, messages written to Netty should
+    //  be tracked for a given consumer and the BasicCancelOk frame should only be sent when all
+    //  messages have been received by the client
     channel.setDefaultConsumer(new DefaultConsumer(channel));
 
     channel.confirmSelect();
@@ -279,7 +279,7 @@ public abstract class RequeueOnClose extends BrokerTestCase {
     close();
 
     // FIXME: this tempo shouldn't be needed. But sometimes we receive an unsolicited frame that
-    // causes a crash (same reason as the need for a default consumer ?)
+    //  causes a crash (same reason as the need for a default consumer ?)
     Thread.sleep(100);
 
     open();

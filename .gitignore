@@ -12,3 +12,6 @@ target/
 
 logs/
 
+dependency-reduced-pom.xml
+
+

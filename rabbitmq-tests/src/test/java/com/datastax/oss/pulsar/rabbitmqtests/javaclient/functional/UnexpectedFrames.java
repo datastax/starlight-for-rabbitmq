@@ -126,7 +126,7 @@ public class UnexpectedFrames extends BrokerTestCase {
   }
 
   // TODO: Qpid accepts that a content header frame is not followed by a content body frame. Is it a
-  // big deal ?
+  //  big deal ?
   // @Test
   public void missingBody() throws IOException {
     expectUnexpectedFrameError(

@@ -97,9 +97,9 @@ public class Queue {
   }
 
   public PulsarConsumer.PulsarConsumerMessage getReadyBinding() {
-    //synchronized (this) {
+    synchronized (this) {
       return pendingBindings.poll();
-    //}
+    }
   }
 
   public void deliverMessageIfAvailable() {
@@ -110,7 +110,7 @@ public class Queue {
   }
 
   public void deliverMessage(PulsarConsumer.PulsarConsumerMessage consumerMessage) {
-    //synchronized (this) {
+    synchronized (this) {
       if (consumerMessage != null) {
         Message<byte[]> message = consumerMessage.getMessage();
         boolean messageDelivered = false;
@@ -132,7 +132,7 @@ public class Queue {
           pendingBindings.add(consumerMessage);
         }
       }
-    //}
+    }
   }
 
   public List<AbstractExchange> getBoundExchanges() {

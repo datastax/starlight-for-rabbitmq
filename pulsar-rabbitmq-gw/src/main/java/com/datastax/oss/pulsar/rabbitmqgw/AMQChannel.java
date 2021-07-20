@@ -18,6 +18,7 @@ package com.datastax.oss.pulsar.rabbitmqgw;
 import static org.apache.qpid.server.transport.util.Functions.hex;
 
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.Collection;
@@ -27,6 +28,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
@@ -292,13 +294,27 @@ public class AMQChannel implements ServerChannelMethodProcessor {
     } else if (isReservedExchangeName(exchangeName)) {
       closeChannel(ErrorCodes.ACCESS_REFUSED, "Exchange '" + exchangeName + "' cannot be deleted");
     } else {
-      deleteExchange(exchange);
-
-      if (!nowait) {
-        ExchangeDeleteOkBody responseBody =
-            _connection.getMethodRegistry().createExchangeDeleteOkBody();
-        _connection.writeFrame(responseBody.generateFrame(getChannelId()));
-      }
+      deleteExchange(exchange)
+          .thenRun(
+              () -> {
+                if (!nowait) {
+                  ExchangeDeleteOkBody responseBody =
+                      _connection.getMethodRegistry().createExchangeDeleteOkBody();
+                  _connection.writeFrame(responseBody.generateFrame(getChannelId()));
+                }
+              })
+          .exceptionally(
+              throwable -> {
+                LOGGER.error(
+                    "Error occurred while deleting exchange '"
+                        + exchangeName
+                        + "' :"
+                        + throwable.getMessage(),
+                    throwable);
+                _connection.sendConnectionClose(
+                    ErrorCodes.INTERNAL_ERROR, throwable.getMessage(), getChannelId());
+                return null;
+              });
     }
   }
 
@@ -720,16 +736,24 @@ public class AMQChannel implements ServerChannelMethodProcessor {
       // https://www.rabbitmq.com/specification.html#method-status-queue.delete so we don't close
       // the channel with NOT_FOUND
       if (exch != null && exch.hasBinding(bindingKeyStr, queue)) {
-        try {
-          exch.unbind(queue, bindingKeyStr);
-        } catch (PulsarClientException e) {
-          _connection.sendConnectionClose(
-              ErrorCodes.INTERNAL_ERROR, e.getMessage(), getChannelId());
-          return;
-        }
+        exch.unbind(queue, bindingKeyStr)
+            .thenRun(
+                () -> {
+                  final AMQMethodBody responseBody =
+                      _connection.getMethodRegistry().createQueueUnbindOkBody();
+                  _connection.writeFrame(responseBody.generateFrame(getChannelId()));
+                })
+            .exceptionally(
+                throwable -> {
+                  _connection.sendConnectionClose(
+                      ErrorCodes.INTERNAL_ERROR, throwable.getMessage(), getChannelId());
+                  return null;
+                });
+      } else {
+        final AMQMethodBody responseBody =
+            _connection.getMethodRegistry().createQueueUnbindOkBody();
+        _connection.writeFrame(responseBody.generateFrame(getChannelId()));
       }
-      final AMQMethodBody responseBody = _connection.getMethodRegistry().createQueueUnbindOkBody();
-      _connection.writeFrame(responseBody.generateFrame(getChannelId()));
     }
   }
 
@@ -1566,9 +1590,18 @@ public class AMQChannel implements ServerChannelMethodProcessor {
     _connection.getVhost().addExchange(exchange);
   }
 
-  private void deleteExchange(AbstractExchange exchange) {
+  private CompletableFuture<Void> deleteExchange(AbstractExchange exchange) {
     // TODO: delete bindings on the exchange
     _connection.getVhost().deleteExchange(exchange);
+    List<CompletableFuture<Void>> results = new ArrayList<>();
+    new HashSet<>(exchange.getBindings().keySet())
+        .forEach(
+            queue -> {
+              Queue queue1 = getQueue(queue);
+              Set<String> keys = new HashSet<>(exchange.getBindings().get(queue).keySet());
+              keys.forEach(key -> results.add(exchange.unbind(queue1, key)));
+            });
+    return CompletableFuture.allOf(results.toArray(new CompletableFuture[0]));
   }
 
   private Queue getQueue(String name) {

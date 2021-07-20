@@ -96,6 +96,8 @@ public class AbstractBaseTest {
     when(consumerBuilder.subscribe()).thenReturn(consumer);
 
     when(consumer.receiveAsync()).thenReturn(new CompletableFuture<>());
+    when(consumer.getLastMessageIdAsync())
+        .thenReturn(CompletableFuture.completedFuture(MessageId.latest));
     when(consumer.acknowledgeAsync(any(MessageId.class))).thenReturn(new CompletableFuture<>());
 
     doReturn(pulsarClient).when(gatewayService).getPulsarClient();
@@ -103,7 +105,6 @@ public class AbstractBaseTest {
     PulsarAdmin pulsarAdmin = mock(PulsarAdmin.class);
     Topics topics = mock(Topics.class);
 
-    doReturn(MessageId.latest).when(topics).getLastMessageId(anyString());
     doReturn(topics).when(pulsarAdmin).topics();
     doReturn(pulsarAdmin).when(gatewayService).getPulsarAdmin();
   }

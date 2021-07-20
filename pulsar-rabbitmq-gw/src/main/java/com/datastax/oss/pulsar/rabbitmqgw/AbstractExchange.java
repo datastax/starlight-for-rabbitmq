@@ -21,6 +21,7 @@ import static org.apache.commons.lang3.StringUtils.isNotBlank;
 import com.google.common.annotations.VisibleForTesting;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import org.apache.pulsar.client.api.PulsarClientException;
 import org.apache.pulsar.common.naming.NamespaceName;
@@ -90,29 +91,30 @@ public abstract class AbstractExchange {
     Map<String, PulsarConsumer> binding = bindings.get(queue.getName());
     if (!binding.containsKey(routingKey)) {
       PulsarConsumer pulsarConsumer =
-          new PulsarConsumer(
-              getTopicName(vHost, name, routingKey).toString(),
-              connection,
-              queue);
+          new PulsarConsumer(getTopicName(vHost, name, routingKey).toString(), connection, queue);
       pulsarConsumer.receiveAndDeliverMessages();
       binding.put(routingKey, pulsarConsumer);
     }
   }
 
-  public void unbind(Queue queue, String routingKey) throws PulsarClientException {
+  public CompletableFuture<Void> unbind(Queue queue, String routingKey) {
     String queueName = queue.getName();
+    PulsarConsumer pulsarConsumer = null;
     if (bindings.containsKey(queueName)) {
       Map<String, PulsarConsumer> binding = bindings.get(queueName);
       if (binding.containsKey(routingKey)) {
-        PulsarConsumer pulsarConsumer = binding.get(routingKey);
-        pulsarConsumer.shutdown();
+        pulsarConsumer = binding.get(routingKey);
         binding.remove(routingKey);
       }
       if (binding.size() == 0) {
         bindings.remove(queueName);
         queue.getBoundExchanges().remove(this);
       }
+      if (pulsarConsumer != null) {
+        return pulsarConsumer.shutdown();
+      }
     }
+    return CompletableFuture.completedFuture(null);
   }
 
   public void queueRemoved(Queue queue) {
