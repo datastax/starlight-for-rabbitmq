@@ -18,6 +18,9 @@ package com.datastax.oss.pulsar.rabbitmqgw;
 import static com.google.common.base.Preconditions.checkNotNull;
 import static org.apache.commons.lang3.StringUtils.isNotBlank;
 
+import com.datastax.oss.pulsar.rabbitmqgw.metadata.ContextMetadata;
+import com.datastax.oss.pulsar.rabbitmqgw.metadata.ExchangeMetadata;
+import com.datastax.oss.pulsar.rabbitmqgw.metadata.VirtualHostMetadata;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.AdaptiveRecvByteBufAllocator;
 import io.netty.channel.Channel;
@@ -26,8 +29,19 @@ import io.netty.channel.EventLoopGroup;
 import io.netty.util.concurrent.DefaultThreadFactory;
 import java.io.Closeable;
 import java.io.IOException;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.TimeUnit;
+import org.apache.curator.RetryPolicy;
+import org.apache.curator.framework.CuratorFramework;
+import org.apache.curator.framework.CuratorFrameworkFactory;
+import org.apache.curator.retry.ExponentialBackoffRetry;
+import org.apache.curator.x.async.AsyncCuratorFramework;
+import org.apache.curator.x.async.modeled.JacksonModelSerializer;
+import org.apache.curator.x.async.modeled.ModelSpec;
+import org.apache.curator.x.async.modeled.ModeledFramework;
+import org.apache.curator.x.async.modeled.ZPath;
 import org.apache.pulsar.client.admin.PulsarAdmin;
 import org.apache.pulsar.client.admin.PulsarAdminBuilder;
 import org.apache.pulsar.client.api.ClientBuilder;
@@ -44,6 +58,7 @@ public class GatewayService implements Closeable {
   private final GatewayConfiguration config;
   private PulsarClient pulsarClient;
   private PulsarAdmin pulsarAdmin;
+  private AsyncCuratorFramework curator;
 
   private final EventLoopGroup acceptorGroup;
   private final EventLoopGroup workerGroup;
@@ -58,7 +73,12 @@ public class GatewayService implements Closeable {
 
   private static final int numThreads = Runtime.getRuntime().availableProcessors();
 
-  private final ConcurrentHashMap<String, VirtualHost> vhosts = new ConcurrentHashMap<>();
+  private final AMQContext amqContext = new AMQContext();
+  public static final ModelSpec<ContextMetadata> METADATA_MODEL_SPEC =
+      ModelSpec.builder(
+              ZPath.parseWithIds("/config"), JacksonModelSerializer.build(ContextMetadata.class))
+          .build();
+  private ModeledFramework<ContextMetadata> metadataModel;
 
   public GatewayService(GatewayConfiguration config) {
     checkNotNull(config);
@@ -69,6 +89,10 @@ public class GatewayService implements Closeable {
   }
 
   public void start() throws Exception {
+    pulsarClient = createClientInstance();
+    pulsarAdmin = createAdminInstance();
+    curator = createCuratorInstance();
+    metadataModel = ModeledFramework.wrap(curator, METADATA_MODEL_SPEC);
     ServerBootstrap bootstrap = new ServerBootstrap();
     bootstrap.childOption(ChannelOption.ALLOCATOR, PulsarByteBufAllocator.DEFAULT);
     bootstrap.group(acceptorGroup, workerGroup);
@@ -109,11 +133,7 @@ public class GatewayService implements Closeable {
     return workerGroup;
   }
 
-  public synchronized PulsarClient getPulsarClient() throws PulsarClientException {
-    // Do lazy initialization of client
-    if (pulsarClient == null) {
-      pulsarClient = createClientInstance();
-    }
+  public PulsarClient getPulsarClient() {
     return pulsarClient;
   }
 
@@ -135,11 +155,7 @@ public class GatewayService implements Closeable {
     return clientBuilder.build();
   }
 
-  public synchronized PulsarAdmin getPulsarAdmin() throws PulsarClientException {
-    // Do lazy initialization of client
-    if (pulsarAdmin == null) {
-      pulsarAdmin = createAdminInstance();
-    }
+  public PulsarAdmin getPulsarAdmin() {
     return pulsarAdmin;
   }
 
@@ -155,6 +171,20 @@ public class GatewayService implements Closeable {
     }
 
     return adminBuilder.build();
+  }
+
+  private AsyncCuratorFramework createCuratorInstance() {
+    RetryPolicy retryPolicy = new ExponentialBackoffRetry(1000, 3);
+    CuratorFramework client =
+        CuratorFrameworkFactory.builder()
+            .connectString(config.getZookeeperServers())
+            .sessionTimeoutMs(5000)
+            .connectionTimeoutMs(5000)
+            .retryPolicy(retryPolicy)
+            .namespace("pulsar-rabbitmq-gw")
+            .build();
+    client.start();
+    return AsyncCuratorFramework.wrap(client);
   }
 
   public void close() {
@@ -175,8 +205,93 @@ public class GatewayService implements Closeable {
   }
 
   public VirtualHost getOrCreateVhost(String namespace) {
-    return vhosts.computeIfAbsent(namespace, VirtualHost::new);
+    return amqContext.getVhosts().computeIfAbsent(namespace, VirtualHost::new);
   }
 
   private static final Logger LOG = LoggerFactory.getLogger(GatewayService.class);
+
+  public AsyncCuratorFramework getCurator() {
+    return curator;
+  }
+
+  public AMQContext getAmqContext() {
+    return amqContext;
+  }
+
+  public CompletionStage<ContextMetadata> saveContext(ContextMetadata metadata) {
+    return metadataModel.set(metadata).thenCompose(it -> loadContext());
+  }
+
+  public CompletionStage<ContextMetadata> loadContext() {
+    return metadataModel.read().thenApply(this::updateContext);
+  }
+
+  public ContextMetadata updateContext(ContextMetadata contextMetadata) {
+    contextMetadata
+        .getVhosts()
+        .forEach(
+            (namespace, vhostMetadata) -> {
+              Map<String, VirtualHost> vhosts = amqContext.getVhosts();
+              vhosts.putIfAbsent(namespace, new VirtualHost(namespace));
+              VirtualHost vhost = vhosts.get(namespace);
+              createNewQueues(vhostMetadata, vhost);
+              createNewExchanges(vhostMetadata, vhost);
+            });
+
+    return contextMetadata;
+  }
+
+  private void createNewQueues(VirtualHostMetadata vhostMetadata, VirtualHost vhost) {
+    vhostMetadata
+        .getQueues()
+        .forEach(
+            (queue, queueMetadata) ->
+                vhost.getQueues().putIfAbsent(queue, Queue.fromMetadata(queue, queueMetadata)));
+  }
+
+  private void createNewExchanges(VirtualHostMetadata vhostMetadata, VirtualHost vhost) {
+    vhostMetadata
+        .getExchanges()
+        .forEach(
+            (exchangeName, exchangeMetadata) -> {
+              vhost
+                  .getExchanges()
+                  .putIfAbsent(
+                      exchangeName, AbstractExchange.fromMetadata(exchangeName, exchangeMetadata));
+              createNewBindings(vhost, exchangeName, exchangeMetadata);
+            });
+  }
+
+  private void createNewBindings(
+      VirtualHost vhost, String exchangeName, ExchangeMetadata exchangeMetadata) {
+    exchangeMetadata
+        .getBindings()
+        .forEach(
+            (queue, bindingsMetadata) -> {
+              AbstractExchange exchange = vhost.getExchanges().get(exchangeName);
+              Map<String, Map<String, PulsarConsumer>> bindings = exchange.getBindings();
+              bindings.putIfAbsent(queue, new HashMap<>());
+              vhost.getQueue(queue).getBoundExchanges().add(exchange);
+              bindingsMetadata.forEach(
+                  (key, bindingMetadata) -> {
+                    bindings
+                        .get(queue)
+                        .computeIfAbsent(
+                            key,
+                            it -> {
+                              PulsarConsumer pulsarConsumer =
+                                  new PulsarConsumer(
+                                      bindingMetadata.getTopic(),
+                                      bindingMetadata.getSubscription(),
+                                      this,
+                                      vhost.getQueue(queue));
+                              // TODO: handle subscription errors
+                              pulsarConsumer
+                                  .subscribe()
+                                  .thenRun(pulsarConsumer::receiveAndDeliverMessages);
+                              return pulsarConsumer;
+                            });
+                  });
+            });
+  }
 }

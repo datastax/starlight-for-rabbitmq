@@ -15,6 +15,7 @@
  */
 package com.datastax.oss.pulsar.rabbitmqgw;
 
+import com.datastax.oss.pulsar.rabbitmqgw.metadata.QueueMetadata;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -29,7 +30,6 @@ public class Queue {
   private final boolean durable;
   private final LifetimePolicy lifetimePolicy;
   private final ExclusivityPolicy exclusivityPolicy;
-
   private final java.util.Queue<MessageRequest> messageRequests = new ConcurrentLinkedQueue<>();
   private final java.util.Queue<PulsarConsumer.PulsarConsumerMessage> pendingBindings =
       new ConcurrentLinkedQueue<>();
@@ -185,5 +185,10 @@ public class Queue {
 
   public boolean hasExclusiveConsumer() {
     return _exclusiveSubscriber != null;
+  }
+
+  public static Queue fromMetadata(String name, QueueMetadata metadata) {
+    return new Queue(
+        name, metadata.isDurable(), metadata.getLifetimePolicy(), metadata.getExclusivityPolicy());
   }
 }

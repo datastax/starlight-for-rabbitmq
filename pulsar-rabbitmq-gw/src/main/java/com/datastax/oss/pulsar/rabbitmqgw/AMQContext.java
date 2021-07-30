@@ -16,19 +16,18 @@
 package com.datastax.oss.pulsar.rabbitmqgw;
 
 import com.datastax.oss.pulsar.rabbitmqgw.metadata.ContextMetadata;
-import java.util.concurrent.CompletableFuture;
-import org.apache.qpid.server.model.LifetimePolicy;
+import java.util.concurrent.ConcurrentHashMap;
 
-public class HeadersExchange extends AbstractExchange {
+public class AMQContext {
+  private final ConcurrentHashMap<String, VirtualHost> vhosts = new ConcurrentHashMap<>();
 
-  public HeadersExchange(String name, boolean durable, LifetimePolicy lifetimePolicy) {
-    super(name, Type.headers, durable, lifetimePolicy);
+  public ConcurrentHashMap<String, VirtualHost> getVhosts() {
+    return vhosts;
   }
 
-  @Override
-  public CompletableFuture<ContextMetadata> bind(
-      String queue, String routingKey, GatewayConnection connection) {
-    // TODO: bind headers exchange
-    return CompletableFuture.completedFuture(null);
+  public ContextMetadata toMetadata() {
+    ContextMetadata contextMetadata = new ContextMetadata();
+    vhosts.forEach((k, v) -> contextMetadata.getVhosts().put(k, v.toMetadata()));
+    return contextMetadata;
   }
 }

@@ -18,12 +18,17 @@ package com.datastax.oss.pulsar.rabbitmqgw;
 import static org.apache.commons.lang3.StringUtils.isBlank;
 import static org.apache.commons.lang3.StringUtils.isNotBlank;
 
+import com.datastax.oss.pulsar.rabbitmqgw.metadata.BindingMetadata;
+import com.datastax.oss.pulsar.rabbitmqgw.metadata.ContextMetadata;
+import com.datastax.oss.pulsar.rabbitmqgw.metadata.ExchangeMetadata;
+import com.datastax.oss.pulsar.rabbitmqgw.metadata.VirtualHostMetadata;
 import com.google.common.annotations.VisibleForTesting;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
-import org.apache.pulsar.client.api.PulsarClientException;
+import org.apache.pulsar.client.api.MessageId;
 import org.apache.pulsar.common.naming.NamespaceName;
 import org.apache.pulsar.common.naming.TopicName;
 import org.apache.qpid.server.model.LifetimePolicy;
@@ -80,21 +85,38 @@ public abstract class AbstractExchange {
         && bindings.get(queue.getName()).containsKey(bindingKey);
   }
 
-  public void bind(Queue queue, String routingKey, GatewayConnection connection)
-      throws PulsarClientException {
-    String vHost = connection.getNamespace();
+  public CompletableFuture<ContextMetadata> addBindingMetadata(
+      String queue, String routingKey, ContextMetadata context, GatewayConnection connection) {
+    VirtualHostMetadata vhostMetadata = context.getVhosts().get(connection.getNamespace());
+    ExchangeMetadata exchangeMetadata = vhostMetadata.getExchanges().get(name);
+    exchangeMetadata.getBindings().putIfAbsent(queue, new HashMap<>());
+    Map<String, BindingMetadata> bindings = exchangeMetadata.getBindings().get(queue);
+    if (!bindings.containsKey(routingKey)) {
+      // TODO: Pulsar 2.8 has an issue with subscriptions containing a / in their name. Forge
+      // another
+      //  name ?
+      String topic = getTopicName(connection.getNamespace(), name, routingKey).toString();
+      String subscriptionName = (topic + "-" + UUID.randomUUID()).replace("/", "_");
+      return connection
+          .getGatewayService()
+          .getPulsarAdmin()
+          .topics()
+          .createSubscriptionAsync(topic, subscriptionName, MessageId.latest)
+          .thenApply(
+              it -> {
+                bindings.put(routingKey, new BindingMetadata(topic, subscriptionName));
+                return context;
+              });
+    }
+    return CompletableFuture.completedFuture(context);
+  }
 
-    if (!bindings.containsKey(queue.getName())) {
-      bindings.put(queue.getName(), new HashMap<>());
-      queue.getBoundExchanges().add(this);
-    }
-    Map<String, PulsarConsumer> binding = bindings.get(queue.getName());
-    if (!binding.containsKey(routingKey)) {
-      PulsarConsumer pulsarConsumer =
-          new PulsarConsumer(getTopicName(vHost, name, routingKey).toString(), connection, queue);
-      pulsarConsumer.receiveAndDeliverMessages();
-      binding.put(routingKey, pulsarConsumer);
-    }
+  public CompletableFuture<ContextMetadata> bind(
+      String queue, String routingKey, GatewayConnection connection) {
+    ContextMetadata newContext = connection.getGatewayService().getAmqContext().toMetadata();
+    return addBindingMetadata(queue, routingKey, newContext, connection)
+        .thenCompose(
+            contextMetadata -> connection.getGatewayService().saveContext(contextMetadata));
   }
 
   public CompletableFuture<Void> unbind(Queue queue, String routingKey) {
@@ -153,5 +175,47 @@ public abstract class AbstractExchange {
   @VisibleForTesting
   public Map<String, Map<String, PulsarConsumer>> getBindings() {
     return bindings;
+  }
+
+  public ExchangeMetadata toMetadata() {
+    return new ExchangeMetadata(convertType(type), durable, lifetimePolicy);
+  }
+
+  public static ExchangeMetadata.Type convertType(Type type) {
+    switch (type) {
+      case direct:
+        return ExchangeMetadata.Type.direct;
+      case fanout:
+        return ExchangeMetadata.Type.fanout;
+      case topic:
+        return ExchangeMetadata.Type.topic;
+      case headers:
+        return ExchangeMetadata.Type.headers;
+      default:
+        throw new IllegalArgumentException("Unknown exchange type");
+    }
+  }
+
+  public static Type convertMetadataType(ExchangeMetadata.Type type) {
+    switch (type) {
+      case direct:
+        return Type.direct;
+      case fanout:
+        return Type.fanout;
+      case topic:
+        return Type.topic;
+      case headers:
+        return Type.headers;
+      default:
+        throw new IllegalArgumentException("Unknown exchange type");
+    }
+  }
+
+  public static AbstractExchange fromMetadata(String name, ExchangeMetadata metadata) {
+    return AbstractExchange.createExchange(
+        convertMetadataType(metadata.getType()),
+        name,
+        metadata.isDurable(),
+        metadata.getLifetimePolicy());
   }
 }

@@ -25,16 +25,19 @@ import static org.mockito.Matchers.anyInt;
 import static org.mockito.Matchers.anyListOf;
 import static org.mockito.Matchers.anyLong;
 import static org.mockito.Matchers.anyString;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.when;
 
+import com.datastax.oss.pulsar.rabbitmqgw.metadata.ContextMetadata;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufAllocator;
 import io.netty.channel.embedded.EmbeddedChannel;
 import java.util.Collections;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.TimeUnit;
 import org.apache.pulsar.client.admin.PulsarAdmin;
 import org.apache.pulsar.client.admin.Topics;
@@ -62,6 +65,7 @@ import org.apache.qpid.server.protocol.v0_8.transport.ConnectionTuneOkBody;
 import org.apache.qpid.server.protocol.v0_8.transport.ProtocolInitiation;
 import org.apache.qpid.server.transport.ByteBufferSender;
 import org.junit.jupiter.api.BeforeEach;
+import org.mockito.stubbing.Answer;
 
 public class AbstractBaseTest {
   public static final int CHANNEL_ID = 42;
@@ -93,7 +97,7 @@ public class AbstractBaseTest {
     when(consumerBuilder.negativeAckRedeliveryDelay(anyLong(), any(TimeUnit.class)))
         .thenReturn(consumerBuilder);
     when(consumerBuilder.receiverQueueSize(anyInt())).thenReturn(consumerBuilder);
-    when(consumerBuilder.subscribe()).thenReturn(consumer);
+    when(consumerBuilder.subscribeAsync()).thenReturn(CompletableFuture.completedFuture(consumer));
 
     when(consumer.receiveAsync()).thenReturn(new CompletableFuture<>());
     when(consumer.getLastMessageIdAsync())
@@ -105,8 +109,17 @@ public class AbstractBaseTest {
     PulsarAdmin pulsarAdmin = mock(PulsarAdmin.class);
     Topics topics = mock(Topics.class);
 
+    doReturn(CompletableFuture.completedFuture(null))
+        .when(topics)
+        .createSubscriptionAsync(anyString(), anyString(), any());
     doReturn(topics).when(pulsarAdmin).topics();
     doReturn(pulsarAdmin).when(gatewayService).getPulsarAdmin();
+
+    Answer<CompletionStage<ContextMetadata>> answer =
+        invocation ->
+            CompletableFuture.completedFuture(
+                gatewayService.updateContext((ContextMetadata) invocation.getArguments()[0]));
+    doAnswer(answer).when(gatewayService).saveContext(any());
   }
 
   protected void sendData(AMQDataBlock data) {

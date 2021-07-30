@@ -17,6 +17,10 @@ package com.datastax.oss.pulsar.rabbitmqgw;
 
 import static org.apache.qpid.server.transport.util.Functions.hex;
 
+import com.datastax.oss.pulsar.rabbitmqgw.metadata.ContextMetadata;
+import com.datastax.oss.pulsar.rabbitmqgw.metadata.ExchangeMetadata;
+import com.datastax.oss.pulsar.rabbitmqgw.metadata.QueueMetadata;
+import com.datastax.oss.pulsar.rabbitmqgw.metadata.VirtualHostMetadata;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -244,12 +248,38 @@ public class AMQChannel implements ServerChannelMethodProcessor {
             }
           }
         } else {
-          exchange = AbstractExchange.createExchange(exchangeType, name, durable, lifetimePolicy);
-          addExchange(exchange);
+          ContextMetadata newContext = getContextMetadata();
+          newContext
+              .getVhosts()
+              .get(_connection.getNamespace())
+              .getExchanges()
+              .put(
+                  name,
+                  new ExchangeMetadata(
+                      AbstractExchange.convertType(exchangeType),
+                      durable,
+                      autoDelete ? LifetimePolicy.DELETE_ON_NO_LINKS : LifetimePolicy.PERMANENT));
 
-          if (!nowait) {
-            _connection.writeFrame(declareOkBody.generateFrame(getChannelId()));
-          }
+          _connection
+              .getGatewayService()
+              .saveContext(newContext)
+              .thenAccept(
+                  it -> {
+                    if (!nowait) {
+                      _connection.writeFrame(declareOkBody.generateFrame(getChannelId()));
+                    }
+                  })
+              .exceptionally(
+                  t -> {
+                    String errorMessage =
+                        "Error while saving new exchange in configuration store: '"
+                            + exchangeName
+                            + "'";
+                    LOGGER.error(errorMessage, t);
+                    _connection.sendConnectionClose(
+                        ErrorCodes.INTERNAL_ERROR, errorMessage, getChannelId());
+                    return null;
+                  });
         }
       } catch (IllegalArgumentException e) {
         String errorMessage =
@@ -484,35 +514,60 @@ public class AMQChannel implements ServerChannelMethodProcessor {
             }
           }
         } else {
-          queue = new Queue(queueName, durable, lifetimePolicy, exclusivityPolicy);
-          addQueue(queue);
+          ContextMetadata newContext = getContextMetadata();
+          VirtualHostMetadata vhost = newContext.getVhosts().get(_connection.getNamespace());
+          vhost
+              .getQueues()
+              .put(queueName, new QueueMetadata(durable, lifetimePolicy, exclusivityPolicy));
+
           _connection
               .getVhost()
               .getExchange(ExchangeDefaults.DEFAULT_EXCHANGE_NAME)
-              .bind(queue, queue.getName(), _connection);
+              .addBindingMetadata(queueName, queueName, newContext, _connection)
+              .thenCompose(
+                  context ->
+                      _connection
+                          .getGatewayService()
+                          .saveContext(context)
+                          .thenAccept(
+                              it -> {
+                                setDefaultQueue(_connection.getVhost().getQueue(queueName));
 
-          setDefaultQueue(queue);
+                                if (!nowait) {
+                                  MethodRegistry methodRegistry = _connection.getMethodRegistry();
+                                  QueueDeclareOkBody responseBody =
+                                      methodRegistry.createQueueDeclareOkBody(
+                                          AMQShortString.createAMQShortString(queueName), 0, 0);
+                                  _connection.writeFrame(
+                                      responseBody.generateFrame(getChannelId()));
 
-          if (!nowait) {
-            MethodRegistry methodRegistry = _connection.getMethodRegistry();
-            QueueDeclareOkBody responseBody =
-                methodRegistry.createQueueDeclareOkBody(
-                    AMQShortString.createAMQShortString(queueName),
-                    queue.getQueueDepthMessages(),
-                    queue.getConsumerCount());
-            _connection.writeFrame(responseBody.generateFrame(getChannelId()));
-
-            if (LOGGER.isDebugEnabled()) {
-              LOGGER.debug("Queue " + queueName + " declared successfully");
-            }
-          }
+                                  if (LOGGER.isDebugEnabled()) {
+                                    LOGGER.debug("Queue " + queueName + " declared successfully");
+                                  }
+                                }
+                              })
+                          .exceptionally(
+                              t -> {
+                                String errorMessage =
+                                    "Error while saving new queue in configuration store: '"
+                                        + queueName
+                                        + "'";
+                                LOGGER.error(errorMessage, t);
+                                closeChannel(ErrorCodes.INTERNAL_ERROR, errorMessage);
+                                return null;
+                              }))
+              .exceptionally(
+                  t -> {
+                    String errorMessage =
+                        "Error while creating default subscription for queue '" + queueName + "'";
+                    LOGGER.error(errorMessage, t);
+                    closeChannel(ErrorCodes.INTERNAL_ERROR, errorMessage);
+                    return null;
+                  });
         }
       } catch (IllegalArgumentException e) {
         String message = String.format("Error creating queue '%s': %s", queueName, e.getMessage());
         _connection.sendConnectionClose(ErrorCodes.INVALID_ARGUMENT, message, getChannelId());
-      } catch (PulsarClientException e) {
-        LOGGER.error("Error creating queue '" + queueName + "': " + e.getMessage(), e);
-        _connection.sendConnectionClose(ErrorCodes.INTERNAL_ERROR, e.getMessage(), getChannelId());
       }
     }
   }
@@ -574,30 +629,25 @@ public class AMQChannel implements ServerChannelMethodProcessor {
       if (exch == null) {
         closeChannel(ErrorCodes.NOT_FOUND, "Exchange '" + exchangeName + "' does not exist.");
       } else {
-
-        try {
-          String bindingKeyStr = bindingKey == null ? "" : AMQShortString.toString(bindingKey);
-
-          exch.bind(queue, bindingKeyStr, _connection);
-
-          if (LOGGER.isDebugEnabled()) {
-            LOGGER.debug(
-                "Binding queue "
-                    + queue
-                    + " to exchange "
-                    + exch
-                    + " with routing key "
-                    + bindingKeyStr);
-          }
-          if (!nowait) {
-            MethodRegistry methodRegistry = _connection.getMethodRegistry();
-            AMQMethodBody responseBody = methodRegistry.createQueueBindOkBody();
-            _connection.writeFrame(responseBody.generateFrame(getChannelId()));
-          }
-        } catch (PulsarClientException e) {
-          _connection.sendConnectionClose(
-              ErrorCodes.INTERNAL_ERROR, e.getMessage(), getChannelId());
-        }
+        String bindingKeyStr = bindingKey == null ? "" : AMQShortString.toString(bindingKey);
+        exch.bind(queue.getName(), bindingKeyStr, _connection)
+            .thenRun(
+                () -> {
+                  if (LOGGER.isDebugEnabled()) {
+                    LOGGER.debug(
+                        "Binding queue "
+                            + queue
+                            + " to exchange "
+                            + exch
+                            + " with routing key "
+                            + bindingKeyStr);
+                  }
+                  if (!nowait) {
+                    MethodRegistry methodRegistry = _connection.getMethodRegistry();
+                    AMQMethodBody responseBody = methodRegistry.createQueueBindOkBody();
+                    _connection.writeFrame(responseBody.generateFrame(getChannelId()));
+                  }
+                });
       }
     }
   }
@@ -1591,7 +1641,6 @@ public class AMQChannel implements ServerChannelMethodProcessor {
   }
 
   private CompletableFuture<Void> deleteExchange(AbstractExchange exchange) {
-    // TODO: delete bindings on the exchange
     _connection.getVhost().deleteExchange(exchange);
     List<CompletableFuture<Void>> results = new ArrayList<>();
     new HashSet<>(exchange.getBindings().keySet())
@@ -1654,5 +1703,9 @@ public class AMQChannel implements ServerChannelMethodProcessor {
 
   public FlowCreditManager getCreditManager() {
     return _creditManager;
+  }
+
+  public ContextMetadata getContextMetadata() {
+    return _connection.getGatewayService().getAmqContext().toMetadata();
   }
 }

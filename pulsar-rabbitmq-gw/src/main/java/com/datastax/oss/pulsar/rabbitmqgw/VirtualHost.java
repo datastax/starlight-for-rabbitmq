@@ -15,11 +15,9 @@
  */
 package com.datastax.oss.pulsar.rabbitmqgw;
 
-import com.datastax.oss.pulsar.rabbitmqgw.AbstractExchange.Type;
+import com.datastax.oss.pulsar.rabbitmqgw.metadata.VirtualHostMetadata;
 import java.util.HashMap;
 import java.util.Map;
-import org.apache.qpid.server.exchange.ExchangeDefaults;
-import org.apache.qpid.server.model.LifetimePolicy;
 
 public class VirtualHost {
   private final String namespace;
@@ -29,11 +27,14 @@ public class VirtualHost {
 
   public VirtualHost(String namespace) {
     this.namespace = namespace;
-    addStandardExchange(ExchangeDefaults.DEFAULT_EXCHANGE_NAME, Type.direct);
-    addStandardExchange(ExchangeDefaults.DIRECT_EXCHANGE_NAME, Type.direct);
-    addStandardExchange(ExchangeDefaults.FANOUT_EXCHANGE_NAME, Type.fanout);
-    addStandardExchange(ExchangeDefaults.TOPIC_EXCHANGE_NAME, Type.topic);
-    addStandardExchange(ExchangeDefaults.HEADERS_EXCHANGE_NAME, Type.headers);
+  }
+
+  public Map<String, AbstractExchange> getExchanges() {
+    return exchanges;
+  }
+
+  public Map<String, Queue> getQueues() {
+    return queues;
   }
 
   public String getNamespace() {
@@ -68,8 +69,11 @@ public class VirtualHost {
     queues.remove(queue.getName());
   }
 
-  private void addStandardExchange(String directExchangeName, Type type) {
-    addExchange(
-        AbstractExchange.createExchange(type, directExchangeName, true, LifetimePolicy.PERMANENT));
+  public VirtualHostMetadata toMetadata() {
+    VirtualHostMetadata virtualHostMetadata = new VirtualHostMetadata();
+    virtualHostMetadata.setNamespace(namespace);
+    exchanges.forEach(
+        (s, exchange) -> virtualHostMetadata.getExchanges().put(s, exchange.toMetadata()));
+    return virtualHostMetadata;
   }
 }

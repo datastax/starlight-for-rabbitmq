@@ -40,6 +40,13 @@ public class GatewayConfiguration implements PulsarConfiguration {
   private static final String CATEGORY_AMQP = "AMQP";
 
   @FieldContext(
+    category = CATEGORY_SERVER,
+    required = true,
+    doc = "The Zookeeper quorum connection string (as a comma-separated list)"
+  )
+  private String zookeeperServers;
+
+  @FieldContext(
     category = CATEGORY_BROKER_DISCOVERY,
     doc = "The service url points to the broker cluster"
   )

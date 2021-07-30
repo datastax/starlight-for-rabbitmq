@@ -68,6 +68,11 @@
       <version>8.0.0</version>
     </dependency>
     <dependency>
+      <groupId>org.apache.curator</groupId>
+      <artifactId>curator-x-async</artifactId>
+      <version>5.1.0</version>
+    </dependency>
+    <dependency>
       <groupId>com.github.spotbugs</groupId>
       <artifactId>spotbugs-annotations</artifactId>
     </dependency>

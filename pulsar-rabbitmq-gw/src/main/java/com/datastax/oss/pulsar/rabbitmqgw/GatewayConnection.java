@@ -17,11 +17,13 @@ package com.datastax.oss.pulsar.rabbitmqgw;
 
 import static java.nio.charset.StandardCharsets.US_ASCII;
 
+import com.datastax.oss.pulsar.rabbitmqgw.metadata.ContextMetadata;
+import com.datastax.oss.pulsar.rabbitmqgw.metadata.ExchangeMetadata;
+import com.datastax.oss.pulsar.rabbitmqgw.metadata.VirtualHostMetadata;
 import com.google.common.annotations.VisibleForTesting;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
-import io.netty.channel.EventLoop;
 import io.netty.handler.timeout.IdleState;
 import io.netty.handler.timeout.IdleStateEvent;
 import io.netty.handler.timeout.IdleStateHandler;
@@ -36,6 +38,8 @@ import org.apache.bookkeeper.util.collections.ConcurrentLongHashMap;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.qpid.server.QpidException;
 import org.apache.qpid.server.bytebuffer.QpidByteBuffer;
+import org.apache.qpid.server.exchange.ExchangeDefaults;
+import org.apache.qpid.server.model.LifetimePolicy;
 import org.apache.qpid.server.protocol.ErrorCodes;
 import org.apache.qpid.server.protocol.ProtocolVersion;
 import org.apache.qpid.server.protocol.v0_8.AMQDecoder;
@@ -392,13 +396,64 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
     }
 
     // TODO: can vhosts have / in their name ? in that case they could be mapped to tenant+namespace
+    // TODO: remove redundant namespace (or vhost) field
     this.namespace = "public/" + (StringUtils.isEmpty(virtualHostStr) ? "default" : virtualHostStr);
-    this.vhost = this.getGatewayService().getOrCreateVhost(namespace);
-    // TODO: check or create namespace with the admin client ?
-    MethodRegistry methodRegistry = getMethodRegistry();
-    AMQMethodBody responseBody = methodRegistry.createConnectionOpenOkBody(virtualHostName);
-    writeFrame(responseBody.generateFrame(0));
-    _state = ConnectionState.OPEN;
+    if (!this.getGatewayService().getAmqContext().getVhosts().containsKey(namespace)) {
+      ContextMetadata newContext = this.getGatewayService().getAmqContext().toMetadata();
+      VirtualHostMetadata virtualHostMetadata = new VirtualHostMetadata();
+      virtualHostMetadata.setNamespace(namespace);
+      virtualHostMetadata
+          .getExchanges()
+          .put(
+              ExchangeDefaults.DEFAULT_EXCHANGE_NAME,
+              new ExchangeMetadata(ExchangeMetadata.Type.direct, true, LifetimePolicy.PERMANENT));
+      virtualHostMetadata
+          .getExchanges()
+          .put(
+              ExchangeDefaults.DIRECT_EXCHANGE_NAME,
+              new ExchangeMetadata(ExchangeMetadata.Type.direct, true, LifetimePolicy.PERMANENT));
+      virtualHostMetadata
+          .getExchanges()
+          .put(
+              ExchangeDefaults.FANOUT_EXCHANGE_NAME,
+              new ExchangeMetadata(ExchangeMetadata.Type.fanout, true, LifetimePolicy.PERMANENT));
+      virtualHostMetadata
+          .getExchanges()
+          .put(
+              ExchangeDefaults.TOPIC_EXCHANGE_NAME,
+              new ExchangeMetadata(ExchangeMetadata.Type.topic, true, LifetimePolicy.PERMANENT));
+      virtualHostMetadata
+          .getExchanges()
+          .put(
+              ExchangeDefaults.HEADERS_EXCHANGE_NAME,
+              new ExchangeMetadata(ExchangeMetadata.Type.headers, true, LifetimePolicy.PERMANENT));
+      newContext.getVhosts().put(namespace, virtualHostMetadata);
+      getGatewayService()
+          .saveContext(newContext)
+          .thenAccept(
+              it -> {
+                this.vhost = getGatewayService().getAmqContext().getVhosts().get(namespace);
+                AMQMethodBody responseBody =
+                    getMethodRegistry().createConnectionOpenOkBody(virtualHostName);
+                writeFrame(responseBody.generateFrame(0));
+                _state = ConnectionState.OPEN;
+              })
+          .exceptionally(
+              t -> {
+                String errorMessage =
+                    "Error while saving new vhost in configuration store: '" + namespace + "'";
+                LOGGER.error(errorMessage, t);
+                sendConnectionClose(ErrorCodes.INTERNAL_ERROR, errorMessage, 0);
+                return null;
+              });
+    } else {
+      this.vhost = getGatewayService().getAmqContext().getVhosts().get(namespace);
+      // TODO: check and create the Pulsar namespace with the admin client if not exists ?
+      MethodRegistry methodRegistry = getMethodRegistry();
+      AMQMethodBody responseBody = methodRegistry.createConnectionOpenOkBody(virtualHostName);
+      writeFrame(responseBody.generateFrame(0));
+      _state = ConnectionState.OPEN;
+    }
   }
 
   @Override
@@ -426,15 +481,10 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
           channelId);
     } else {
       LOGGER.debug("Connecting to: {}", namespace);
-
       final AMQChannel channel = new AMQChannel(this, channelId);
-
       addChannel(channel);
-
       ChannelOpenOkBody response;
-
       response = getMethodRegistry().createChannelOpenOkBody();
-
       writeFrame(response.generateFrame(channelId));
     }
   }
@@ -737,10 +787,6 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
         }
       }
     }
-  }
-
-  public EventLoop getEventloop() {
-    return ctx.channel().eventLoop();
   }
 
   // TODO: support message compression (Qpid only)
