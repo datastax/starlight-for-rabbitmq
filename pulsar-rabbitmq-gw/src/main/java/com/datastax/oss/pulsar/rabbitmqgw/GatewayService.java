@@ -18,9 +18,11 @@ package com.datastax.oss.pulsar.rabbitmqgw;
 import static com.google.common.base.Preconditions.checkNotNull;
 import static org.apache.commons.lang3.StringUtils.isNotBlank;
 
+import com.datastax.oss.pulsar.rabbitmqgw.metadata.BindingSetMetadata;
 import com.datastax.oss.pulsar.rabbitmqgw.metadata.ContextMetadata;
 import com.datastax.oss.pulsar.rabbitmqgw.metadata.ExchangeMetadata;
-import com.datastax.oss.pulsar.rabbitmqgw.metadata.VirtualHostMetadata;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.AdaptiveRecvByteBufAllocator;
 import io.netty.channel.Channel;
@@ -30,6 +32,7 @@ import io.netty.util.concurrent.DefaultThreadFactory;
 import java.io.Closeable;
 import java.io.IOException;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.Map;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.TimeUnit;
@@ -42,9 +45,11 @@ import org.apache.curator.x.async.modeled.JacksonModelSerializer;
 import org.apache.curator.x.async.modeled.ModelSpec;
 import org.apache.curator.x.async.modeled.ModeledFramework;
 import org.apache.curator.x.async.modeled.ZPath;
+import org.apache.curator.x.async.modeled.versioned.Versioned;
 import org.apache.pulsar.client.admin.PulsarAdmin;
 import org.apache.pulsar.client.admin.PulsarAdminBuilder;
 import org.apache.pulsar.client.api.ClientBuilder;
+import org.apache.pulsar.client.api.MessageId;
 import org.apache.pulsar.client.api.PulsarClient;
 import org.apache.pulsar.client.api.PulsarClientException;
 import org.apache.pulsar.common.allocator.PulsarByteBufAllocator;
@@ -58,7 +63,6 @@ public class GatewayService implements Closeable {
   private final GatewayConfiguration config;
   private PulsarClient pulsarClient;
   private PulsarAdmin pulsarAdmin;
-  private AsyncCuratorFramework curator;
 
   private final EventLoopGroup acceptorGroup;
   private final EventLoopGroup workerGroup;
@@ -74,11 +78,18 @@ public class GatewayService implements Closeable {
   private static final int numThreads = Runtime.getRuntime().availableProcessors();
 
   private final AMQContext amqContext = new AMQContext();
+
+  private final Map<String, Map<String, Queue>> queues = new HashMap<>();
+
   public static final ModelSpec<ContextMetadata> METADATA_MODEL_SPEC =
       ModelSpec.builder(
               ZPath.parseWithIds("/config"), JacksonModelSerializer.build(ContextMetadata.class))
           .build();
   private ModeledFramework<ContextMetadata> metadataModel;
+  private final ObjectMapper mapper = new ObjectMapper();
+
+  private volatile Versioned<ContextMetadata> contextMetadata =
+      Versioned.from(new ContextMetadata(), 0);
 
   public GatewayService(GatewayConfiguration config) {
     checkNotNull(config);
@@ -91,8 +102,8 @@ public class GatewayService implements Closeable {
   public void start() throws Exception {
     pulsarClient = createClientInstance();
     pulsarAdmin = createAdminInstance();
-    curator = createCuratorInstance();
-    metadataModel = ModeledFramework.wrap(curator, METADATA_MODEL_SPEC);
+    metadataModel = ModeledFramework.wrap(createCuratorInstance(), METADATA_MODEL_SPEC);
+    workerGroup.scheduleWithFixedDelay(this::loadContext, 0, 100, TimeUnit.MILLISECONDS);
     ServerBootstrap bootstrap = new ServerBootstrap();
     bootstrap.childOption(ChannelOption.ALLOCATOR, PulsarByteBufAllocator.DEFAULT);
     bootstrap.group(acceptorGroup, workerGroup);
@@ -210,38 +221,143 @@ public class GatewayService implements Closeable {
 
   private static final Logger LOG = LoggerFactory.getLogger(GatewayService.class);
 
-  public AsyncCuratorFramework getCurator() {
-    return curator;
-  }
-
   public AMQContext getAmqContext() {
     return amqContext;
   }
 
-  public CompletionStage<ContextMetadata> saveContext(ContextMetadata metadata) {
-    return metadataModel.set(metadata).thenCompose(it -> loadContext());
+  public Map<String, Map<String, Queue>> getQueues() {
+    return queues;
+  }
+
+  public Versioned<ContextMetadata> getContextMetadata() {
+    return contextMetadata;
+  }
+
+  public Versioned<ContextMetadata> newContextMetadata(Versioned<ContextMetadata> previousContext) {
+    try {
+      ContextMetadata contextMetadata =
+          mapper.readValue(
+              mapper.writeValueAsString(previousContext.model()), ContextMetadata.class);
+      return Versioned.from(contextMetadata, previousContext.version());
+    } catch (JsonProcessingException e) {
+      LOG.error("Error while cloning context", e);
+      return null;
+    }
+  }
+
+  public CompletionStage<ContextMetadata> saveContext(Versioned<ContextMetadata> metadata) {
+    return metadataModel.versioned().set(metadata).thenCompose(it -> loadContext());
   }
 
   public CompletionStage<ContextMetadata> loadContext() {
-    return metadataModel.read().thenApply(this::updateContext);
+    return metadataModel
+        .versioned()
+        .read()
+        .thenApply(
+            context -> {
+              contextMetadata = context;
+              return updateContext(contextMetadata.model());
+            });
   }
 
-  public ContextMetadata updateContext(ContextMetadata contextMetadata) {
+  public synchronized ContextMetadata updateContext(ContextMetadata contextMetadata) {
     contextMetadata
         .getVhosts()
         .forEach(
             (namespace, vhostMetadata) -> {
-              Map<String, VirtualHost> vhosts = amqContext.getVhosts();
+              /*Map<String, VirtualHost> vhosts = amqContext.getVhosts();
               vhosts.putIfAbsent(namespace, new VirtualHost(namespace));
               VirtualHost vhost = vhosts.get(namespace);
               createNewQueues(vhostMetadata, vhost);
               createNewExchanges(vhostMetadata, vhost);
+              */
+
+              Map<String, Queue> vhostQueues =
+                  queues.computeIfAbsent(namespace, it -> new HashMap<>());
+
+              vhostMetadata
+                  .getQueues()
+                  .keySet()
+                  .forEach(queueName -> vhostQueues.computeIfAbsent(queueName, it -> new Queue()));
+              Map<String, ExchangeMetadata> exchanges = vhostMetadata.getExchanges();
+              exchanges.forEach(
+                  (exchange, exchangeMetadata) ->
+                      exchangeMetadata
+                          .getBindings()
+                          .forEach(
+                              (queueName, bindingSetMetadata) ->
+                                  bindingSetMetadata
+                                      .getSubscriptions()
+                                      .forEach(
+                                          (subscriptionName, bindingMetadata) -> {
+                                            Queue queue = vhostQueues.get(queueName);
+                                            PulsarConsumer pulsarConsumer =
+                                                queue.getSubscriptions().get(subscriptionName);
+                                            if (pulsarConsumer == null) {
+                                              pulsarConsumer =
+                                                  new PulsarConsumer(
+                                                      exchange,
+                                                      bindingMetadata.getTopic(),
+                                                      subscriptionName,
+                                                      this,
+                                                      queue);
+                                              // TODO: handle subscription errors
+                                              pulsarConsumer
+                                                  .subscribe()
+                                                  .thenRun(
+                                                      pulsarConsumer::receiveAndDeliverMessages);
+                                              queue
+                                                  .getSubscriptions()
+                                                  .put(subscriptionName, pulsarConsumer);
+                                            } else {
+                                              if (bindingMetadata.getLastMessageId() != null) {
+                                                MessageId messageId =
+                                                    null;
+                                                try {
+                                                  messageId =
+                                                      MessageId.fromByteArray(bindingMetadata.getLastMessageId());
+                                                  pulsarConsumer.setLastMessageId(
+                                                      messageId);
+                                                } catch (IOException e) {
+                                                  LOG.error("Error while deserializing binding's lastMessageId", e);
+                                                }
+                                              }
+                                            }
+                                          })));
+
+              vhostQueues.forEach(
+                  (queueName, queue) -> {
+                    for (Map.Entry<String, PulsarConsumer> next :
+                        queue.getSubscriptions().entrySet()) {
+                      PulsarConsumer consumer = next.getValue();
+                      ExchangeMetadata exchangeMetadata = exchanges.get(consumer.getExchange());
+                      if (exchangeMetadata != null) {
+                        BindingSetMetadata bindingSetMetadata =
+                            exchangeMetadata.getBindings().get(queueName);
+                        if (bindingSetMetadata != null) {
+                          if (bindingSetMetadata.getSubscriptions().containsKey(next.getKey())) {
+                            continue;
+                          }
+                        }
+                      }
+                      consumer.close();
+                    }
+                  });
+
+              Iterator<Map.Entry<String, Queue>> queueIterator = vhostQueues.entrySet().iterator();
+              while (queueIterator.hasNext()) {
+                Map.Entry<String, Queue> queueEntry = queueIterator.next();
+                if (!vhostMetadata.getQueues().containsKey(queueEntry.getKey())) {
+                  queueEntry.getValue().getConsumers().forEach(AMQConsumer::unsubscribe);
+                  queueIterator.remove();
+                }
+              }
             });
 
     return contextMetadata;
   }
 
-  private void createNewQueues(VirtualHostMetadata vhostMetadata, VirtualHost vhost) {
+  /*private void createNewQueues(VirtualHostMetadata vhostMetadata, VirtualHost vhost) {
     vhostMetadata
         .getQueues()
         .forEach(
@@ -293,5 +409,6 @@ public class GatewayService implements Closeable {
                             });
                   });
             });
-  }
+  }*/
+
 }

@@ -22,9 +22,11 @@ import com.rabbitmq.client.Channel;
 import com.rabbitmq.client.Connection;
 import com.rabbitmq.client.ConnectionFactory;
 import java.io.IOException;
+import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.TimeoutException;
+import org.awaitility.Awaitility;
 import org.junit.Test;
 
 public class ExchangeDeclare extends ExchangeEquivalenceBase {
@@ -128,7 +130,13 @@ public class ExchangeDeclare extends ExchangeEquivalenceBase {
       channel.exchangeDelete(NAME);
 
       channel.exchangeDeclareNoWait(NAME, exchangeType, false, false, false, null);
-      // no check, this one is asynchronous
+
+      Awaitility.await()
+          .atMost(Duration.ofSeconds(5))
+          .until(() -> gatewayService.getContextMetadata().model().getVhosts().get("public/default").getExchanges().containsKey(NAME));
+
+      verifyEquivalent(NAME, exchangeType.getType(), false, false, null);
+
       channel.exchangeDelete(NAME);
     }
   }

@@ -29,18 +29,24 @@ import org.apache.pulsar.client.api.SubscriptionType;
 
 public class PulsarConsumer {
 
+  private final String exchange;
   private final String topic;
   private final GatewayService gatewayService;
   private final PulsarAdmin pulsarAdmin;
   private final Queue queue;
   private volatile Consumer<byte[]> pulsarConsumer;
   private final String subscriptionName;
+
   private volatile MessageId lastMessageId;
+
   private volatile ScheduledFuture<?> scheduledFuture;
+
   private final EventLoop eventLoop;
   private final AtomicBoolean closing;
 
-  PulsarConsumer(String topic, String subscriptionName, GatewayService service, Queue queue) {
+  PulsarConsumer(
+      String exchange, String topic, String subscriptionName, GatewayService service, Queue queue) {
+    this.exchange = exchange;
     this.topic = topic;
     this.subscriptionName = subscriptionName;
     this.gatewayService = service;
@@ -107,6 +113,14 @@ public class PulsarConsumer {
               }
               return new PulsarConsumerMessage(msg, this);
             });
+  }
+
+  public String getExchange() {
+    return exchange;
+  }
+
+  public void setLastMessageId(MessageId lastMessageId) {
+    this.lastMessageId = lastMessageId;
   }
 
   public CompletableFuture<Void> receiveAndDeliverMessages() {

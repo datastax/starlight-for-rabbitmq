@@ -20,6 +20,7 @@ import java.util.Map;
 import org.apache.qpid.server.model.LifetimePolicy;
 
 public class ExchangeMetadata {
+
   public enum Type {
     direct,
     fanout,
@@ -30,16 +31,7 @@ public class ExchangeMetadata {
   private Type type;
   private boolean durable;
   private LifetimePolicy lifetimePolicy;
-
-  public Map<String, Map<String, BindingMetadata>> getBindings() {
-    return bindings;
-  }
-
-  public void setBindings(Map<String, Map<String, BindingMetadata>> bindings) {
-    this.bindings = bindings;
-  }
-
-  private Map<String, Map<String, BindingMetadata>> bindings = new HashMap<>();
+  private Map<String, BindingSetMetadata> bindings = new HashMap<>();
 
   public ExchangeMetadata() {
     // For Jackson
@@ -73,5 +65,13 @@ public class ExchangeMetadata {
 
   public void setLifetimePolicy(LifetimePolicy lifetimePolicy) {
     this.lifetimePolicy = lifetimePolicy;
+  }
+
+  public Map<String, BindingSetMetadata> getBindings() {
+    return bindings;
+  }
+
+  public void setBindings(Map<String, BindingSetMetadata> bindings) {
+    this.bindings = bindings;
   }
 }

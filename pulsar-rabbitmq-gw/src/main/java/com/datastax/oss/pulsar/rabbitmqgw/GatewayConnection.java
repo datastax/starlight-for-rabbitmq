@@ -36,6 +36,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.apache.bookkeeper.util.collections.ConcurrentLongHashMap;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.curator.x.async.modeled.versioned.Versioned;
 import org.apache.qpid.server.QpidException;
 import org.apache.qpid.server.bytebuffer.QpidByteBuffer;
 import org.apache.qpid.server.exchange.ExchangeDefaults;
@@ -398,8 +399,10 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
     // TODO: can vhosts have / in their name ? in that case they could be mapped to tenant+namespace
     // TODO: remove redundant namespace (or vhost) field
     this.namespace = "public/" + (StringUtils.isEmpty(virtualHostStr) ? "default" : virtualHostStr);
-    if (!this.getGatewayService().getAmqContext().getVhosts().containsKey(namespace)) {
-      ContextMetadata newContext = this.getGatewayService().getAmqContext().toMetadata();
+    Versioned<ContextMetadata> versionedContext = getGatewayService().getContextMetadata();
+    if (!versionedContext.model().getVhosts().containsKey(namespace)) {
+      Versioned<ContextMetadata> newContext =
+          getGatewayService().newContextMetadata(versionedContext);
       VirtualHostMetadata virtualHostMetadata = new VirtualHostMetadata();
       virtualHostMetadata.setNamespace(namespace);
       virtualHostMetadata
@@ -427,7 +430,7 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
           .put(
               ExchangeDefaults.HEADERS_EXCHANGE_NAME,
               new ExchangeMetadata(ExchangeMetadata.Type.headers, true, LifetimePolicy.PERMANENT));
-      newContext.getVhosts().put(namespace, virtualHostMetadata);
+      newContext.model().getVhosts().put(namespace, virtualHostMetadata);
       getGatewayService()
           .saveContext(newContext)
           .thenAccept(

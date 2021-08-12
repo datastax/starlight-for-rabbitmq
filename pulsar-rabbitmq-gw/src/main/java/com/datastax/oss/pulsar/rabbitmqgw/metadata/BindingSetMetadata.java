@@ -16,16 +16,29 @@
 package com.datastax.oss.pulsar.rabbitmqgw.metadata;
 
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 
-public class ContextMetadata {
-  Map<String, VirtualHostMetadata> vhosts = new HashMap<>();
+public class BindingSetMetadata {
+  private Set<String> keys = new HashSet<>();
+  private Map<String, BindingMetadata> subscriptions = new HashMap<>();
 
-  public Map<String, VirtualHostMetadata> getVhosts() {
-    return vhosts;
+  public BindingSetMetadata() {}
+
+  public Set<String> getKeys() {
+    return keys;
   }
 
-  public void setVhosts(Map<String, VirtualHostMetadata> vhosts) {
-    this.vhosts = vhosts;
+  public void setKeys(Set<String> keys) {
+    this.keys = keys;
+  }
+
+  public Map<String, BindingMetadata> getSubscriptions() {
+    return subscriptions;
+  }
+
+  public void setSubscriptions(Map<String, BindingMetadata> subscriptions) {
+    this.subscriptions = subscriptions;
   }
 }

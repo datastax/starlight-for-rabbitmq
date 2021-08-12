@@ -15,12 +15,12 @@
  */
 package com.datastax.oss.pulsar.rabbitmqgw.metadata;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import org.apache.qpid.server.model.ExclusivityPolicy;
 import org.apache.qpid.server.model.LifetimePolicy;
 
 public class QueueMetadata {
   private boolean durable;
-
   private LifetimePolicy lifetimePolicy;
   private ExclusivityPolicy exclusivityPolicy;
 
@@ -57,5 +57,32 @@ public class QueueMetadata {
 
   public void setExclusivityPolicy(ExclusivityPolicy exclusivityPolicy) {
     this.exclusivityPolicy = exclusivityPolicy;
+  }
+
+  @JsonIgnore
+  public int getQueueDepthMessages() {
+    // TODO: implement message count in queue ?
+    return 0;
+  }
+
+  @JsonIgnore
+  public int getConsumerCount() {
+    // TODO: implement distributed count of consumers
+    return 0;
+  }
+
+  @JsonIgnore
+  public boolean isUnused() {
+    return getConsumerCount() == 0;
+  }
+
+  @JsonIgnore
+  public boolean isEmpty() {
+    return getQueueDepthMessages() == 0;
+  }
+
+  @JsonIgnore
+  public boolean isExclusive() {
+    return exclusivityPolicy != ExclusivityPolicy.NONE;
   }
 }

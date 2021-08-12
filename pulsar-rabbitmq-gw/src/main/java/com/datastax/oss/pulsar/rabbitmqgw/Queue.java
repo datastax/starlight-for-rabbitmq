@@ -15,10 +15,11 @@
  */
 package com.datastax.oss.pulsar.rabbitmqgw;
 
-import com.datastax.oss.pulsar.rabbitmqgw.metadata.QueueMetadata;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import org.apache.pulsar.client.api.Message;
 import org.apache.qpid.server.model.ExclusivityPolicy;
@@ -26,17 +27,22 @@ import org.apache.qpid.server.model.LifetimePolicy;
 
 public class Queue {
 
-  private final String name;
-  private final boolean durable;
-  private final LifetimePolicy lifetimePolicy;
-  private final ExclusivityPolicy exclusivityPolicy;
+  private String name;
+  private boolean durable;
+  private LifetimePolicy lifetimePolicy;
+  private ExclusivityPolicy exclusivityPolicy;
   private final java.util.Queue<MessageRequest> messageRequests = new ConcurrentLinkedQueue<>();
   private final java.util.Queue<PulsarConsumer.PulsarConsumerMessage> pendingBindings =
       new ConcurrentLinkedQueue<>();
 
+  private final Map<String, PulsarConsumer> subscriptions = new ConcurrentHashMap<>();
+
   private volatile AMQConsumer _exclusiveSubscriber;
+
   private final List<AMQConsumer> consumers = new ArrayList<>();
   private final List<AbstractExchange> boundExchanges = new ArrayList<>();
+
+  public Queue() {}
 
   public Queue(
       String name,
@@ -76,6 +82,14 @@ public class Queue {
 
   public LifetimePolicy getLifetimePolicy() {
     return lifetimePolicy;
+  }
+
+  public Map<String, PulsarConsumer> getSubscriptions() {
+    return subscriptions;
+  }
+
+  public void close() {
+    subscriptions.values().forEach(PulsarConsumer::close);
   }
 
   public CompletableFuture<PulsarConsumer.PulsarConsumerMessage> receiveAsync(
@@ -185,10 +199,5 @@ public class Queue {
 
   public boolean hasExclusiveConsumer() {
     return _exclusiveSubscriber != null;
-  }
-
-  public static Queue fromMetadata(String name, QueueMetadata metadata) {
-    return new Queue(
-        name, metadata.isDurable(), metadata.getLifetimePolicy(), metadata.getExclusivityPolicy());
   }
 }

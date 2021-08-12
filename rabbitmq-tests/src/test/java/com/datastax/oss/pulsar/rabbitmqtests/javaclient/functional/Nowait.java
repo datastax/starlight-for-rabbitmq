@@ -15,8 +15,12 @@
 
 package com.datastax.oss.pulsar.rabbitmqtests.javaclient.functional;
 
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.datastax.oss.pulsar.rabbitmqtests.javaclient.BrokerTestCase;
 import java.io.IOException;
+import java.time.Duration;
+import java.util.concurrent.ExecutionException;
+import org.awaitility.Awaitility;
 import org.junit.Ignore;
 import org.junit.Test;
 
@@ -27,17 +31,9 @@ public class Nowait extends BrokerTestCase {
     String q = generateQueueName();
     channel.queueDeclareNoWait(q, false, true, true, null);
 
-    // Pulsar-RMQ edit: give some time for the queue to be created
-    long now = System.currentTimeMillis();
-    while (System.currentTimeMillis() - now < 5000) {
-      try {
-        channel.queueDeclarePassive(q);
-        break;
-      } catch (IOException e) {
-        Thread.sleep(10);
-        channel = connection.createChannel();
-      }
-    }
+    Awaitility.await()
+        .atMost(Duration.ofSeconds(5))
+        .until(() -> gatewayService.getContextMetadata().model().getVhosts().get("public/default").getQueues().containsKey(q));
 
     channel.queueDeclarePassive(q);
   }
@@ -47,6 +43,11 @@ public class Nowait extends BrokerTestCase {
     String q = generateQueueName();
     channel.queueDeclare(q, false, true, true, null);
     channel.queueBindNoWait(q, "amq.fanout", "", null);
+
+    Awaitility.await()
+        .atMost(Duration.ofSeconds(5))
+        .until(() -> gatewayService.getContextMetadata().model().getVhosts().get("public/default").getExchanges().get("amq.fanout")
+        .getBindings().containsKey(q));
   }
 
   @Test
@@ -55,17 +56,9 @@ public class Nowait extends BrokerTestCase {
     try {
       channel.exchangeDeclareNoWait(x, "fanout", false, false, false, null);
 
-      // Pulsar-RMQ edit: give some time for the exchange to be created
-      long now = System.currentTimeMillis();
-      while (System.currentTimeMillis() - now < 5000) {
-        try {
-          channel.exchangeDeclarePassive(x);
-          break;
-        } catch (IOException e) {
-          Thread.sleep(10);
-          channel = connection.createChannel();
-        }
-      }
+      Awaitility.await()
+          .atMost(Duration.ofSeconds(5))
+          .until(() -> gatewayService.getContextMetadata().model().getVhosts().get("public/default").getExchanges().containsKey(x));
 
       channel.exchangeDeclarePassive(x);
     } finally {
@@ -102,13 +95,24 @@ public class Nowait extends BrokerTestCase {
   public void testQueueDeleteWithNowait() throws Exception {
     String q = generateQueueName();
     channel.queueDeclare(q, false, true, true, null);
+    assertTrue(gatewayService.getContextMetadata().model().getVhosts().get("public/default").getQueues().containsKey(q));
+
     channel.queueDeleteNoWait(q, false, false);
+
+    Awaitility.await()
+        .atMost(Duration.ofSeconds(5))
+        .until(() -> !gatewayService.getContextMetadata().model().getVhosts().get("public/default").getQueues().containsKey(q));
   }
 
   @Test
   public void testExchangeDeleteWithNowait() throws Exception {
     String x = generateExchangeName();
     channel.exchangeDeclare(x, "fanout", false, false, false, null);
+    assertTrue(gatewayService.getContextMetadata().model().getVhosts().get("public/default").getExchanges().containsKey(x));
+
     channel.exchangeDeleteNoWait(x, false);
+    Awaitility.await()
+        .atMost(Duration.ofSeconds(5))
+        .until(() -> !gatewayService.getContextMetadata().model().getVhosts().get("public/default").getExchanges().containsKey(x));
   }
 }

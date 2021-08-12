@@ -28,6 +28,7 @@ import java.security.NoSuchAlgorithmException;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeoutException;
 import javax.net.ssl.SSLContext;
 import org.apache.bookkeeper.util.PortManager;
@@ -166,7 +167,7 @@ public class BrokerTestCase {
    */
   protected void releaseResources() throws IOException {}
 
-  protected void restart() throws IOException, TimeoutException {
+  protected void restart() throws IOException, TimeoutException, ExecutionException, InterruptedException {
     tearDown();
     bareRestart();
     setUp();

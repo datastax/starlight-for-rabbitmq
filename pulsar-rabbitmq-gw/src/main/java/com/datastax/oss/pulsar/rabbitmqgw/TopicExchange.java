@@ -15,7 +15,7 @@
  */
 package com.datastax.oss.pulsar.rabbitmqgw;
 
-import com.datastax.oss.pulsar.rabbitmqgw.metadata.ContextMetadata;
+import com.datastax.oss.pulsar.rabbitmqgw.metadata.ExchangeMetadata;
 import java.util.concurrent.CompletableFuture;
 import org.apache.qpid.server.model.LifetimePolicy;
 
@@ -26,9 +26,20 @@ public class TopicExchange extends AbstractExchange {
   }
 
   @Override
-  public CompletableFuture<ContextMetadata> bind(
-      String queue, String routingKey, GatewayConnection connection) {
-    // TODO: bind headers exchange
+  public CompletableFuture<Void> bind(
+      ExchangeMetadata exchangeMetadata,
+      String queue,
+      String routingKey,
+      GatewayConnection connection) {
+    return CompletableFuture.completedFuture(null);
+  }
+
+  @Override
+  public CompletableFuture<Void> unbind(
+      ExchangeMetadata exchangeMetadata,
+      String queue,
+      String routingKey,
+      GatewayConnection gatewayConnection) {
     return CompletableFuture.completedFuture(null);
   }
 }

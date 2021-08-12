@@ -131,4 +131,8 @@ public class AMQConsumer {
   public AMQShortString getTag() {
     return tag;
   }
+
+  public boolean unsubscribe() {
+    return channel.unsubscribeConsumer(tag);
+  }
 }

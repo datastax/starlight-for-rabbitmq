@@ -18,17 +18,11 @@ package com.datastax.oss.pulsar.rabbitmqgw;
 import static org.apache.commons.lang3.StringUtils.isBlank;
 import static org.apache.commons.lang3.StringUtils.isNotBlank;
 
-import com.datastax.oss.pulsar.rabbitmqgw.metadata.BindingMetadata;
-import com.datastax.oss.pulsar.rabbitmqgw.metadata.ContextMetadata;
 import com.datastax.oss.pulsar.rabbitmqgw.metadata.ExchangeMetadata;
-import com.datastax.oss.pulsar.rabbitmqgw.metadata.VirtualHostMetadata;
 import com.google.common.annotations.VisibleForTesting;
-import java.util.HashMap;
 import java.util.Map;
-import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
-import org.apache.pulsar.client.api.MessageId;
 import org.apache.pulsar.common.naming.NamespaceName;
 import org.apache.pulsar.common.naming.TopicName;
 import org.apache.qpid.server.model.LifetimePolicy;
@@ -85,59 +79,17 @@ public abstract class AbstractExchange {
         && bindings.get(queue.getName()).containsKey(bindingKey);
   }
 
-  public CompletableFuture<ContextMetadata> addBindingMetadata(
-      String queue, String routingKey, ContextMetadata context, GatewayConnection connection) {
-    VirtualHostMetadata vhostMetadata = context.getVhosts().get(connection.getNamespace());
-    ExchangeMetadata exchangeMetadata = vhostMetadata.getExchanges().get(name);
-    exchangeMetadata.getBindings().putIfAbsent(queue, new HashMap<>());
-    Map<String, BindingMetadata> bindings = exchangeMetadata.getBindings().get(queue);
-    if (!bindings.containsKey(routingKey)) {
-      // TODO: Pulsar 2.8 has an issue with subscriptions containing a / in their name. Forge
-      // another
-      //  name ?
-      String topic = getTopicName(connection.getNamespace(), name, routingKey).toString();
-      String subscriptionName = (topic + "-" + UUID.randomUUID()).replace("/", "_");
-      return connection
-          .getGatewayService()
-          .getPulsarAdmin()
-          .topics()
-          .createSubscriptionAsync(topic, subscriptionName, MessageId.latest)
-          .thenApply(
-              it -> {
-                bindings.put(routingKey, new BindingMetadata(topic, subscriptionName));
-                return context;
-              });
-    }
-    return CompletableFuture.completedFuture(context);
-  }
+  public abstract CompletableFuture<Void> bind(
+      ExchangeMetadata exchangeMetadata,
+      String queue,
+      String routingKey,
+      GatewayConnection connection);
 
-  public CompletableFuture<ContextMetadata> bind(
-      String queue, String routingKey, GatewayConnection connection) {
-    ContextMetadata newContext = connection.getGatewayService().getAmqContext().toMetadata();
-    return addBindingMetadata(queue, routingKey, newContext, connection)
-        .thenCompose(
-            contextMetadata -> connection.getGatewayService().saveContext(contextMetadata));
-  }
-
-  public CompletableFuture<Void> unbind(Queue queue, String routingKey) {
-    String queueName = queue.getName();
-    PulsarConsumer pulsarConsumer = null;
-    if (bindings.containsKey(queueName)) {
-      Map<String, PulsarConsumer> binding = bindings.get(queueName);
-      if (binding.containsKey(routingKey)) {
-        pulsarConsumer = binding.get(routingKey);
-        binding.remove(routingKey);
-      }
-      if (binding.size() == 0) {
-        bindings.remove(queueName);
-        queue.getBoundExchanges().remove(this);
-      }
-      if (pulsarConsumer != null) {
-        return pulsarConsumer.shutdown();
-      }
-    }
-    return CompletableFuture.completedFuture(null);
-  }
+  public abstract CompletableFuture<Void> unbind(
+      ExchangeMetadata exchangeMetadata,
+      String queue,
+      String routingKey,
+      GatewayConnection gatewayConnection);
 
   public void queueRemoved(Queue queue) {
     String queueName = queue.getName();
@@ -164,7 +116,7 @@ public abstract class AbstractExchange {
     }
   }
 
-  public TopicName getTopicName(String vHost, String exchangeName, String routingKey) {
+  public static TopicName getTopicName(String vHost, String exchangeName, String routingKey) {
     StringBuilder topic = new StringBuilder(isBlank(exchangeName) ? "amq.default" : exchangeName);
     if (isNotBlank(routingKey)) {
       topic.append("$$").append(routingKey);

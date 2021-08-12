@@ -15,27 +15,28 @@
  */
 package com.datastax.oss.pulsar.rabbitmqgw;
 
+import static com.datastax.oss.pulsar.rabbitmqgw.AbstractExchange.getTopicName;
 import static org.apache.qpid.server.transport.util.Functions.hex;
 
+import com.datastax.oss.pulsar.rabbitmqgw.metadata.BindingSetMetadata;
 import com.datastax.oss.pulsar.rabbitmqgw.metadata.ContextMetadata;
 import com.datastax.oss.pulsar.rabbitmqgw.metadata.ExchangeMetadata;
 import com.datastax.oss.pulsar.rabbitmqgw.metadata.QueueMetadata;
 import com.datastax.oss.pulsar.rabbitmqgw.metadata.VirtualHostMetadata;
 import java.nio.ByteBuffer;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.stream.Collectors;
+import org.apache.curator.x.async.modeled.versioned.Versioned;
 import org.apache.pulsar.client.api.Message;
 import org.apache.pulsar.client.api.MessageId;
 import org.apache.pulsar.client.api.Producer;
@@ -88,6 +89,7 @@ public class AMQChannel implements ServerChannelMethodProcessor {
   private volatile long _deliveryTag = 0;
 
   private Queue _defaultQueue;
+  private String defaultQueueName;
   /**
    * This tag is unique per subscription to a queue. The server returns this in response to a
    * basic.consume request.
@@ -197,14 +199,16 @@ public class AMQChannel implements ServerChannelMethodProcessor {
     final MethodRegistry methodRegistry = _connection.getMethodRegistry();
     final AMQMethodBody declareOkBody = methodRegistry.createExchangeDeclareOkBody();
 
-    AbstractExchange exchange;
+    Versioned<ContextMetadata> versionedContext = getContextMetadata();
+    ContextMetadata context = versionedContext.model();
+    ExchangeMetadata exchange;
 
     if (passive) {
-      exchange = getExchange(name);
+      exchange = getExchange(context, name);
       if (exchange == null) {
         closeChannel(ErrorCodes.NOT_FOUND, "Unknown exchange: '" + name + "'");
       } else if (!(type == null || type.length() == 0)
-          && !exchange.getType().equals(type.toString())) {
+          && !exchange.getType().toString().equals(type.toString())) {
 
         closeChannel(
             ErrorCodes.NOT_ALLOWED,
@@ -234,9 +238,9 @@ public class AMQChannel implements ServerChannelMethodProcessor {
           closeChannel(
               ErrorCodes.ACCESS_REFUSED,
               "Attempt to declare exchange: '" + name + "' which begins with reserved prefix.");
-        } else if (_connection.getVhost().hasExchange(name)) {
-          exchange = getExchange(name);
-          if (!exchange.getType().equals(typeString)
+        } else if (getVHostMetadata(context).getExchanges().containsKey(name)) {
+          exchange = getExchange(context, name);
+          if (!exchange.getType().toString().equals(typeString)
               || !exchange.getLifetimePolicy().equals(lifetimePolicy)
               || exchange.isDurable() != durable) {
             closeChannel(
@@ -248,10 +252,8 @@ public class AMQChannel implements ServerChannelMethodProcessor {
             }
           }
         } else {
-          ContextMetadata newContext = getContextMetadata();
-          newContext
-              .getVhosts()
-              .get(_connection.getNamespace())
+          Versioned<ContextMetadata> newContext = newContextMetadata(versionedContext);
+          getVHostMetadata(newContext.model())
               .getExchanges()
               .put(
                   name,
@@ -260,11 +262,9 @@ public class AMQChannel implements ServerChannelMethodProcessor {
                       durable,
                       autoDelete ? LifetimePolicy.DELETE_ON_NO_LINKS : LifetimePolicy.PERMANENT));
 
-          _connection
-              .getGatewayService()
-              .saveContext(newContext)
-              .thenAccept(
-                  it -> {
+          saveContext(newContext)
+              .thenRun(
+                  () -> {
                     if (!nowait) {
                       _connection.writeFrame(declareOkBody.generateFrame(getChannelId()));
                     }
@@ -309,7 +309,9 @@ public class AMQChannel implements ServerChannelMethodProcessor {
     final String exchangeName =
         exchangeStr == null ? ExchangeDefaults.DEFAULT_EXCHANGE_NAME : exchangeStr.toString();
 
-    final AbstractExchange exchange = getExchange(exchangeName);
+    Versioned<ContextMetadata> versionedContext = getContextMetadata();
+    ContextMetadata context = versionedContext.model();
+    ExchangeMetadata exchange = getExchange(context, exchangeName);
     if (exchange == null) {
       // Note: Since v3.2, RabbitMQ delete exchange is idempotent :
       // https://www.rabbitmq.com/specification.html#method-status-exchange.delete so we don't close
@@ -319,12 +321,13 @@ public class AMQChannel implements ServerChannelMethodProcessor {
             _connection.getMethodRegistry().createExchangeDeleteOkBody();
         _connection.writeFrame(responseBody.generateFrame(getChannelId()));
       }
-    } else if (ifUnused && exchange.hasBindings()) {
+    } else if (ifUnused && exchange.getBindings().size() > 0) {
       closeChannel(ErrorCodes.IN_USE, "Exchange has bindings");
     } else if (isReservedExchangeName(exchangeName)) {
       closeChannel(ErrorCodes.ACCESS_REFUSED, "Exchange '" + exchangeName + "' cannot be deleted");
     } else {
-      deleteExchange(exchange)
+      Versioned<ContextMetadata> newContext = newContextMetadata(versionedContext);
+      deleteExchange(newContext, exchangeName)
           .thenRun(
               () -> {
                 if (!nowait) {
@@ -393,26 +396,28 @@ public class AMQChannel implements ServerChannelMethodProcessor {
       queueName = sanitizeEntityName(queueStr.toString());
     }
 
-    Queue queue;
+    Versioned<ContextMetadata> versionedContext = getContextMetadata();
+    ContextMetadata context = versionedContext.model();
+    QueueMetadata queue;
 
     // TODO: do we need to check that the queue already exists with exactly the same
     //  "configuration"?
 
     if (passive) {
-      queue = getQueue(queueName);
+      queue = getQueue(context, queueName);
       if (queue == null) {
         closeChannel(
             ErrorCodes.NOT_FOUND,
             "Queue: '"
                 + queueName
                 + "' not found on VirtualHost '"
-                + _connection.getVhost().getNamespace()
+                + _connection.getNamespace()
                 + "'.");
       } else {
         // TODO: check exclusive queue access
         {
           // set this as the default queue on the channel:
-          setDefaultQueue(queue);
+          setDefaultQueueName(queueName);
           if (!nowait) {
             MethodRegistry methodRegistry = _connection.getMethodRegistry();
             QueueDeclareOkBody responseBody =
@@ -458,7 +463,7 @@ public class AMQChannel implements ServerChannelMethodProcessor {
                   attributes.get(org.apache.qpid.server.model.Queue.LIFETIME_POLICY).toString());
         }
 
-        queue = getQueue(queueName);
+        queue = getQueue(context, queueName);
         if (queue != null) {
           // TODO; verify if queue is exclusive and opened by another connection
           if (queue.isExclusive() != exclusive) {
@@ -466,7 +471,7 @@ public class AMQChannel implements ServerChannelMethodProcessor {
             closeChannel(
                 ErrorCodes.ALREADY_EXISTS,
                 "Cannot re-declare queue '"
-                    + queue.getName()
+                    + queueName
                     + "' with different exclusivity (was: "
                     + queue.isExclusive()
                     + " requested "
@@ -476,7 +481,7 @@ public class AMQChannel implements ServerChannelMethodProcessor {
             closeChannel(
                 ErrorCodes.IN_USE,
                 "Cannot re-declare queue '"
-                    + queue.getName()
+                    + queueName
                     + "' with different durability (was: "
                     + queue.isDurable()
                     + " requested durable: "
@@ -491,14 +496,14 @@ public class AMQChannel implements ServerChannelMethodProcessor {
             closeChannel(
                 ErrorCodes.IN_USE,
                 "Cannot re-declare queue '"
-                    + queue.getName()
+                    + queueName
                     + "' with different lifetime policy (was: "
                     + queue.getLifetimePolicy()
                     + " requested autodelete: "
                     + autoDelete
                     + ")");
           } else {
-            setDefaultQueue(queue);
+            setDefaultQueueName(queueName);
             if (!nowait) {
               MethodRegistry methodRegistry = _connection.getMethodRegistry();
               QueueDeclareOkBody responseBody =
@@ -514,52 +519,34 @@ public class AMQChannel implements ServerChannelMethodProcessor {
             }
           }
         } else {
-          ContextMetadata newContext = getContextMetadata();
-          VirtualHostMetadata vhost = newContext.getVhosts().get(_connection.getNamespace());
+          Versioned<ContextMetadata> newContext = newContextMetadata(versionedContext);
+          VirtualHostMetadata vhost =
+              newContext.model().getVhosts().get(_connection.getNamespace());
           vhost
               .getQueues()
               .put(queueName, new QueueMetadata(durable, lifetimePolicy, exclusivityPolicy));
 
-          _connection
-              .getVhost()
-              .getExchange(ExchangeDefaults.DEFAULT_EXCHANGE_NAME)
-              .addBindingMetadata(queueName, queueName, newContext, _connection)
-              .thenCompose(
-                  context ->
-                      _connection
-                          .getGatewayService()
-                          .saveContext(context)
-                          .thenAccept(
-                              it -> {
-                                setDefaultQueue(_connection.getVhost().getQueue(queueName));
+          bindQueue(newContext, ExchangeDefaults.DEFAULT_EXCHANGE_NAME, queueName, queueName)
+              .thenRun(
+                  () -> {
+                    setDefaultQueueName(queueName);
 
-                                if (!nowait) {
-                                  MethodRegistry methodRegistry = _connection.getMethodRegistry();
-                                  QueueDeclareOkBody responseBody =
-                                      methodRegistry.createQueueDeclareOkBody(
-                                          AMQShortString.createAMQShortString(queueName), 0, 0);
-                                  _connection.writeFrame(
-                                      responseBody.generateFrame(getChannelId()));
+                    if (!nowait) {
+                      MethodRegistry methodRegistry = _connection.getMethodRegistry();
+                      QueueDeclareOkBody responseBody =
+                          methodRegistry.createQueueDeclareOkBody(
+                              AMQShortString.createAMQShortString(queueName), 0, 0);
+                      _connection.writeFrame(responseBody.generateFrame(getChannelId()));
 
-                                  if (LOGGER.isDebugEnabled()) {
-                                    LOGGER.debug("Queue " + queueName + " declared successfully");
-                                  }
-                                }
-                              })
-                          .exceptionally(
-                              t -> {
-                                String errorMessage =
-                                    "Error while saving new queue in configuration store: '"
-                                        + queueName
-                                        + "'";
-                                LOGGER.error(errorMessage, t);
-                                closeChannel(ErrorCodes.INTERNAL_ERROR, errorMessage);
-                                return null;
-                              }))
+                      if (LOGGER.isDebugEnabled()) {
+                        LOGGER.debug("Queue " + queueName + " declared successfully");
+                      }
+                    }
+                  })
               .exceptionally(
                   t -> {
                     String errorMessage =
-                        "Error while creating default subscription for queue '" + queueName + "'";
+                        "Error while binding queue: '" + queueName + "' to default exchange";
                     LOGGER.error(errorMessage, t);
                     closeChannel(ErrorCodes.INTERNAL_ERROR, errorMessage);
                     return null;
@@ -567,6 +554,7 @@ public class AMQChannel implements ServerChannelMethodProcessor {
         }
       } catch (IllegalArgumentException e) {
         String message = String.format("Error creating queue '%s': %s", queueName, e.getMessage());
+        LOGGER.warn(message, e);
         _connection.sendConnectionClose(ErrorCodes.INVALID_ARGUMENT, message, getChannelId());
       }
     }
@@ -574,7 +562,7 @@ public class AMQChannel implements ServerChannelMethodProcessor {
 
   @Override
   public void receiveQueueBind(
-      AMQShortString queueName,
+      AMQShortString queueNameStr,
       AMQShortString exchange,
       AMQShortString bindingKey,
       boolean nowait,
@@ -585,7 +573,7 @@ public class AMQChannel implements ServerChannelMethodProcessor {
               + _channelId
               + "] QueueBind["
               + " queue: "
-              + queueName
+              + queueNameStr
               + " exchange: "
               + exchange
               + " bindingKey: "
@@ -597,18 +585,22 @@ public class AMQChannel implements ServerChannelMethodProcessor {
               + " ]");
     }
 
-    Queue queue;
-    if (queueName == null) {
-
-      queue = getDefaultQueue();
+    Versioned<ContextMetadata> versionedContext = getContextMetadata();
+    ContextMetadata context = versionedContext.model();
+    QueueMetadata queue;
+    String queueName;
+    if (queueNameStr == null) {
+      queueName = getDefaultQueueName();
+      queue = getQueue(context, queueName);
 
       if (queue != null) {
         if (bindingKey == null) {
-          bindingKey = AMQShortString.valueOf(queue.getName());
+          bindingKey = AMQShortString.valueOf(queueName);
         }
       }
     } else {
-      queue = getQueue(queueName.toString());
+      queueName = queueNameStr.toString();
+      queue = getQueue(context, queueName);
     }
 
     if (queue == null) {
@@ -625,12 +617,13 @@ public class AMQChannel implements ServerChannelMethodProcessor {
     } else {
       final String exchangeName = AMQShortString.toString(exchange);
 
-      final AbstractExchange exch = getExchange(exchangeName);
-      if (exch == null) {
+      if (getExchange(context, exchangeName) == null) {
         closeChannel(ErrorCodes.NOT_FOUND, "Exchange '" + exchangeName + "' does not exist.");
       } else {
         String bindingKeyStr = bindingKey == null ? "" : AMQShortString.toString(bindingKey);
-        exch.bind(queue.getName(), bindingKeyStr, _connection)
+        Versioned<ContextMetadata> newContext =
+            _connection.getGatewayService().newContextMetadata(versionedContext);
+        bindQueue(newContext, exchangeName, queueName, bindingKeyStr)
             .thenRun(
                 () -> {
                   if (LOGGER.isDebugEnabled()) {
@@ -638,7 +631,7 @@ public class AMQChannel implements ServerChannelMethodProcessor {
                         "Binding queue "
                             + queue
                             + " to exchange "
-                            + exch
+                            + exchangeName
                             + " with routing key "
                             + bindingKeyStr);
                   }
@@ -647,51 +640,69 @@ public class AMQChannel implements ServerChannelMethodProcessor {
                     AMQMethodBody responseBody = methodRegistry.createQueueBindOkBody();
                     _connection.writeFrame(responseBody.generateFrame(getChannelId()));
                   }
+                })
+            .exceptionally(
+                t -> {
+                  String errorMessage =
+                      "Error while binding queue: '"
+                          + queueName
+                          + "' to exchange '"
+                          + exchangeName
+                          + "' with routing key '"
+                          + bindingKeyStr
+                          + "'";
+                  LOGGER.error(errorMessage, t);
+                  closeChannel(ErrorCodes.INTERNAL_ERROR, errorMessage);
+                  return null;
                 });
       }
     }
   }
 
   @Override
-  public void receiveQueuePurge(AMQShortString queueName, boolean nowait) {
+  public void receiveQueuePurge(AMQShortString queueNameStr, boolean nowait) {
     if (LOGGER.isDebugEnabled()) {
       LOGGER.debug(
           "RECV["
               + _channelId
               + "] QueuePurge["
               + " queue: "
-              + queueName
+              + queueNameStr
               + " nowait: "
               + nowait
               + " ]");
     }
 
-    Queue queue = null;
-    if (queueName == null && (queue = getDefaultQueue()) == null) {
+    String queueName = queueNameStr == null ? getDefaultQueueName() : queueNameStr.toString();
+
+    if (queueName == null) {
       _connection.sendConnectionClose(
           ErrorCodes.NOT_ALLOWED, "No queue specified.", getChannelId());
-    } else if ((queueName != null) && (queue = getQueue(queueName.toString())) == null) {
-      closeChannel(ErrorCodes.NOT_FOUND, "Queue '" + queueName + "' does not exist.");
     } else {
-      long purged = queue.clearQueue();
-      if (!nowait) {
-        MethodRegistry methodRegistry = _connection.getMethodRegistry();
-        AMQMethodBody responseBody = methodRegistry.createQueuePurgeOkBody(purged);
-        _connection.writeFrame(responseBody.generateFrame(getChannelId()));
+      Queue queue = getQueue(queueName);
+      if (queue == null) {
+        closeChannel(ErrorCodes.NOT_FOUND, "Queue '" + queueName + "' does not exist.");
+      } else {
+        long purged = queue.clearQueue();
+        if (!nowait) {
+          MethodRegistry methodRegistry = _connection.getMethodRegistry();
+          AMQMethodBody responseBody = methodRegistry.createQueuePurgeOkBody(purged);
+          _connection.writeFrame(responseBody.generateFrame(getChannelId()));
+        }
       }
     }
   }
 
   @Override
   public void receiveQueueDelete(
-      AMQShortString queueName, boolean ifUnused, boolean ifEmpty, boolean nowait) {
+      AMQShortString queueNameStr, boolean ifUnused, boolean ifEmpty, boolean nowait) {
     if (LOGGER.isDebugEnabled()) {
       LOGGER.debug(
           "RECV["
               + _channelId
               + "] QueueDelete["
               + " queue: "
-              + queueName
+              + queueNameStr
               + " ifUnused: "
               + ifUnused
               + " ifEmpty: "
@@ -701,13 +712,10 @@ public class AMQChannel implements ServerChannelMethodProcessor {
               + " ]");
     }
 
-    Queue queue;
-    if (queueName == null) {
-      // get the default queue on the channel:
-      queue = getDefaultQueue();
-    } else {
-      queue = getQueue(queueName.toString());
-    }
+    Versioned<ContextMetadata> versionedContext = getContextMetadata();
+    ContextMetadata context = versionedContext.model();
+    String queueName = queueNameStr == null ? getDefaultQueueName() : queueNameStr.toString();
+    QueueMetadata queue = getQueue(context, getDefaultQueueName());
 
     if (queue == null) {
       // Note: Since v3.2, RabbitMQ delete queue is idempotent :
@@ -725,29 +733,41 @@ public class AMQChannel implements ServerChannelMethodProcessor {
         closeChannel(ErrorCodes.IN_USE, "Queue: '" + queueName + "' is still used.");
       } else {
         // TODO: check if exclusive queue owned by another connection
-        _connection.getVhost().deleteQueue(queue);
+        Versioned<ContextMetadata> newContext = newContextMetadata(versionedContext);
+        VirtualHostMetadata vHostMetadata = getVHostMetadata(newContext.model());
+        vHostMetadata.getQueues().remove(queueName);
+        vHostMetadata
+            .getExchanges()
+            .forEach(
+                (exchange, exchangeMetadata) -> exchangeMetadata.getBindings().remove(queueName));
+        saveContext(newContext)
+            .thenRun(
+                () -> {
 
-        List<AMQShortString> tags =
-            queue.getConsumers().stream().map(AMQConsumer::getTag).collect(Collectors.toList());
+                  // TODO: queue delete in loadContext diff
+                  /*List<AMQShortString> tags =
+                      queue1.getConsumers().stream().map(AMQConsumer::getTag).collect(Collectors.toList());
 
-        tags.forEach(this::unsubscribeConsumer);
+                  tags.forEach(this::unsubscribeConsumer);
 
-        queue.getBoundExchanges().forEach(exchange -> exchange.queueRemoved(queue));
-        queue.getBoundExchanges().clear();
-      }
+                  queue1.getBoundExchanges().forEach(exchange -> exchange.queueRemoved(queue1));
+                  queue1.getBoundExchanges().clear();
+                   */
 
-      if (!nowait) {
-        MethodRegistry methodRegistry = _connection.getMethodRegistry();
-        QueueDeleteOkBody responseBody = methodRegistry.createQueueDeleteOkBody(0);
-        _connection.writeFrame(responseBody.generateFrame(getChannelId()));
+                  if (!nowait) {
+                    MethodRegistry methodRegistry = _connection.getMethodRegistry();
+                    QueueDeleteOkBody responseBody = methodRegistry.createQueueDeleteOkBody(0);
+                    _connection.writeFrame(responseBody.generateFrame(getChannelId()));
+                  }
+                });
       }
     }
   }
 
   @Override
   public void receiveQueueUnbind(
-      AMQShortString queueName,
-      AMQShortString exchange,
+      AMQShortString queueNameStr,
+      AMQShortString exchangeName,
       AMQShortString bindingKey,
       FieldTable arguments) {
 
@@ -757,9 +777,9 @@ public class AMQChannel implements ServerChannelMethodProcessor {
               + _channelId
               + "] QueueUnbind["
               + " queue: "
-              + queueName
+              + queueNameStr
               + " exchange: "
-              + exchange
+              + exchangeName
               + " bindingKey: "
               + bindingKey
               + " arguments: "
@@ -767,26 +787,35 @@ public class AMQChannel implements ServerChannelMethodProcessor {
               + " ]");
     }
 
-    final boolean useDefaultQueue = queueName == null;
-    final Queue queue = useDefaultQueue ? getDefaultQueue() : getQueue(queueName.toString());
+    Versioned<ContextMetadata> versionedContext = getContextMetadata();
+    ContextMetadata context = versionedContext.model();
+    String queueName = queueNameStr == null ? getDefaultQueueName() : queueNameStr.toString();
+    QueueMetadata queue = getQueue(context, getDefaultQueueName());
 
     if (queue == null) {
       final AMQMethodBody responseBody = _connection.getMethodRegistry().createQueueUnbindOkBody();
       _connection.writeFrame(responseBody.generateFrame(getChannelId()));
-    } else if (isDefaultExchange(exchange)) {
+    } else if (isDefaultExchange(exchangeName)) {
       closeChannel(
           ErrorCodes.ACCESS_REFUSED,
-          "Cannot unbind the queue '" + queue.getName() + "' from the default exchange");
+          "Cannot unbind the queue '" + queueNameStr + "' from the default exchange");
 
     } else {
-      final AbstractExchange exch = getExchange(exchange.toString());
       final String bindingKeyStr = bindingKey == null ? "" : AMQShortString.toString(bindingKey);
 
       // Note: Since v3.2, RabbitMQ unbind queue is idempotent :
       // https://www.rabbitmq.com/specification.html#method-status-queue.delete so we don't close
       // the channel with NOT_FOUND
-      if (exch != null && exch.hasBinding(bindingKeyStr, queue)) {
-        exch.unbind(queue, bindingKeyStr)
+      Versioned<ContextMetadata> newContext =
+          _connection.getGatewayService().newContextMetadata(versionedContext);
+      ExchangeMetadata exchangeMetadata = getExchange(newContext.model(), exchangeName.toString());
+      if (exchangeMetadata != null
+          && exchangeMetadata.getBindings().get(queueName) != null
+          && exchangeMetadata.getBindings().get(queueName).getKeys().contains(bindingKeyStr)) {
+        AbstractExchange exch =
+            AbstractExchange.fromMetadata(exchangeName.toString(), exchangeMetadata);
+        exch.unbind(exchangeMetadata, queueName, bindingKeyStr, _connection)
+            .thenCompose(it -> saveContext(newContext))
             .thenRun(
                 () -> {
                   final AMQMethodBody responseBody =
@@ -873,7 +902,7 @@ public class AMQChannel implements ServerChannelMethodProcessor {
 
   @Override
   public void receiveBasicConsume(
-      AMQShortString queueName,
+      AMQShortString queueNameStr,
       AMQShortString consumerTag,
       boolean noLocal,
       boolean noAck,
@@ -886,7 +915,7 @@ public class AMQChannel implements ServerChannelMethodProcessor {
               + _channelId
               + "] BasicConsume["
               + " queue: "
-              + queueName
+              + queueNameStr
               + " consumerTag: "
               + consumerTag
               + " noLocal: "
@@ -904,10 +933,8 @@ public class AMQChannel implements ServerChannelMethodProcessor {
 
     AMQShortString consumerTag1 = consumerTag;
 
-    Queue queue =
-        queueName == null
-            ? getDefaultQueue()
-            : _connection.getVhost().getQueue(queueName.toString());
+    String queueName = queueNameStr == null ? getDefaultQueueName() : queueNameStr.toString();
+    Queue queue = getQueue(queueName);
 
     if (queue == null) {
       if (LOGGER.isDebugEnabled()) {
@@ -933,14 +960,14 @@ public class AMQChannel implements ServerChannelMethodProcessor {
         _connection.sendConnectionClose(
             ErrorCodes.ACCESS_REFUSED,
             "Cannot subscribe to queue '"
-                + queue.getName()
+                + queueName
                 + "' as it already has an existing exclusive consumer",
             _channelId);
       } else if (exclusive && queue.getConsumerCount() != 0) {
         _connection.sendConnectionClose(
             ErrorCodes.ACCESS_REFUSED,
             "Cannot subscribe to queue '"
-                + queue.getName()
+                + queueName
                 + "' exclusively as it already has a consumer",
             _channelId);
       } else {
@@ -980,7 +1007,7 @@ public class AMQChannel implements ServerChannelMethodProcessor {
 
   @Override
   public void receiveBasicPublish(
-      AMQShortString exchangeName,
+      AMQShortString exchangeNameStr,
       AMQShortString routingKey,
       boolean mandatory,
       boolean immediate) {
@@ -991,7 +1018,7 @@ public class AMQChannel implements ServerChannelMethodProcessor {
               + _channelId
               + "] BasicPublish["
               + " exchange: "
-              + exchangeName
+              + exchangeNameStr
               + " routingKey: "
               + routingKey
               + " mandatory: "
@@ -1001,39 +1028,36 @@ public class AMQChannel implements ServerChannelMethodProcessor {
               + " ]");
     }
 
-    if (!_connection
-        .getVhost()
-        .hasExchange(
-            exchangeName == null
-                ? ExchangeDefaults.DEFAULT_EXCHANGE_NAME
-                : exchangeName.toString())) {
+    String exchangeName =
+        exchangeNameStr == null
+            ? ExchangeDefaults.DEFAULT_EXCHANGE_NAME
+            : exchangeNameStr.toString();
+    if (!getVHostMetadata(getContextMetadata().model()).getExchanges().containsKey(exchangeName)) {
       closeChannel(ErrorCodes.NOT_FOUND, "Unknown exchange name: '" + exchangeName + "'");
     }
 
     MessagePublishInfo info =
-        new MessagePublishInfo(exchangeName, immediate, mandatory, routingKey);
+        new MessagePublishInfo(exchangeNameStr, immediate, mandatory, routingKey);
 
     setPublishFrame(info);
   }
 
   @Override
-  public void receiveBasicGet(AMQShortString queueName, boolean noAck) {
+  public void receiveBasicGet(AMQShortString queueNameStr, boolean noAck) {
     if (LOGGER.isDebugEnabled()) {
       LOGGER.debug(
           "RECV["
               + _channelId
               + "] BasicGet["
               + " queue: "
-              + queueName
+              + queueNameStr
               + " noAck: "
               + noAck
               + " ]");
     }
 
-    Queue queue =
-        queueName == null
-            ? getDefaultQueue()
-            : _connection.getVhost().getQueue(queueName.toString());
+    String queueName = queueNameStr == null ? getDefaultQueueName() : queueNameStr.toString();
+    Queue queue = getQueue(queueName);
 
     if (queue == null) {
       if (LOGGER.isDebugEnabled()) {
@@ -1464,12 +1488,14 @@ public class AMQChannel implements ServerChannelMethodProcessor {
                           errorCode,
                           AMQShortString.validValueOf(errorMessage));
                   if (_confirmOnPublish) {
+                    _confirmedMessageCounter++;
                     _connection.writeFrame(
                         new AMQFrame(
                             _channelId, new BasicNackBody(_confirmedMessageCounter, false, false)));
                   }
                 } else {
                   if (_confirmOnPublish) {
+                    _confirmedMessageCounter++;
                     _connection.writeFrame(
                         new AMQFrame(
                             _channelId, new BasicAckBody(_confirmedMessageCounter, false)));
@@ -1525,7 +1551,7 @@ public class AMQChannel implements ServerChannelMethodProcessor {
    * @param consumerTag
    * @return true if the consumerTag had a mapped queue that could be unregistered.
    */
-  private boolean unsubscribeConsumer(AMQShortString consumerTag) {
+  public boolean unsubscribeConsumer(AMQShortString consumerTag) {
     if (LOGGER.isDebugEnabled()) {
       LOGGER.debug("Unsubscribing consumer '{}' on channel {}", consumerTag, this);
     }
@@ -1554,7 +1580,7 @@ public class AMQChannel implements ServerChannelMethodProcessor {
     }
     try {
       unsubscribeAllConsumers();
-      setDefaultQueue(null);
+      setDefaultQueueName(null);
       requeue();
     } finally {
       LogMessage operationalLogMessage =
@@ -1624,19 +1650,35 @@ public class AMQChannel implements ServerChannelMethodProcessor {
     return exchangeName == null || AMQShortString.EMPTY_STRING.equals(exchangeName);
   }
 
-  private void setDefaultQueue(Queue queue) {
-    _defaultQueue = queue;
+  private void setDefaultQueueName(String queue) {
+    defaultQueueName = queue;
   }
 
-  private Queue getDefaultQueue() {
+  private String getDefaultQueueName() {
+    return defaultQueueName;
+  }
+
+  /*private Queue getDefaultQueue() {
     return _defaultQueue;
+  }*/
+
+  private VirtualHostMetadata getVHostMetadata(ContextMetadata contextMetadata) {
+    return contextMetadata.getVhosts().get(_connection.getNamespace());
+  }
+
+  private Versioned<ContextMetadata> getContextMetadata() {
+    return _connection.getGatewayService().getContextMetadata();
   }
 
   private AbstractExchange getExchange(String name) {
     return _connection.getVhost().getExchange(name);
   }
 
-  private void addExchange(AbstractExchange exchange) {
+  private ExchangeMetadata getExchange(ContextMetadata context, String name) {
+    return getVHostMetadata(context).getExchanges().get(name);
+  }
+
+  /*private void addExchange(AbstractExchange exchange) {
     _connection.getVhost().addExchange(exchange);
   }
 
@@ -1651,14 +1693,31 @@ public class AMQChannel implements ServerChannelMethodProcessor {
               keys.forEach(key -> results.add(exchange.unbind(queue1, key)));
             });
     return CompletableFuture.allOf(results.toArray(new CompletableFuture[0]));
+  }*/
+
+  private CompletionStage<ContextMetadata> deleteExchange(
+      Versioned<ContextMetadata> context, String exchange) {
+    // TODO: close bindings
+    getVHostMetadata(context.model()).getExchanges().remove(exchange);
+    return saveContext(context);
   }
 
   private Queue getQueue(String name) {
-    return _connection.getVhost().getQueue(name);
+    // return _connection.getVhost().getQueue(name);
+    return _connection.getGatewayService().getQueues().get(_connection.getNamespace()).get(name);
   }
 
-  private void addQueue(Queue queue) {
-    _connection.getVhost().addQueue(queue);
+  private QueueMetadata getQueue(ContextMetadata context, String queueName) {
+    return context.getVhosts().get(_connection.getNamespace()).getQueues().get(queueName);
+  }
+
+  public CompletableFuture<ContextMetadata> bindQueue(
+      Versioned<ContextMetadata> context, String exchange, String queue, String routingKey) {
+    ExchangeMetadata exchangeMetadata = getExchange(context.model(), exchange);
+    exchangeMetadata.getBindings().putIfAbsent(queue, new BindingSetMetadata());
+    AbstractExchange exch = AbstractExchange.fromMetadata(exchange, exchangeMetadata);
+    return exch.bind(exchangeMetadata, queue, routingKey, _connection)
+        .thenCompose(it -> saveContext(context));
   }
 
   private boolean isReservedExchangeName(String name) {
@@ -1679,9 +1738,14 @@ public class AMQChannel implements ServerChannelMethodProcessor {
   }
 
   private Producer<byte[]> getOrCreateProducerForExchange(String exchangeName, String routingKey) {
-    String vHost = _connection.getNamespace();
-    AbstractExchange exchange = _connection.getVhost().getExchange(exchangeName);
-    TopicName topicName = exchange.getTopicName(vHost, exchangeName, routingKey);
+    ExchangeMetadata exchangeMetadata = getExchange(getContextMetadata().model(), exchangeName);
+    String key =
+        ExchangeMetadata.Type.fanout.equals(exchangeMetadata.getType())
+                || ExchangeMetadata.Type.headers.equals(exchangeMetadata.getType())
+            ? ""
+            : routingKey;
+
+    TopicName topicName = getTopicName(_connection.getNamespace(), exchangeName, key);
 
     return producers.computeIfAbsent(topicName.toString(), this::createProducer);
   }
@@ -1705,7 +1769,11 @@ public class AMQChannel implements ServerChannelMethodProcessor {
     return _creditManager;
   }
 
-  public ContextMetadata getContextMetadata() {
-    return _connection.getGatewayService().getAmqContext().toMetadata();
+  public Versioned<ContextMetadata> newContextMetadata(Versioned<ContextMetadata> previousContext) {
+    return _connection.getGatewayService().newContextMetadata(previousContext);
+  }
+
+  private CompletionStage<ContextMetadata> saveContext(Versioned<ContextMetadata> newContext) {
+    return _connection.getGatewayService().saveContext(newContext);
   }
 }
