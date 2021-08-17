@@ -167,7 +167,8 @@ public class BrokerTestCase {
    */
   protected void releaseResources() throws IOException {}
 
-  protected void restart() throws IOException, TimeoutException, ExecutionException, InterruptedException {
+  protected void restart()
+      throws IOException, TimeoutException, ExecutionException, InterruptedException {
     tearDown();
     bareRestart();
     setUp();

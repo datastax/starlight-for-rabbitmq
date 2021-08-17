@@ -17,9 +17,9 @@ package com.datastax.oss.pulsar.rabbitmqgw.metadata;
 
 import java.util.HashSet;
 import java.util.Set;
-import org.apache.pulsar.client.api.MessageId;
 
 public class BindingMetadata {
+  private String exchange;
   private String topic;
   private String subscription;
   private Set<String> keys = new HashSet<>();
@@ -27,7 +27,8 @@ public class BindingMetadata {
 
   public BindingMetadata() {}
 
-  public BindingMetadata(String topic, String subscription) {
+  public BindingMetadata(String exchange, String topic, String subscription) {
+    this.exchange = exchange;
     this.topic = topic;
     this.subscription = subscription;
   }
@@ -62,5 +63,13 @@ public class BindingMetadata {
 
   public void setLastMessageId(byte[] lastMessageId) {
     this.lastMessageId = lastMessageId;
+  }
+
+  public String getExchange() {
+    return exchange;
+  }
+
+  public void setExchange(String exchange) {
+    this.exchange = exchange;
   }
 }

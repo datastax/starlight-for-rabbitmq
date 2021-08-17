@@ -17,7 +17,9 @@ package com.datastax.oss.pulsar.rabbitmqgw;
 
 import com.datastax.oss.pulsar.rabbitmqgw.metadata.BindingMetadata;
 import com.datastax.oss.pulsar.rabbitmqgw.metadata.BindingSetMetadata;
-import com.datastax.oss.pulsar.rabbitmqgw.metadata.ExchangeMetadata;
+import com.datastax.oss.pulsar.rabbitmqgw.metadata.VirtualHostMetadata;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import org.apache.pulsar.client.api.MessageId;
@@ -31,15 +33,17 @@ public class DirectExchange extends AbstractExchange {
 
   @Override
   public CompletableFuture<Void> bind(
-      ExchangeMetadata exchangeMetadata,
+      VirtualHostMetadata vhost,
+      String exchange,
       String queue,
       String routingKey,
       GatewayConnection connection) {
-    BindingSetMetadata bindings = exchangeMetadata.getBindings().get(queue);
+    BindingSetMetadata bindings = vhost.getExchanges().get(exchange).getBindings().get(queue);
     if (!bindings.getKeys().contains(routingKey)) {
       bindings.getKeys().add(routingKey);
-      // TODO: Pulsar 2.8 has an issue with subscriptions containing a / in their name. Forge
-      // another name ?
+      /*
+       TODO: Pulsar 2.8 has an issue with subscriptions containing a / in their name. Forge another name ?
+      */
       String topic = getTopicName(connection.getNamespace(), name, routingKey).toString();
       String subscriptionName = (topic + "-" + UUID.randomUUID()).replace("/", "_");
       return connection
@@ -48,13 +52,13 @@ public class DirectExchange extends AbstractExchange {
           .topics()
           .createSubscriptionAsync(topic, subscriptionName, MessageId.latest)
           .thenAccept(
-              it ->
-              {
-                BindingMetadata bindingMetadata = new BindingMetadata(topic, subscriptionName);
+              it -> {
+                BindingMetadata bindingMetadata =
+                    new BindingMetadata(exchange, topic, subscriptionName);
                 bindingMetadata.getKeys().add(routingKey);
-                bindings
-                    .getSubscriptions()
-                    .put(subscriptionName, bindingMetadata);
+                Map<String, BindingMetadata> subscriptions =
+                    vhost.getSubscriptions().computeIfAbsent(queue, q -> new HashMap<>());
+                subscriptions.put(subscriptionName, bindingMetadata);
               });
     }
     return CompletableFuture.completedFuture(null);
@@ -62,19 +66,28 @@ public class DirectExchange extends AbstractExchange {
 
   @Override
   public CompletableFuture<Void> unbind(
-      ExchangeMetadata exchangeMetadata,
+      VirtualHostMetadata vhost,
+      String exchange,
       String queue,
       String routingKey,
       GatewayConnection connection) {
-    BindingSetMetadata bindings = exchangeMetadata.getBindings().get(queue);
-    for (BindingMetadata subscription : bindings.getSubscriptions().values()) {
-      if (subscription.getLastMessageId() == null && subscription.getKeys().contains(routingKey)) {
+
+    BindingSetMetadata bindings = vhost.getExchanges().get(exchange).getBindings().get(queue);
+    Map<String, BindingMetadata> queueSubscriptions = vhost.getSubscriptions().get(queue);
+    for (BindingMetadata subscription : queueSubscriptions.values()) {
+      if (subscription.getLastMessageId() == null
+          && subscription.getExchange().equals(exchange)
+          && subscription.getKeys().contains(routingKey)) {
         return connection
             .getGatewayService()
             .getPulsarAdmin()
             .topics()
             .getLastMessageIdAsync(subscription.getTopic())
-            .thenAccept(lastMessageId -> subscription.setLastMessageId(lastMessageId.toByteArray()));
+            .thenAccept(
+                lastMessageId -> {
+                  subscription.setLastMessageId(lastMessageId.toByteArray());
+                  bindings.getKeys().remove(routingKey);
+                });
       }
     }
     return CompletableFuture.completedFuture(null);

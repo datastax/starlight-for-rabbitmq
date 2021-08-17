@@ -89,7 +89,6 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
   private ChannelHandlerContext ctx;
   private SocketAddress remoteAddress;
   private String namespace;
-  private VirtualHost vhost;
 
   // Variables copied from Qpid's AMQPConnection_0_8Impl
   private ServerDecoder _decoder;
@@ -337,8 +336,7 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
       setMaxFrameSize(calculatedFrameMax);
 
       // 0 means no implied limit, except that forced by protocol limitations (0xFFFF)
-      int value = ((channelMax == 0) || (channelMax > 0xFFFF)) ? 0xFFFF : channelMax;
-      _maxNoOfChannels = value;
+      _maxNoOfChannels = ((channelMax == 0) || (channelMax > 0xFFFF)) ? 0xFFFF : channelMax;
     }
     _state = ConnectionState.AWAIT_OPEN;
   }
@@ -435,7 +433,6 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
           .saveContext(newContext)
           .thenAccept(
               it -> {
-                this.vhost = getGatewayService().getAmqContext().getVhosts().get(namespace);
                 AMQMethodBody responseBody =
                     getMethodRegistry().createConnectionOpenOkBody(virtualHostName);
                 writeFrame(responseBody.generateFrame(0));
@@ -450,7 +447,6 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
                 return null;
               });
     } else {
-      this.vhost = getGatewayService().getAmqContext().getVhosts().get(namespace);
       // TODO: check and create the Pulsar namespace with the admin client if not exists ?
       MethodRegistry methodRegistry = getMethodRegistry();
       AMQMethodBody responseBody = methodRegistry.createConnectionOpenOkBody(virtualHostName);
@@ -625,8 +621,8 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
       AMQMethodBody responseBody =
           getMethodRegistry()
               .createConnectionStartBody(
-                  (short) pv.getMajorVersion(),
-                  (short) pv.getActualMinorVersion(),
+                  pv.getMajorVersion(),
+                  pv.getActualMinorVersion(),
                   serverProperties,
                   mechanisms.getBytes(US_ASCII),
                   locales.getBytes(US_ASCII));
@@ -807,10 +803,6 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
 
   public String getNamespace() {
     return namespace;
-  }
-
-  public VirtualHost getVhost() {
-    return vhost;
   }
 
   public GatewayService getGatewayService() {

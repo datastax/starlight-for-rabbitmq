@@ -17,7 +17,6 @@ package com.datastax.oss.pulsar.rabbitmqgw;
 
 import io.netty.channel.EventLoop;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.apache.pulsar.client.admin.PulsarAdmin;
@@ -29,24 +28,21 @@ import org.apache.pulsar.client.api.SubscriptionType;
 
 public class PulsarConsumer {
 
-  private final String exchange;
   private final String topic;
   private final GatewayService gatewayService;
   private final PulsarAdmin pulsarAdmin;
   private final Queue queue;
   private volatile Consumer<byte[]> pulsarConsumer;
+
   private final String subscriptionName;
 
   private volatile MessageId lastMessageId;
 
-  private volatile ScheduledFuture<?> scheduledFuture;
-
   private final EventLoop eventLoop;
+
   private final AtomicBoolean closing;
 
-  PulsarConsumer(
-      String exchange, String topic, String subscriptionName, GatewayService service, Queue queue) {
-    this.exchange = exchange;
+  PulsarConsumer(String topic, String subscriptionName, GatewayService service, Queue queue) {
     this.topic = topic;
     this.subscriptionName = subscriptionName;
     this.gatewayService = service;
@@ -115,12 +111,12 @@ public class PulsarConsumer {
             });
   }
 
-  public String getExchange() {
-    return exchange;
-  }
-
   public void setLastMessageId(MessageId lastMessageId) {
     this.lastMessageId = lastMessageId;
+  }
+
+  public String getSubscriptionName() {
+    return subscriptionName;
   }
 
   public CompletableFuture<Void> receiveAndDeliverMessages() {
@@ -132,54 +128,11 @@ public class PulsarConsumer {
     return receiveAndDeliverMessages();
   }
 
-  public CompletableFuture<Void> shutdown() {
-    // TODO: prevent multiple shutdowns
-    CompletableFuture<MessageId> lastMessageIdFuture;
-    if (pulsarConsumer != null) {
-      lastMessageIdFuture = pulsarConsumer.getLastMessageIdAsync();
-    } else {
-      lastMessageIdFuture = pulsarAdmin.topics().getLastMessageIdAsync(topic);
-    }
-    return lastMessageIdFuture.thenAccept(
-        messageId -> {
-          lastMessageId = messageId;
-          scheduledFuture =
-              this.eventLoop.scheduleAtFixedRate(
-                  this::checkIfSubscriptionCanBeRemoved, 1, 1, TimeUnit.SECONDS);
-        });
-  }
-
   public void close() {
     closing.set(true);
     if (pulsarConsumer != null) {
       pulsarConsumer.closeAsync();
     }
-    pulsarAdmin.topics().deleteSubscriptionAsync(topic, subscriptionName, true);
-    if (scheduledFuture != null) {
-      scheduledFuture.cancel(false);
-    }
-  }
-
-  private void checkIfSubscriptionCanBeRemoved() {
-    pulsarAdmin
-        .topics()
-        .peekMessagesAsync(topic, subscriptionName, 1)
-        .whenComplete(
-            (messages, throwable) -> {
-              if (throwable != null) {
-                // TODO: log error and close channel
-                scheduledFuture.cancel(false);
-                return;
-              }
-              if (messages.size() > 0) {
-                Message<byte[]> message = messages.get(0);
-                if (message.getMessageId().compareTo(lastMessageId) <= 0) {
-                  return;
-                }
-              }
-              // All messages have been acked, can close the consumer
-              close();
-            });
   }
 
   public CompletableFuture<Void> ackMessage(MessageId messageId) {

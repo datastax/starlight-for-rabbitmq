@@ -26,7 +26,6 @@ import com.rabbitmq.client.Envelope;
 import com.rabbitmq.client.GetResponse;
 import java.io.IOException;
 import java.util.Arrays;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeoutException;
 
 abstract class AbstractRejectTest extends BrokerTestCase {

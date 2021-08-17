@@ -87,7 +87,7 @@ public class QosTests extends BrokerTestCase {
     }
   }
 
-  // TODO: review how consumers are blocked and unnblocked. Eg : use a fifo of blocked consumers
+  // FIXME: review how consumers are blocked and unblocked. Eg : use a fifo of blocked consumers
   // @Test
   public void singleChannelAndQueueFairness() throws IOException {
     // check that when we have multiple consumers on the same

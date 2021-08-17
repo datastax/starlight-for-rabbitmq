@@ -18,9 +18,7 @@ package com.datastax.oss.pulsar.rabbitmqgw;
 import static com.google.common.base.Preconditions.checkNotNull;
 import static org.apache.commons.lang3.StringUtils.isNotBlank;
 
-import com.datastax.oss.pulsar.rabbitmqgw.metadata.BindingSetMetadata;
 import com.datastax.oss.pulsar.rabbitmqgw.metadata.ContextMetadata;
-import com.datastax.oss.pulsar.rabbitmqgw.metadata.ExchangeMetadata;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.netty.bootstrap.ServerBootstrap;
@@ -77,10 +75,9 @@ public class GatewayService implements Closeable {
 
   private static final int numThreads = Runtime.getRuntime().availableProcessors();
 
-  private final AMQContext amqContext = new AMQContext();
-
   private final Map<String, Map<String, Queue>> queues = new HashMap<>();
 
+  private AsyncCuratorFramework curator;
   public static final ModelSpec<ContextMetadata> METADATA_MODEL_SPEC =
       ModelSpec.builder(
               ZPath.parseWithIds("/config"), JacksonModelSerializer.build(ContextMetadata.class))
@@ -90,6 +87,7 @@ public class GatewayService implements Closeable {
 
   private volatile Versioned<ContextMetadata> contextMetadata =
       Versioned.from(new ContextMetadata(), 0);
+  private SubscriptionCleaner subscriptionCleaner;
 
   public GatewayService(GatewayConfiguration config) {
     checkNotNull(config);
@@ -102,8 +100,12 @@ public class GatewayService implements Closeable {
   public void start() throws Exception {
     pulsarClient = createClientInstance();
     pulsarAdmin = createAdminInstance();
-    metadataModel = ModeledFramework.wrap(createCuratorInstance(), METADATA_MODEL_SPEC);
+    curator = createCuratorInstance();
+    metadataModel = ModeledFramework.wrap(curator, METADATA_MODEL_SPEC);
     workerGroup.scheduleWithFixedDelay(this::loadContext, 0, 100, TimeUnit.MILLISECONDS);
+    subscriptionCleaner = new SubscriptionCleaner(this, curator.unwrap());
+    subscriptionCleaner.start();
+
     ServerBootstrap bootstrap = new ServerBootstrap();
     bootstrap.childOption(ChannelOption.ALLOCATOR, PulsarByteBufAllocator.DEFAULT);
     bootstrap.group(acceptorGroup, workerGroup);
@@ -198,13 +200,17 @@ public class GatewayService implements Closeable {
     return AsyncCuratorFramework.wrap(client);
   }
 
-  public void close() {
+  public void close() throws IOException {
     if (listenChannel != null) {
       listenChannel.close();
     }
 
     if (listenChannelTls != null) {
       listenChannelTls.close();
+    }
+
+    if (subscriptionCleaner != null) {
+      subscriptionCleaner.close();
     }
 
     acceptorGroup.shutdownGracefully();
@@ -215,15 +221,7 @@ public class GatewayService implements Closeable {
     return config;
   }
 
-  public VirtualHost getOrCreateVhost(String namespace) {
-    return amqContext.getVhosts().computeIfAbsent(namespace, VirtualHost::new);
-  }
-
   private static final Logger LOG = LoggerFactory.getLogger(GatewayService.class);
-
-  public AMQContext getAmqContext() {
-    return amqContext;
-  }
 
   public Map<String, Map<String, Queue>> getQueues() {
     return queues;
@@ -265,83 +263,57 @@ public class GatewayService implements Closeable {
         .getVhosts()
         .forEach(
             (namespace, vhostMetadata) -> {
-              /*Map<String, VirtualHost> vhosts = amqContext.getVhosts();
-              vhosts.putIfAbsent(namespace, new VirtualHost(namespace));
-              VirtualHost vhost = vhosts.get(namespace);
-              createNewQueues(vhostMetadata, vhost);
-              createNewExchanges(vhostMetadata, vhost);
-              */
-
               Map<String, Queue> vhostQueues =
                   queues.computeIfAbsent(namespace, it -> new HashMap<>());
 
               vhostMetadata
-                  .getQueues()
-                  .keySet()
-                  .forEach(queueName -> vhostQueues.computeIfAbsent(queueName, it -> new Queue()));
-              Map<String, ExchangeMetadata> exchanges = vhostMetadata.getExchanges();
-              exchanges.forEach(
-                  (exchange, exchangeMetadata) ->
-                      exchangeMetadata
-                          .getBindings()
-                          .forEach(
-                              (queueName, bindingSetMetadata) ->
-                                  bindingSetMetadata
-                                      .getSubscriptions()
-                                      .forEach(
-                                          (subscriptionName, bindingMetadata) -> {
-                                            Queue queue = vhostQueues.get(queueName);
-                                            PulsarConsumer pulsarConsumer =
-                                                queue.getSubscriptions().get(subscriptionName);
-                                            if (pulsarConsumer == null) {
-                                              pulsarConsumer =
-                                                  new PulsarConsumer(
-                                                      exchange,
-                                                      bindingMetadata.getTopic(),
-                                                      subscriptionName,
-                                                      this,
-                                                      queue);
-                                              // TODO: handle subscription errors
-                                              pulsarConsumer
-                                                  .subscribe()
-                                                  .thenRun(
-                                                      pulsarConsumer::receiveAndDeliverMessages);
-                                              queue
-                                                  .getSubscriptions()
-                                                  .put(subscriptionName, pulsarConsumer);
-                                            } else {
-                                              if (bindingMetadata.getLastMessageId() != null) {
-                                                MessageId messageId =
-                                                    null;
-                                                try {
-                                                  messageId =
-                                                      MessageId.fromByteArray(bindingMetadata.getLastMessageId());
-                                                  pulsarConsumer.setLastMessageId(
-                                                      messageId);
-                                                } catch (IOException e) {
-                                                  LOG.error("Error while deserializing binding's lastMessageId", e);
-                                                }
-                                              }
-                                            }
-                                          })));
+                  .getSubscriptions()
+                  .forEach(
+                      (queueName, queueSubscriptions) -> {
+                        queueSubscriptions.forEach(
+                            (subscriptionName, bindingMetadata) -> {
+                              Queue queue =
+                                  vhostQueues.computeIfAbsent(queueName, q -> new Queue());
+                              PulsarConsumer pulsarConsumer =
+                                  queue.getSubscriptions().get(subscriptionName);
+                              if (pulsarConsumer == null) {
+                                pulsarConsumer =
+                                    new PulsarConsumer(
+                                        bindingMetadata.getTopic(), subscriptionName, this, queue);
+                                // TODO: handle subscription errors
+                                pulsarConsumer
+                                    .subscribe()
+                                    .thenRun(pulsarConsumer::receiveAndDeliverMessages);
+                                queue.getSubscriptions().put(subscriptionName, pulsarConsumer);
+                              } else {
+                                if (bindingMetadata.getLastMessageId() != null) {
+                                  try {
+                                    MessageId messageId =
+                                        MessageId.fromByteArray(bindingMetadata.getLastMessageId());
+                                    pulsarConsumer.setLastMessageId(messageId);
+                                  } catch (IOException e) {
+                                    LOG.error(
+                                        "Error while deserializing binding's lastMessageId", e);
+                                  }
+                                }
+                              }
+                            });
+                      });
 
               vhostQueues.forEach(
                   (queueName, queue) -> {
-                    for (Map.Entry<String, PulsarConsumer> next :
-                        queue.getSubscriptions().entrySet()) {
-                      PulsarConsumer consumer = next.getValue();
-                      ExchangeMetadata exchangeMetadata = exchanges.get(consumer.getExchange());
-                      if (exchangeMetadata != null) {
-                        BindingSetMetadata bindingSetMetadata =
-                            exchangeMetadata.getBindings().get(queueName);
-                        if (bindingSetMetadata != null) {
-                          if (bindingSetMetadata.getSubscriptions().containsKey(next.getKey())) {
-                            continue;
-                          }
-                        }
-                      }
-                      consumer.close();
-                    }
+                    queue
+                        .getSubscriptions()
+                        .forEach(
+                            (subscriptionName, consumer) -> {
+                              if (vhostMetadata.getSubscriptions().get(queueName) == null
+                                  || !vhostMetadata
+                                      .getSubscriptions()
+                                      .get(queueName)
+                                      .containsKey(subscriptionName)) {
+                                consumer.close();
+                              }
+                            });
                   });
 
               Iterator<Map.Entry<String, Queue>> queueIterator = vhostQueues.entrySet().iterator();
@@ -356,59 +328,4 @@ public class GatewayService implements Closeable {
 
     return contextMetadata;
   }
-
-  /*private void createNewQueues(VirtualHostMetadata vhostMetadata, VirtualHost vhost) {
-    vhostMetadata
-        .getQueues()
-        .forEach(
-            (queue, queueMetadata) ->
-                vhost.getQueues().putIfAbsent(queue, Queue.fromMetadata(queue, queueMetadata)));
-  }
-
-  private void createNewExchanges(VirtualHostMetadata vhostMetadata, VirtualHost vhost) {
-    vhostMetadata
-        .getExchanges()
-        .forEach(
-            (exchangeName, exchangeMetadata) -> {
-              vhost
-                  .getExchanges()
-                  .putIfAbsent(
-                      exchangeName, AbstractExchange.fromMetadata(exchangeName, exchangeMetadata));
-              createNewBindings(vhost, exchangeName, exchangeMetadata);
-            });
-  }
-
-  private void createNewBindings(
-      VirtualHost vhost, String exchangeName, ExchangeMetadata exchangeMetadata) {
-    exchangeMetadata
-        .getBindings()
-        .forEach(
-            (queue, bindingsMetadata) -> {
-              AbstractExchange exchange = vhost.getExchanges().get(exchangeName);
-              Map<String, Map<String, PulsarConsumer>> bindings = exchange.getBindings();
-              bindings.putIfAbsent(queue, new HashMap<>());
-              vhost.getQueue(queue).getBoundExchanges().add(exchange);
-              bindingsMetadata.forEach(
-                  (key, bindingMetadata) -> {
-                    bindings
-                        .get(queue)
-                        .computeIfAbsent(
-                            key,
-                            it -> {
-                              PulsarConsumer pulsarConsumer =
-                                  new PulsarConsumer(
-                                      bindingMetadata.getTopic(),
-                                      bindingMetadata.getSubscription(),
-                                      this,
-                                      vhost.getQueue(queue));
-                              // TODO: handle subscription errors
-                              pulsarConsumer
-                                  .subscribe()
-                                  .thenRun(pulsarConsumer::receiveAndDeliverMessages);
-                              return pulsarConsumer;
-                            });
-                  });
-            });
-  }*/
-
 }

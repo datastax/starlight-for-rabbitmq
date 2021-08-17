@@ -24,6 +24,8 @@ public class VirtualHostMetadata {
   private final Map<String, ExchangeMetadata> exchanges = new HashMap<>();
   private final Map<String, QueueMetadata> queues = new HashMap<>();
 
+  private final Map<String, Map<String, BindingMetadata>> subscriptions = new HashMap<>();
+
   public String getNamespace() {
     return namespace;
   }
@@ -38,5 +40,9 @@ public class VirtualHostMetadata {
 
   public Map<String, QueueMetadata> getQueues() {
     return queues;
+  }
+
+  public Map<String, Map<String, BindingMetadata>> getSubscriptions() {
+    return subscriptions;
   }
 }

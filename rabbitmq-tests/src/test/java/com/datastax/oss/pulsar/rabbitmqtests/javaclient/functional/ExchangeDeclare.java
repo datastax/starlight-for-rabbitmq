@@ -133,7 +133,15 @@ public class ExchangeDeclare extends ExchangeEquivalenceBase {
 
       Awaitility.await()
           .atMost(Duration.ofSeconds(5))
-          .until(() -> gatewayService.getContextMetadata().model().getVhosts().get("public/default").getExchanges().containsKey(NAME));
+          .until(
+              () ->
+                  gatewayService
+                      .getContextMetadata()
+                      .model()
+                      .getVhosts()
+                      .get("public/default")
+                      .getExchanges()
+                      .containsKey(NAME));
 
       verifyEquivalent(NAME, exchangeType.getType(), false, false, null);
 

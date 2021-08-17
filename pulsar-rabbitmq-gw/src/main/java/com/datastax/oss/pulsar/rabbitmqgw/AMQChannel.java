@@ -24,11 +24,13 @@ import com.datastax.oss.pulsar.rabbitmqgw.metadata.ExchangeMetadata;
 import com.datastax.oss.pulsar.rabbitmqgw.metadata.QueueMetadata;
 import com.datastax.oss.pulsar.rabbitmqgw.metadata.VirtualHostMetadata;
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -88,7 +90,6 @@ public class AMQChannel implements ServerChannelMethodProcessor {
    */
   private volatile long _deliveryTag = 0;
 
-  private Queue _defaultQueue;
   private String defaultQueueName;
   /**
    * This tag is unique per subscription to a queue. The server returns this in response to a
@@ -743,17 +744,6 @@ public class AMQChannel implements ServerChannelMethodProcessor {
         saveContext(newContext)
             .thenRun(
                 () -> {
-
-                  // TODO: queue delete in loadContext diff
-                  /*List<AMQShortString> tags =
-                      queue1.getConsumers().stream().map(AMQConsumer::getTag).collect(Collectors.toList());
-
-                  tags.forEach(this::unsubscribeConsumer);
-
-                  queue1.getBoundExchanges().forEach(exchange -> exchange.queueRemoved(queue1));
-                  queue1.getBoundExchanges().clear();
-                   */
-
                   if (!nowait) {
                     MethodRegistry methodRegistry = _connection.getMethodRegistry();
                     QueueDeleteOkBody responseBody = methodRegistry.createQueueDeleteOkBody(0);
@@ -814,7 +804,12 @@ public class AMQChannel implements ServerChannelMethodProcessor {
           && exchangeMetadata.getBindings().get(queueName).getKeys().contains(bindingKeyStr)) {
         AbstractExchange exch =
             AbstractExchange.fromMetadata(exchangeName.toString(), exchangeMetadata);
-        exch.unbind(exchangeMetadata, queueName, bindingKeyStr, _connection)
+        exch.unbind(
+                getVHostMetadata(newContext.model()),
+                exchangeName.toString(),
+                queueName,
+                bindingKeyStr,
+                _connection)
             .thenCompose(it -> saveContext(newContext))
             .thenRun(
                 () -> {
@@ -886,7 +881,7 @@ public class AMQChannel implements ServerChannelMethodProcessor {
               + " ]");
     }
     // TODO: per consumer QoS. Warning: RabbitMQ has reinterpreted the "global" field of AMQP. See
-    // https://www.rabbitmq.com/specification.html#method-status-basic.qos
+    //  https://www.rabbitmq.com/specification.html#method-status-basic.qos
     _creditManager.setCreditLimits(prefetchSize, prefetchCount);
 
     MethodRegistry methodRegistry = _connection.getMethodRegistry();
@@ -1079,7 +1074,7 @@ public class AMQChannel implements ServerChannelMethodProcessor {
         _connection.sendConnectionClose(
             ErrorCodes.ACCESS_REFUSED,
             "Cannot subscribe to queue '"
-                + queue.getName()
+                + queueName
                 + "' as it already has an existing exclusive consumer",
             _channelId);
       } else {
@@ -1523,7 +1518,7 @@ public class AMQChannel implements ServerChannelMethodProcessor {
         + _connection.isClosing()
         + ") "
         + "["
-        + _connection.toString()
+        + _connection
         + ":"
         + _channelId
         + "]";
@@ -1658,10 +1653,6 @@ public class AMQChannel implements ServerChannelMethodProcessor {
     return defaultQueueName;
   }
 
-  /*private Queue getDefaultQueue() {
-    return _defaultQueue;
-  }*/
-
   private VirtualHostMetadata getVHostMetadata(ContextMetadata contextMetadata) {
     return contextMetadata.getVhosts().get(_connection.getNamespace());
   }
@@ -1670,40 +1661,35 @@ public class AMQChannel implements ServerChannelMethodProcessor {
     return _connection.getGatewayService().getContextMetadata();
   }
 
-  private AbstractExchange getExchange(String name) {
-    return _connection.getVhost().getExchange(name);
-  }
-
   private ExchangeMetadata getExchange(ContextMetadata context, String name) {
     return getVHostMetadata(context).getExchanges().get(name);
   }
 
-  /*private void addExchange(AbstractExchange exchange) {
-    _connection.getVhost().addExchange(exchange);
-  }
-
-  private CompletableFuture<Void> deleteExchange(AbstractExchange exchange) {
-    _connection.getVhost().deleteExchange(exchange);
-    List<CompletableFuture<Void>> results = new ArrayList<>();
-    new HashSet<>(exchange.getBindings().keySet())
-        .forEach(
-            queue -> {
-              Queue queue1 = getQueue(queue);
-              Set<String> keys = new HashSet<>(exchange.getBindings().get(queue).keySet());
-              keys.forEach(key -> results.add(exchange.unbind(queue1, key)));
-            });
-    return CompletableFuture.allOf(results.toArray(new CompletableFuture[0]));
-  }*/
-
   private CompletionStage<ContextMetadata> deleteExchange(
       Versioned<ContextMetadata> context, String exchange) {
-    // TODO: close bindings
-    getVHostMetadata(context.model()).getExchanges().remove(exchange);
-    return saveContext(context);
+    VirtualHostMetadata vHost = getVHostMetadata(context.model());
+    ExchangeMetadata exchangeMetadata = vHost.getExchanges().get(exchange);
+    AbstractExchange exch = AbstractExchange.fromMetadata(exchange, exchangeMetadata);
+    List<CompletableFuture<Void>> unbinds = new ArrayList<>();
+    exchangeMetadata
+        .getBindings()
+        .forEach(
+            (queue, bindingSetMetadata) ->
+                bindingSetMetadata
+                    .getKeys()
+                    .forEach(
+                        routingKey ->
+                            unbinds.add(
+                                exch.unbind(vHost, exchange, queue, routingKey, _connection))));
+    return CompletableFuture.allOf(unbinds.toArray(new CompletableFuture[0]))
+        .thenCompose(
+            it -> {
+              vHost.getExchanges().remove(exchange);
+              return saveContext(context);
+            });
   }
 
   private Queue getQueue(String name) {
-    // return _connection.getVhost().getQueue(name);
     return _connection.getGatewayService().getQueues().get(_connection.getNamespace()).get(name);
   }
 
@@ -1716,7 +1702,7 @@ public class AMQChannel implements ServerChannelMethodProcessor {
     ExchangeMetadata exchangeMetadata = getExchange(context.model(), exchange);
     exchangeMetadata.getBindings().putIfAbsent(queue, new BindingSetMetadata());
     AbstractExchange exch = AbstractExchange.fromMetadata(exchange, exchangeMetadata);
-    return exch.bind(exchangeMetadata, queue, routingKey, _connection)
+    return exch.bind(getVHostMetadata(context.model()), exchange, queue, routingKey, _connection)
         .thenCompose(it -> saveContext(context));
   }
 
@@ -1756,7 +1742,6 @@ public class AMQChannel implements ServerChannelMethodProcessor {
           .getGatewayService()
           .getPulsarClient()
           .newProducer()
-          // TODO: optionally activate batching ?
           .enableBatching(false)
           .topic(topicName)
           .create();
