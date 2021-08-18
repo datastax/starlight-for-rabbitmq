@@ -19,7 +19,6 @@ import io.netty.channel.EventLoop;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import org.apache.pulsar.client.admin.PulsarAdmin;
 import org.apache.pulsar.client.api.Consumer;
 import org.apache.pulsar.client.api.Message;
 import org.apache.pulsar.client.api.MessageId;
@@ -30,7 +29,6 @@ public class PulsarConsumer {
 
   private final String topic;
   private final GatewayService gatewayService;
-  private final PulsarAdmin pulsarAdmin;
   private final Queue queue;
   private volatile Consumer<byte[]> pulsarConsumer;
 
@@ -46,7 +44,6 @@ public class PulsarConsumer {
     this.topic = topic;
     this.subscriptionName = subscriptionName;
     this.gatewayService = service;
-    this.pulsarAdmin = gatewayService.getPulsarAdmin();
     this.queue = queue;
     this.eventLoop = service.getWorkerGroup().next();
     this.closing = new AtomicBoolean(false);
@@ -115,10 +112,6 @@ public class PulsarConsumer {
     this.lastMessageId = lastMessageId;
   }
 
-  public String getSubscriptionName() {
-    return subscriptionName;
-  }
-
   public CompletableFuture<Void> receiveAndDeliverMessages() {
     return receiveMessageAsync().thenAcceptAsync(queue::deliverMessage, this.eventLoop);
   }
@@ -131,7 +124,9 @@ public class PulsarConsumer {
   public void close() {
     closing.set(true);
     if (pulsarConsumer != null) {
-      pulsarConsumer.closeAsync();
+      pulsarConsumer.closeAsync().thenRun(
+          () -> pulsarConsumer = null
+      );
     }
   }
 

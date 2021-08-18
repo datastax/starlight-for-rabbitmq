@@ -74,30 +74,13 @@ public class SubscriptionCleaner extends LeaderSelectorListenerAdapter implement
                     vhost
                         .getSubscriptions()
                         .forEach(
-                            (s1, queueSubscriptions) -> {
+                            (queueName, queueSubscriptions) -> {
                               Iterator<BindingMetadata> iterator =
                                   queueSubscriptions.values().iterator();
                               while (iterator.hasNext()) {
                                 BindingMetadata bindingMetadata = iterator.next();
-                                if (bindingMetadata.getLastMessageId() != null) {
+                                if (hasBindingReachedLastMessage(bindingMetadata)) {
                                   try {
-                                    List<Message<byte[]>> messages =
-                                        service
-                                            .getPulsarAdmin()
-                                            .topics()
-                                            .peekMessages(
-                                                bindingMetadata.getTopic(),
-                                                bindingMetadata.getSubscription(),
-                                                1);
-                                    if (messages.size() > 0) {
-                                      Message<byte[]> message = messages.get(0);
-                                      MessageId lastMessageId =
-                                          MessageId.fromByteArray(
-                                              bindingMetadata.getLastMessageId());
-                                      if (message.getMessageId().compareTo(lastMessageId) <= 0) {
-                                        continue;
-                                      }
-                                    }
                                     service
                                         .getPulsarAdmin()
                                         .topics()
@@ -105,16 +88,13 @@ public class SubscriptionCleaner extends LeaderSelectorListenerAdapter implement
                                             bindingMetadata.getTopic(),
                                             bindingMetadata.getSubscription(),
                                             true);
-                                  } catch (PulsarAdminException | IOException e) {
-                                    if (e instanceof PulsarAdminException.NotFoundException) {
-                                      if (LOGGER.isDebugEnabled()) {
-                                        LOGGER.debug(
-                                            "Subscription doesn't exist. It may have already been deleted");
-                                      }
-                                    } else {
+                                  } catch (PulsarAdminException.NotFoundException e) {
+                                    if (LOGGER.isDebugEnabled()) {
+                                      LOGGER.debug("Subscription doesn't exist. It may have already been deleted", e);
+                                    }
+                                  } catch (PulsarAdminException e) {
                                       LOGGER.error("Error while deleting subscription", e);
                                       continue;
-                                    }
                                   }
                                   iterator.remove();
                                   updateContext.set(true);
@@ -122,47 +102,6 @@ public class SubscriptionCleaner extends LeaderSelectorListenerAdapter implement
                               }
                             }));
 
-        /*newContext.model().getVhosts().forEach(
-            (s, virtualHostMetadata) -> virtualHostMetadata.getExchanges().forEach(
-                (s1, exchangeMetadata) -> exchangeMetadata.getBindings().forEach(
-                    (s2, bindingSetMetadata) -> {
-                      Iterator<BindingMetadata> iterator = bindingSetMetadata.getSubscriptions().values().iterator();
-                      while(iterator.hasNext()) {
-                        BindingMetadata bindingMetadata = iterator.next();
-                        if (bindingMetadata.getLastMessageId() != null) {
-                          try {
-                            List<Message<byte[]>> messages = service.getPulsarAdmin().topics()
-                                .peekMessages(bindingMetadata.getTopic(), bindingMetadata.getSubscription(), 1);
-                            if (messages.size() > 0) {
-                              Message<byte[]> message = messages.get(0);
-                              MessageId lastMessageId = MessageId.fromByteArray(bindingMetadata.getLastMessageId());
-                              if (message.getMessageId().compareTo(lastMessageId) <= 0) {
-                                continue;
-                              }
-                            }
-                            service.getPulsarAdmin().topics()
-                                .deleteSubscription(bindingMetadata.getTopic(), bindingMetadata.getSubscription(),
-                                true);
-                          } catch (PulsarAdminException | IOException e) {
-                            if (e instanceof PulsarAdminException.NotFoundException) {
-                              if (LOGGER.isDebugEnabled()) {
-                                LOGGER.debug("Subscription doesn't exist. It may have already been deleted");
-                              }
-                            } else {
-                              LOGGER.error("Error while deleting subscription", e);
-                              continue;
-                            }
-                          }
-                          iterator.remove();
-                          updateContext.set(true);
-                        }
-                      }
-                    }
-                )
-            )
-        );
-
-         */
         if (updateContext.get()) {
           try {
             service.saveContext(newContext).toCompletableFuture().get(5, TimeUnit.SECONDS);
@@ -175,7 +114,38 @@ public class SubscriptionCleaner extends LeaderSelectorListenerAdapter implement
       LOGGER.error("Subscription cleaner was interrupted", e);
       Thread.currentThread().interrupt();
     } catch (TimeoutException e) {
-      LOGGER.error("Timed out while saving configutation", e);
+      LOGGER.error("Timed out while saving configuration", e);
     }
+  }
+
+  private boolean hasBindingReachedLastMessage(BindingMetadata bindingMetadata) {
+    if (bindingMetadata.getLastMessageId() != null) {
+      try {
+        MessageId lastMessageId = MessageId.fromByteArray(bindingMetadata.getLastMessageId());
+        if (MessageId.earliest.equals(lastMessageId)) {
+          return true;
+        }
+        List<Message<byte[]>> messages = service
+            .getPulsarAdmin()
+            .topics()
+            .peekMessages(
+                bindingMetadata.getTopic(),
+                bindingMetadata.getSubscription(),
+                1);
+
+        if (messages.size() > 0) {
+          Message<byte[]> message = messages.get(0);
+          if (message.getMessageId().compareTo(lastMessageId) <= 0) {
+            return true;
+          }
+        } else {
+          return true;
+        }
+      } catch (PulsarAdminException | IOException e) {
+        LOGGER.error("Couldn't get last message for subscription " + bindingMetadata.getSubscription(), e);
+        return false;
+      }
+    }
+    return false;
   }
 }

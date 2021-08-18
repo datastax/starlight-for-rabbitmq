@@ -17,7 +17,6 @@ package com.datastax.oss.pulsar.rabbitmqgw;
 
 import static com.datastax.oss.pulsar.rabbitmqgw.AbstractExchange.getTopicName;
 import static org.apache.qpid.server.transport.util.Functions.hex;
-
 import com.datastax.oss.pulsar.rabbitmqgw.metadata.BindingSetMetadata;
 import com.datastax.oss.pulsar.rabbitmqgw.metadata.ContextMetadata;
 import com.datastax.oss.pulsar.rabbitmqgw.metadata.ExchangeMetadata;
@@ -736,11 +735,16 @@ public class AMQChannel implements ServerChannelMethodProcessor {
         // TODO: check if exclusive queue owned by another connection
         Versioned<ContextMetadata> newContext = newContextMetadata(versionedContext);
         VirtualHostMetadata vHostMetadata = getVHostMetadata(newContext.model());
+
+        byte[] earliestMessageId = MessageId.earliest.toByteArray();
+        vHostMetadata.getSubscriptions().get(queueName).forEach(
+            (s, subscription) -> subscription.setLastMessageId(earliestMessageId)
+        );
+
+        vHostMetadata.getExchanges().forEach(
+            (s, exchangeMetadata) -> exchangeMetadata.getBindings().remove(queueName)
+        );
         vHostMetadata.getQueues().remove(queueName);
-        vHostMetadata
-            .getExchanges()
-            .forEach(
-                (exchange, exchangeMetadata) -> exchangeMetadata.getBindings().remove(queueName));
         saveContext(newContext)
             .thenRun(
                 () -> {
