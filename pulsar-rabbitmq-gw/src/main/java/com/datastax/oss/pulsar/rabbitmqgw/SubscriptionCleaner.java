@@ -90,11 +90,13 @@ public class SubscriptionCleaner extends LeaderSelectorListenerAdapter implement
                                             true);
                                   } catch (PulsarAdminException.NotFoundException e) {
                                     if (LOGGER.isDebugEnabled()) {
-                                      LOGGER.debug("Subscription doesn't exist. It may have already been deleted", e);
+                                      LOGGER.debug(
+                                          "Subscription doesn't exist. It may have already been deleted",
+                                          e);
                                     }
                                   } catch (PulsarAdminException e) {
-                                      LOGGER.error("Error while deleting subscription", e);
-                                      continue;
+                                    LOGGER.error("Error while deleting subscription", e);
+                                    continue;
                                   }
                                   iterator.remove();
                                   updateContext.set(true);
@@ -125,13 +127,11 @@ public class SubscriptionCleaner extends LeaderSelectorListenerAdapter implement
         if (MessageId.earliest.equals(lastMessageId)) {
           return true;
         }
-        List<Message<byte[]>> messages = service
-            .getPulsarAdmin()
-            .topics()
-            .peekMessages(
-                bindingMetadata.getTopic(),
-                bindingMetadata.getSubscription(),
-                1);
+        List<Message<byte[]>> messages =
+            service
+                .getPulsarAdmin()
+                .topics()
+                .peekMessages(bindingMetadata.getTopic(), bindingMetadata.getSubscription(), 1);
 
         if (messages.size() > 0) {
           Message<byte[]> message = messages.get(0);
@@ -142,7 +142,8 @@ public class SubscriptionCleaner extends LeaderSelectorListenerAdapter implement
           return true;
         }
       } catch (PulsarAdminException | IOException e) {
-        LOGGER.error("Couldn't get last message for subscription " + bindingMetadata.getSubscription(), e);
+        LOGGER.error(
+            "Couldn't get last message for subscription " + bindingMetadata.getSubscription(), e);
         return false;
       }
     }

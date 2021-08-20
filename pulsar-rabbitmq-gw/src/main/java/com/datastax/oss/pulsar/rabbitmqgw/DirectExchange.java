@@ -39,7 +39,7 @@ public class DirectExchange extends AbstractExchange {
       String routingKey,
       GatewayConnection connection) {
     BindingSetMetadata bindings = vhost.getExchanges().get(exchange).getBindings().get(queue);
-    if (!bindings.getKeys().contains(routingKey)) {
+    if (bindings != null && !bindings.getKeys().contains(routingKey)) {
       bindings.getKeys().add(routingKey);
       /*
        TODO: Pulsar 2.8 has an issue with subscriptions containing a / in their name. Forge another name ?

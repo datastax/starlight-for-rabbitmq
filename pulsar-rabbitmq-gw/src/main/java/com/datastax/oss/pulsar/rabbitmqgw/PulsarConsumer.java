@@ -124,9 +124,7 @@ public class PulsarConsumer {
   public void close() {
     closing.set(true);
     if (pulsarConsumer != null) {
-      pulsarConsumer.closeAsync().thenRun(
-          () -> pulsarConsumer = null
-      );
+      pulsarConsumer.closeAsync().thenRun(() -> pulsarConsumer = null);
     }
   }
 

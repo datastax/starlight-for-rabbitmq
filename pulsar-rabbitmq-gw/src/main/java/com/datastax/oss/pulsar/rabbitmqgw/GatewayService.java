@@ -230,7 +230,6 @@ public class GatewayService implements Closeable {
   }
 
   public Versioned<ContextMetadata> newContextMetadata(Versioned<ContextMetadata> previousContext) {
-
     try {
       ContextMetadata contextMetadata =
           mapper.readValue(
@@ -268,34 +267,39 @@ public class GatewayService implements Closeable {
               vhostMetadata
                   .getSubscriptions()
                   .forEach(
-                      (queueName, queueSubscriptions) -> queueSubscriptions.forEach(
-                          (subscriptionName, bindingMetadata) -> {
-                            Queue queue =
-                                vhostQueues.computeIfAbsent(queueName, q -> new Queue());
-                            PulsarConsumer pulsarConsumer =
-                                queue.getSubscriptions().get(subscriptionName);
-                            if (pulsarConsumer == null) {
-                              pulsarConsumer =
-                                  new PulsarConsumer(
-                                      bindingMetadata.getTopic(), subscriptionName, this, queue);
-                              // TODO: handle subscription errors
-                              pulsarConsumer
-                                  .subscribe()
-                                  .thenRun(pulsarConsumer::receiveAndDeliverMessages);
-                              queue.getSubscriptions().put(subscriptionName, pulsarConsumer);
-                            } else {
-                              if (bindingMetadata.getLastMessageId() != null) {
-                                try {
-                                  MessageId messageId =
-                                      MessageId.fromByteArray(bindingMetadata.getLastMessageId());
-                                  pulsarConsumer.setLastMessageId(messageId);
-                                } catch (IOException e) {
-                                  LOG.error(
-                                      "Error while deserializing binding's lastMessageId", e);
+                      (queueName, queueSubscriptions) ->
+                          queueSubscriptions.forEach(
+                              (subscriptionName, bindingMetadata) -> {
+                                Queue queue =
+                                    vhostQueues.computeIfAbsent(queueName, q -> new Queue());
+                                PulsarConsumer pulsarConsumer =
+                                    queue.getSubscriptions().get(subscriptionName);
+                                if (pulsarConsumer == null) {
+                                  pulsarConsumer =
+                                      new PulsarConsumer(
+                                          bindingMetadata.getTopic(),
+                                          subscriptionName,
+                                          this,
+                                          queue);
+                                  // TODO: handle subscription errors
+                                  pulsarConsumer
+                                      .subscribe()
+                                      .thenRun(pulsarConsumer::receiveAndDeliverMessages);
+                                  queue.getSubscriptions().put(subscriptionName, pulsarConsumer);
+                                } else {
+                                  if (bindingMetadata.getLastMessageId() != null) {
+                                    try {
+                                      MessageId messageId =
+                                          MessageId.fromByteArray(
+                                              bindingMetadata.getLastMessageId());
+                                      pulsarConsumer.setLastMessageId(messageId);
+                                    } catch (IOException e) {
+                                      LOG.error(
+                                          "Error while deserializing binding's lastMessageId", e);
+                                    }
+                                  }
                                 }
-                              }
-                            }
-                          }));
+                              }));
             });
 
     return contextMetadata;
