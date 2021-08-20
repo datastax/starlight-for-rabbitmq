@@ -30,6 +30,7 @@ import com.rabbitmq.client.ConnectionFactory;
 import com.rabbitmq.client.Envelope;
 import com.rabbitmq.client.GetResponse;
 import com.rabbitmq.client.ShutdownSignalException;
+import com.rabbitmq.client.impl.DefaultCredentialsProvider;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.Date;
@@ -72,7 +73,7 @@ public class RabbitmqInteropIT {
     config.setBrokerWebServiceURL(cluster.getAddress());
     config.setServicePort(Optional.of(PortManager.nextFreePort()));
     config.setZookeeperServers(cluster.getService().getConfig().getZookeeperServers());
-    gatewayService = new GatewayService(config);
+    gatewayService = new GatewayService(config, null);
     gatewayService.start();
 
     factory = new ConnectionFactory();
@@ -233,124 +234,4 @@ public class RabbitmqInteropIT {
     channel2.close();
     conn2.close();
   }
-
-  /*@Test
-  void testBindUnbind() throws Exception {
-
-    Connection conn1 = factory.newConnection();
-    Channel channel1 = conn1.createChannel();
-
-    Connection conn2 = factory.newConnection();
-    Channel channel2 = conn2.createChannel();
-
-    channel1.exchangeDeclare(TEST_EXCHANGE, BuiltinExchangeType.DIRECT);
-    channel1.queueDeclare(TEST_QUEUE, true, false, false, new HashMap<>());
-    channel1.queueBind(TEST_QUEUE, TEST_EXCHANGE, "foo");
-
-    channel2.confirmSelect();
-
-    Date now = new Date();
-    AMQP.BasicProperties properties =
-        new AMQP.BasicProperties.Builder()
-            .contentType("application/octet-stream")
-            .timestamp(now)
-            .build();
-    int i = 1;
-    channel2.basicPublish(TEST_EXCHANGE, "foo", properties, new byte[] {(byte) i++});
-
-    GetResponse message = getMessage(channel1);
-    assertArrayEquals(new byte[] {1}, message.getBody());
-
-    channel1.queueBind(TEST_QUEUE, TEST_EXCHANGE, "bar");
-    channel2.basicPublish(TEST_EXCHANGE, "foo", properties, new byte[] {(byte) i++});
-    channel2.basicPublish(TEST_EXCHANGE, "bar", properties, new byte[] {(byte) i++});
-
-    GetResponse message1 = getMessage(channel1);
-    assertArrayEquals(new byte[] {2}, message1.getBody());
-    GetResponse message2 = getMessage(channel1);
-    assertArrayEquals(new byte[] {3}, message2.getBody());
-
-    channel1.basicNack(message2.getEnvelope().getDeliveryTag(), false, true);
-
-    GetResponse message3 = getMessage(channel1);
-    assertArrayEquals(new byte[] {3}, message3.getBody());
-
-    channel2.basicPublish(TEST_EXCHANGE, "foo", properties, new byte[] {(byte) i++});
-    channel2.basicPublish(TEST_EXCHANGE, "foo", properties, new byte[] {(byte) i++});
-
-    channel1.queueUnbind(TEST_QUEUE, TEST_EXCHANGE, "foo");
-
-    channel2.basicPublish(TEST_EXCHANGE, "foo", properties, new byte[] {(byte) i++});
-
-    GetResponse message5 = getMessage(channel1);
-    assertArrayEquals(new byte[] {4}, message5.getBody());
-    GetResponse message6 = getMessage(channel1);
-    assertArrayEquals(new byte[] {5}, message6.getBody());
-
-    Thread.sleep(1000);
-    GetResponse message7 = channel1.basicGet(TEST_QUEUE, false);
-    assertNull(message7);
-
-    channel2.basicPublish(TEST_EXCHANGE, "bar", properties, new byte[] {(byte) i++});
-
-    GetResponse message8 = getMessage(channel1);
-    assertArrayEquals(new byte[] {7}, message8.getBody());
-
-    TopicStats stats =
-        gatewayService.getPulsarAdmin().topics().getStats(TEST_EXCHANGE + "$$foo", true);
-    PersistentTopicInternalStats internalStats =
-        gatewayService.getPulsarAdmin().topics().getInternalStats(TEST_EXCHANGE + "$$foo", true);
-
-    channel1.basicAck(1, false);
-
-    Thread.sleep(100);
-    List<Message<byte[]>> messages =
-        gatewayService
-            .getPulsarAdmin()
-            .topics()
-            .peekMessages(TEST_EXCHANGE + "$$foo", "persistent:__public_default_"+TEST_EXCHANGE + "$$foo", 10);
-
-    byte[] data = messages.get(0).getData();
-
-    channel2.basicPublish(TEST_EXCHANGE, "bar", properties, new byte[] {(byte) i++});
-    channel2.basicPublish(TEST_EXCHANGE, "bar", properties, new byte[] {(byte) i++});
-    channel1.basicNack(message3.getEnvelope().getDeliveryTag(), false, true);
-
-    Thread.sleep(1000);
-
-    GetResponse message9 = getMessage(channel1);
-    GetResponse message10 = getMessage(channel1);
-    GetResponse message11 = getMessage(channel1);
-
-
-    channel1.basicAck(message1.getEnvelope().getDeliveryTag(), true);
-    channel2.basicPublish(TEST_EXCHANGE, "foo", properties, new byte[] {(byte) i++});
-
-    Thread.sleep(1000);
-
-    channel1.basicNack(message5.getEnvelope().getDeliveryTag(), false, true);
-    channel1.basicNack(message6.getEnvelope().getDeliveryTag(), false, true);
-
-    Thread.sleep(1000);
-
-    GetResponse message12 = getMessage(channel1);
-    GetResponse message13 = getMessage(channel1);
-
-    channel1.basicAck(message13.getEnvelope().getDeliveryTag(), true);
-
-    channel1.close();
-    conn1.close();
-    channel2.close();
-    conn2.close();
-  }
-
-  private GetResponse getMessage(Channel channel1) throws IOException, InterruptedException {
-    GetResponse getResponse = null;
-    long now = System.currentTimeMillis();
-    while (System.currentTimeMillis() - now < 5000 && getResponse == null) {
-      getResponse = channel1.basicGet(TEST_QUEUE, false);
-      Thread.sleep(10);
-    }
-    return getResponse;
-  }*/
 }

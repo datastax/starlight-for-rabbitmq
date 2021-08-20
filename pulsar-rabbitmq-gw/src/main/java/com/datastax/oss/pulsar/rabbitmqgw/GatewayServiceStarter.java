@@ -23,6 +23,7 @@ import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import org.apache.pulsar.broker.PulsarServerException;
+import org.apache.pulsar.broker.authentication.AuthenticationService;
 import org.apache.pulsar.common.configuration.PulsarConfigurationLoader;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -74,8 +75,11 @@ public class GatewayServiceStarter {
       final GatewayConfiguration config =
           PulsarConfigurationLoader.create(configFile, GatewayConfiguration.class);
 
+      AuthenticationService authenticationService =
+          new AuthenticationService(PulsarConfigurationLoader.convertFrom(config));
+
       // create gateway service
-      GatewayService gatewayService = new GatewayService(config);
+      GatewayService gatewayService = new GatewayService(config, authenticationService);
 
       Runtime.getRuntime()
           .addShutdownHook(

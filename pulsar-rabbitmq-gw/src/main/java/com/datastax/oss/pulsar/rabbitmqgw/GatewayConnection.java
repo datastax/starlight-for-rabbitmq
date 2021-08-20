@@ -29,14 +29,20 @@ import io.netty.handler.timeout.IdleStateEvent;
 import io.netty.handler.timeout.IdleStateHandler;
 import java.lang.reflect.Proxy;
 import java.net.SocketAddress;
+import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import javax.naming.AuthenticationException;
 import org.apache.bookkeeper.util.collections.ConcurrentLongHashMap;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.curator.x.async.modeled.versioned.Versioned;
+import org.apache.pulsar.broker.authentication.AuthenticationDataCommand;
+import org.apache.pulsar.broker.authentication.AuthenticationProvider;
+import org.apache.pulsar.broker.authentication.AuthenticationService;
 import org.apache.qpid.server.QpidException;
 import org.apache.qpid.server.bytebuffer.QpidByteBuffer;
 import org.apache.qpid.server.exchange.ExchangeDefaults;
@@ -165,7 +171,7 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
     } catch (AMQFrameDecodingException e) {
       LOGGER.debug("Invalid frame", e);
       sendConnectionClose(
-          // Hack to be compliant with RabbitMQ expectations
+          // To be compliant with RabbitMQ expectations
           e.getMessage().startsWith("Unsupported content header class id:")
               ? 505
               : e.getErrorCode(),
@@ -248,12 +254,81 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
       return;
     }
 
-    // TODO: implement SASL mechanisms ?
-
+    if (gatewayService.getConfig().isAuthenticationEnabled()) {
+      String principal = null;
+      AuthenticationService authenticationService = gatewayService.getAuthenticationService();
+      try {
+        if ("PLAIN".equals(mechanism.toString())) {
+          AuthenticationProvider tokenAuthProvider =
+              authenticationService.getAuthenticationProvider("token");
+          if (tokenAuthProvider != null) {
+            Optional<String> token = tryExtractTokenFromSaslPlain(response);
+            if (token.isPresent()) {
+              AuthenticationDataCommand authData =
+                  new AuthenticationDataCommand(token.get(), remoteAddress, null);
+              principal = authenticationService.authenticate(authData, "token");
+            }
+          }
+          if (principal == null) {
+            throw new AuthenticationException(
+                "SASL PLAIN only supported with JWT as password at the moment");
+          }
+        } else if ("EXTERNAL".equals(mechanism.toString())) {
+          AuthenticationDataCommand authData =
+              new AuthenticationDataCommand(
+                  new String(response, StandardCharsets.UTF_8), remoteAddress, null);
+          principal = authenticationService.authenticate(authData, "tls");
+        } else {
+          throw new AuthenticationException("Unsupported authentication mechanism");
+        }
+      } catch (AuthenticationException e) {
+        LOGGER.debug("Invalid authentication", e);
+        sendConnectionClose(ErrorCodes.NOT_ALLOWED, "Invalid authentication", 0);
+        return;
+      }
+    }
     // setClientProperties(clientProperties);
     processSaslResponse(response);
 
     _state = ConnectionState.AWAIT_TUNE_OK;
+  }
+
+  private Optional<String> tryExtractTokenFromSaslPlain(byte[] response) {
+    if (response == null && response.length == 0) {
+      return Optional.empty();
+    }
+
+    int authzidNullPosition = findNullPosition(response, 0);
+    if (authzidNullPosition < 0) {
+      return Optional.empty();
+    }
+    int authcidNullPosition = findNullPosition(response, authzidNullPosition + 1);
+    if (authcidNullPosition < 0) {
+      return Optional.empty();
+    }
+    String username =
+        new String(
+            response,
+            authzidNullPosition + 1,
+            authcidNullPosition - authzidNullPosition - 1,
+            StandardCharsets.UTF_8);
+    if (!username.equals("token")) {
+      return Optional.empty();
+    }
+    int passwordLen = response.length - authcidNullPosition - 1;
+    return Optional.of(
+        new String(response, authcidNullPosition + 1, passwordLen, StandardCharsets.UTF_8));
+  }
+
+  private int findNullPosition(byte[] response, int startPosition) {
+    int position = startPosition;
+    while (position < response.length) {
+      if (response[position] == (byte) 0) {
+        return position;
+      }
+      position++;
+    }
+    return -1;
   }
 
   @Override

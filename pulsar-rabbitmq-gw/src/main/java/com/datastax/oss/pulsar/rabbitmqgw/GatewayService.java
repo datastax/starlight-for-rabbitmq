@@ -44,6 +44,7 @@ import org.apache.curator.x.async.modeled.ModelSpec;
 import org.apache.curator.x.async.modeled.ModeledFramework;
 import org.apache.curator.x.async.modeled.ZPath;
 import org.apache.curator.x.async.modeled.versioned.Versioned;
+import org.apache.pulsar.broker.authentication.AuthenticationService;
 import org.apache.pulsar.client.admin.PulsarAdmin;
 import org.apache.pulsar.client.admin.PulsarAdminBuilder;
 import org.apache.pulsar.client.api.ClientBuilder;
@@ -59,6 +60,7 @@ import org.slf4j.LoggerFactory;
 public class GatewayService implements Closeable {
 
   private final GatewayConfiguration config;
+  private final AuthenticationService authenticationService;
   private PulsarClient pulsarClient;
   private PulsarAdmin pulsarAdmin;
 
@@ -88,9 +90,10 @@ public class GatewayService implements Closeable {
       Versioned.from(new ContextMetadata(), 0);
   private SubscriptionCleaner subscriptionCleaner;
 
-  public GatewayService(GatewayConfiguration config) {
+  public GatewayService(GatewayConfiguration config, AuthenticationService authenticationService) {
     checkNotNull(config);
     this.config = config;
+    this.authenticationService = authenticationService;
 
     this.acceptorGroup = EventLoopUtil.newEventLoopGroup(1, true, acceptorThreadFactory);
     this.workerGroup = EventLoopUtil.newEventLoopGroup(numThreads, true, workersThreadFactory);
@@ -309,5 +312,9 @@ public class GatewayService implements Closeable {
             });
 
     return contextMetadata;
+  }
+
+  public AuthenticationService getAuthenticationService() {
+    return authenticationService;
   }
 }

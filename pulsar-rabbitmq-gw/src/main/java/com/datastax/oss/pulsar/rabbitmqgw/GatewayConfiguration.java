@@ -30,6 +30,7 @@ import org.apache.pulsar.common.configuration.PulsarConfiguration;
 public class GatewayConfiguration implements PulsarConfiguration {
   @Category private static final String CATEGORY_SERVER = "Server";
   @Category private static final String CATEGORY_BROKER_DISCOVERY = "Broker Discovery";
+  @Category private static final String CATEGORY_AUTHENTICATION = "Gateway Authentication";
 
   @Category
   private static final String CATEGORY_CLIENT_AUTHENTICATION = "Broker Client Authorization";
@@ -76,22 +77,34 @@ public class GatewayConfiguration implements PulsarConfiguration {
   private Optional<Integer> servicePortTls = Optional.empty();
 
   @FieldContext(
+    category = CATEGORY_AUTHENTICATION,
+    doc = "Whether authentication is enabled for the Pulsar Gateway"
+  )
+  private boolean authenticationEnabled = false;
+
+  @FieldContext(
+    category = CATEGORY_AUTHENTICATION,
+    doc = "Authentication provider name list (a comma-separated list of class names)"
+  )
+  private Set<String> authenticationProviders = Sets.newTreeSet();
+
+  @FieldContext(
     category = CATEGORY_CLIENT_AUTHENTICATION,
-    doc = "The authentication plugin used by the Pulsar proxy to authenticate with Pulsar brokers"
+    doc = "The authentication plugin used by the Pulsar Gateway to authenticate with Pulsar brokers"
   )
   private String brokerClientAuthenticationPlugin;
 
   @FieldContext(
     category = CATEGORY_CLIENT_AUTHENTICATION,
     doc =
-        "The authentication parameters used by the Pulsar proxy to authenticate with Pulsar brokers"
+        "The authentication parameters used by the Pulsar Gateway to authenticate with Pulsar brokers"
   )
   private String brokerClientAuthenticationParameters;
 
   @FieldContext(
     category = CATEGORY_CLIENT_AUTHENTICATION,
     doc =
-        "The path to trusted certificates used by the Pulsar proxy to authenticate with Pulsar brokers"
+        "The path to trusted certificates used by the Pulsar Gateway to authenticate with Pulsar brokers"
   )
   private String brokerClientTrustCertsFilePath;
 
@@ -132,7 +145,7 @@ public class GatewayConfiguration implements PulsarConfiguration {
 
   @FieldContext(
     category = CATEGORY_TLS,
-    doc = "Whether the hostname is validated when the proxy creates a TLS connection with brokers"
+    doc = "Whether the hostname is validated when the gateway creates a TLS connection with brokers"
   )
   private boolean tlsHostnameVerificationEnabled = false;
 
@@ -148,7 +161,7 @@ public class GatewayConfiguration implements PulsarConfiguration {
   @FieldContext(
     category = CATEGORY_TLS,
     doc =
-        "Specify the tls cipher the proxy will use to negotiate during TLS Handshake"
+        "Specify the tls cipher the gateway will use to negotiate during TLS Handshake"
             + " (a comma-separated list of ciphers).\n\n"
             + "Examples:- [TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256]"
   )
@@ -165,7 +178,7 @@ public class GatewayConfiguration implements PulsarConfiguration {
   /** ** --- KeyStore TLS config variables --- *** */
   @FieldContext(
     category = CATEGORY_KEYSTORE_TLS,
-    doc = "Enable TLS with KeyStore type configuration for proxy"
+    doc = "Enable TLS with KeyStore type configuration for gateway"
   )
   private boolean tlsEnabledWithKeyStore = false;
 
@@ -174,26 +187,26 @@ public class GatewayConfiguration implements PulsarConfiguration {
 
   @FieldContext(
     category = CATEGORY_KEYSTORE_TLS,
-    doc = "TLS KeyStore type configuration for proxy: JKS, PKCS12"
+    doc = "TLS KeyStore type configuration for gateway: JKS, PKCS12"
   )
   private String tlsKeyStoreType = "JKS";
 
-  @FieldContext(category = CATEGORY_KEYSTORE_TLS, doc = "TLS KeyStore path for proxy")
+  @FieldContext(category = CATEGORY_KEYSTORE_TLS, doc = "TLS KeyStore path for gateway")
   private String tlsKeyStore = null;
 
-  @FieldContext(category = CATEGORY_KEYSTORE_TLS, doc = "TLS KeyStore password for proxy")
+  @FieldContext(category = CATEGORY_KEYSTORE_TLS, doc = "TLS KeyStore password for gateway")
   private String tlsKeyStorePassword = null;
 
   @FieldContext(
     category = CATEGORY_KEYSTORE_TLS,
-    doc = "TLS TrustStore type configuration for proxy: JKS, PKCS12"
+    doc = "TLS TrustStore type configuration for gateway: JKS, PKCS12"
   )
   private String tlsTrustStoreType = "JKS";
 
-  @FieldContext(category = CATEGORY_KEYSTORE_TLS, doc = "TLS TrustStore path for proxy")
+  @FieldContext(category = CATEGORY_KEYSTORE_TLS, doc = "TLS TrustStore path for gateway")
   private String tlsTrustStore = null;
 
-  @FieldContext(category = CATEGORY_KEYSTORE_TLS, doc = "TLS TrustStore password for proxy")
+  @FieldContext(category = CATEGORY_KEYSTORE_TLS, doc = "TLS TrustStore password for gateway")
   private String tlsTrustStorePassword = null;
 
   @FieldContext(
