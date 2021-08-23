@@ -1010,51 +1010,53 @@ public class AMQChannel implements ServerChannelMethodProcessor {
     AMQShortString consumerTag1 = consumerTag;
 
     String queueName = queueNameStr == null ? getDefaultQueueName() : queueNameStr.toString();
-    Queue queue = getQueue(queueName);
-
-    if (queue == null) {
+    if (queueName == null) {
       if (LOGGER.isDebugEnabled()) {
-        LOGGER.debug("No queue for '" + queueName + "'");
+        LOGGER.debug("No queue name provided, no default queue defined.");
       }
-      if (queueName != null) {
+      _connection.sendConnectionClose(
+          ErrorCodes.NOT_ALLOWED, "No queue name provided, no default queue defined.", _channelId);
+    } else {
+      Queue queue = getQueue(queueName);
+      if (queue == null) {
+        if (LOGGER.isDebugEnabled()) {
+          LOGGER.debug("No queue for '" + queueName + "'");
+        }
         closeChannel(ErrorCodes.NOT_FOUND, "No such queue, '" + queueName + "'");
       } else {
-        _connection.sendConnectionClose(
-            ErrorCodes.NOT_ALLOWED,
-            "No queue name provided, no default queue defined.",
-            _channelId);
-      }
-    } else {
-      if (consumerTag1 == null) {
-        consumerTag1 = AMQShortString.createAMQShortString("sgen_" + getNextConsumerTag());
-      }
-      // TODO: check exclusive queue owned by another connection
-      if (_tag2SubscriptionTargetMap.containsKey(consumerTag1)) {
-        _connection.sendConnectionClose(
-            ErrorCodes.NOT_ALLOWED, "Non-unique consumer tag, '" + consumerTag1 + "'", _channelId);
-      } else if (queue.hasExclusiveConsumer()) {
-        _connection.sendConnectionClose(
-            ErrorCodes.ACCESS_REFUSED,
-            "Cannot subscribe to queue '"
-                + queueName
-                + "' as it already has an existing exclusive consumer",
-            _channelId);
-      } else if (exclusive && queue.getConsumerCount() != 0) {
-        _connection.sendConnectionClose(
-            ErrorCodes.ACCESS_REFUSED,
-            "Cannot subscribe to queue '"
-                + queueName
-                + "' exclusively as it already has a consumer",
-            _channelId);
-      } else {
-        if (!nowait) {
-          MethodRegistry methodRegistry = _connection.getMethodRegistry();
-          AMQMethodBody responseBody = methodRegistry.createBasicConsumeOkBody(consumerTag1);
-          _connection.writeFrame(responseBody.generateFrame(_channelId));
+        if (consumerTag1 == null) {
+          consumerTag1 = AMQShortString.createAMQShortString("sgen_" + getNextConsumerTag());
         }
-        AMQConsumer consumer = new AMQConsumer(this, consumerTag1, queue, noAck);
-        queue.addConsumer(consumer, exclusive);
-        _tag2SubscriptionTargetMap.put(consumerTag1, consumer);
+        // TODO: check exclusive queue owned by another connection
+        if (_tag2SubscriptionTargetMap.containsKey(consumerTag1)) {
+          _connection.sendConnectionClose(
+              ErrorCodes.NOT_ALLOWED,
+              "Non-unique consumer tag, '" + consumerTag1 + "'",
+              _channelId);
+        } else if (queue.hasExclusiveConsumer()) {
+          _connection.sendConnectionClose(
+              ErrorCodes.ACCESS_REFUSED,
+              "Cannot subscribe to queue '"
+                  + queueName
+                  + "' as it already has an existing exclusive consumer",
+              _channelId);
+        } else if (exclusive && queue.getConsumerCount() != 0) {
+          _connection.sendConnectionClose(
+              ErrorCodes.ACCESS_REFUSED,
+              "Cannot subscribe to queue '"
+                  + queueName
+                  + "' exclusively as it already has a consumer",
+              _channelId);
+        } else {
+          if (!nowait) {
+            MethodRegistry methodRegistry = _connection.getMethodRegistry();
+            AMQMethodBody responseBody = methodRegistry.createBasicConsumeOkBody(consumerTag1);
+            _connection.writeFrame(responseBody.generateFrame(_channelId));
+          }
+          AMQConsumer consumer = new AMQConsumer(this, consumerTag1, queue, noAck);
+          queue.addConsumer(consumer, exclusive);
+          _tag2SubscriptionTargetMap.put(consumerTag1, consumer);
+        }
       }
     }
   }
@@ -1131,65 +1133,64 @@ public class AMQChannel implements ServerChannelMethodProcessor {
               + noAck
               + " ]");
     }
-
     String queueName = queueNameStr == null ? getDefaultQueueName() : queueNameStr.toString();
-    Queue queue = getQueue(queueName);
 
-    if (queue == null) {
+    if (queueName == null) {
       if (LOGGER.isDebugEnabled()) {
-        LOGGER.debug("No queue for '" + queueName + "'");
+        LOGGER.debug("No queue name provided, no default queue defined.");
       }
-      if (queueName != null) {
+      _connection.sendConnectionClose(
+          ErrorCodes.NOT_ALLOWED, "No queue name provided, no default queue defined.", _channelId);
+    } else {
+      Queue queue = getQueue(queueName);
+      if (queue == null) {
+        if (LOGGER.isDebugEnabled()) {
+          LOGGER.debug("No queue for '" + queueName + "'");
+        }
         _connection.sendConnectionClose(
             ErrorCodes.NOT_FOUND, "No such queue, '" + queueName + "'", _channelId);
-
       } else {
-        _connection.sendConnectionClose(
-            ErrorCodes.NOT_ALLOWED,
-            "No queue name provided, no default queue defined.",
-            _channelId);
-      }
-    } else {
-      // TODO: check exclusive queue owned by another connection
-      if (queue.hasExclusiveConsumer()) {
-        _connection.sendConnectionClose(
-            ErrorCodes.ACCESS_REFUSED,
-            "Cannot subscribe to queue '"
-                + queueName
-                + "' as it already has an existing exclusive consumer",
-            _channelId);
-      } else {
-        PulsarConsumer.PulsarConsumerMessage messageResponse = queue.receive();
-        if (messageResponse != null) {
-          Message<byte[]> message = messageResponse.getMessage();
-          PulsarConsumer pulsarConsumer = messageResponse.getConsumer();
-          long deliveryTag = getNextDeliveryTag();
-          ContentBody contentBody = new ContentBody(ByteBuffer.wrap(message.getData()));
-          _connection
-              .getProtocolOutputConverter()
-              .writeGetOk(
-                  MessageUtils.getMessagePublishInfo(message),
-                  contentBody,
-                  MessageUtils.getContentHeaderBody(message),
-                  message.getRedeliveryCount() > 0,
-                  _channelId,
-                  deliveryTag,
-                  queue.getQueueDepthMessages());
-          if (noAck) {
-            pulsarConsumer.ackMessage(message.getMessageId());
-          } else {
-            addUnacknowledgedMessage(
-                message.getMessageId(),
-                null,
-                deliveryTag,
-                false,
-                pulsarConsumer,
-                contentBody.getSize());
-          }
+        // TODO: check exclusive queue owned by another connection
+        if (queue.hasExclusiveConsumer()) {
+          _connection.sendConnectionClose(
+              ErrorCodes.ACCESS_REFUSED,
+              "Cannot subscribe to queue '"
+                  + queueName
+                  + "' as it already has an existing exclusive consumer",
+              _channelId);
         } else {
-          MethodRegistry methodRegistry = _connection.getMethodRegistry();
-          BasicGetEmptyBody responseBody = methodRegistry.createBasicGetEmptyBody(null);
-          _connection.writeFrame(responseBody.generateFrame(_channelId));
+          PulsarConsumer.PulsarConsumerMessage messageResponse = queue.receive();
+          if (messageResponse != null) {
+            Message<byte[]> message = messageResponse.getMessage();
+            PulsarConsumer pulsarConsumer = messageResponse.getConsumer();
+            long deliveryTag = getNextDeliveryTag();
+            ContentBody contentBody = new ContentBody(ByteBuffer.wrap(message.getData()));
+            _connection
+                .getProtocolOutputConverter()
+                .writeGetOk(
+                    MessageUtils.getMessagePublishInfo(message),
+                    contentBody,
+                    MessageUtils.getContentHeaderBody(message),
+                    message.getRedeliveryCount() > 0,
+                    _channelId,
+                    deliveryTag,
+                    queue.getQueueDepthMessages());
+            if (noAck) {
+              pulsarConsumer.ackMessage(message.getMessageId());
+            } else {
+              addUnacknowledgedMessage(
+                  message.getMessageId(),
+                  null,
+                  deliveryTag,
+                  false,
+                  pulsarConsumer,
+                  contentBody.getSize());
+            }
+          } else {
+            MethodRegistry methodRegistry = _connection.getMethodRegistry();
+            BasicGetEmptyBody responseBody = methodRegistry.createBasicGetEmptyBody(null);
+            _connection.writeFrame(responseBody.generateFrame(_channelId));
+          }
         }
       }
     }

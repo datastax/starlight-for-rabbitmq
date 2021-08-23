@@ -314,7 +314,7 @@ class GatewayConnectionTest extends AbstractBaseTest {
 
     Thread.sleep(600);
     channel.runPendingTasks();
-    exchangeData(HeartbeatBody.FRAME);
+    exchangeDataNoWait(HeartbeatBody.FRAME);
 
     Thread.sleep(600);
     channel.runPendingTasks();

@@ -39,6 +39,7 @@ import java.util.Collections;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.TimeUnit;
+import org.apache.curator.x.async.modeled.versioned.Versioned;
 import org.apache.pulsar.client.admin.PulsarAdmin;
 import org.apache.pulsar.client.admin.Topics;
 import org.apache.pulsar.client.api.ConsumerBuilder;
@@ -112,13 +113,20 @@ public class AbstractBaseTest {
     doReturn(CompletableFuture.completedFuture(null))
         .when(topics)
         .createSubscriptionAsync(anyString(), anyString(), any());
+    doReturn(CompletableFuture.completedFuture(MessageId.latest))
+        .when(topics)
+        .getLastMessageIdAsync(anyString());
     doReturn(topics).when(pulsarAdmin).topics();
     doReturn(pulsarAdmin).when(gatewayService).getPulsarAdmin();
 
     Answer<CompletionStage<ContextMetadata>> answer =
-        invocation ->
-            CompletableFuture.completedFuture(
-                gatewayService.updateContext((ContextMetadata) invocation.getArguments()[0]));
+        invocation -> {
+          Versioned<ContextMetadata> contextMetadata =
+              (Versioned<ContextMetadata>) invocation.getArguments()[0];
+          gatewayService.setContextMetadata(contextMetadata);
+          return CompletableFuture.completedFuture(
+              gatewayService.updateContext(contextMetadata.model()));
+        };
     doAnswer(answer).when(gatewayService).saveContext(any());
   }
 
@@ -128,9 +136,24 @@ public class AbstractBaseTest {
     channel.writeInbound(byteBuf);
   }
 
-  protected <T> T exchangeData(AMQDataBlock data) {
+  protected <T> T exchangeDataNoWait(AMQDataBlock data) {
     sendData(data);
     return channel.readOutbound();
+  }
+
+  protected <T> T exchangeData(AMQDataBlock data) {
+    sendData(data);
+
+    T read = null;
+    long now = System.currentTimeMillis();
+    while (System.currentTimeMillis() - now < 1000 && read == null) {
+      read = channel.readOutbound();
+      try {
+        Thread.sleep(10);
+      } catch (InterruptedException e) {
+      }
+    }
+    return read;
   }
 
   protected void openConnection() {
@@ -165,7 +188,7 @@ public class AbstractBaseTest {
   protected AMQFrame sendConnectionTuneOk(int channelMax, long frameMax, int heartbeat) {
     ConnectionTuneOkBody connectionTuneOkBody =
         new ConnectionTuneOkBody(channelMax, frameMax, heartbeat);
-    return exchangeData(connectionTuneOkBody.generateFrame(1));
+    return exchangeDataNoWait(connectionTuneOkBody.generateFrame(1));
   }
 
   protected AMQFrame sendConnectionOpen() {

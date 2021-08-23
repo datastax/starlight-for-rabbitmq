@@ -21,6 +21,7 @@ import static org.apache.commons.lang3.StringUtils.isNotBlank;
 import com.datastax.oss.pulsar.rabbitmqgw.metadata.ContextMetadata;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.annotations.VisibleForTesting;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.AdaptiveRecvByteBufAllocator;
 import io.netty.channel.Channel;
@@ -227,6 +228,11 @@ public class GatewayService implements Closeable {
 
   public Versioned<ContextMetadata> getContextMetadata() {
     return contextMetadata;
+  }
+
+  @VisibleForTesting
+  public void setContextMetadata(Versioned<ContextMetadata> contextMetadata) {
+    this.contextMetadata = contextMetadata;
   }
 
   public Versioned<ContextMetadata> newContextMetadata(Versioned<ContextMetadata> previousContext) {

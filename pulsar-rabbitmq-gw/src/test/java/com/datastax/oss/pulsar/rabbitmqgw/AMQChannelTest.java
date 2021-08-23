@@ -508,19 +508,10 @@ public class AMQChannelTest extends AbstractBaseTest {
     openChannel();
     sendQueueDeclare();
 
-    /*Map<String, Map<String, PulsarConsumer>> bindings =
-        connection.getVhost().getExchange(ExchangeDefaults.DEFAULT_EXCHANGE_NAME).getBindings();
-
-    assertNotNull(bindings.get(TEST_QUEUE));
-    assertNotNull(bindings.get(TEST_QUEUE).get(TEST_QUEUE));*/
-
     AMQFrame frame = sendQueueDelete(TEST_QUEUE, false);
 
     assertNotNull(frame);
     assertTrue(frame.getBodyFrame() instanceof QueueDeleteOkBody);
-
-    // assertNull(bindings.get(TEST_QUEUE));
-    verify(consumer, times(1)).closeAsync();
   }
 
   @Test
@@ -545,7 +536,8 @@ public class AMQChannelTest extends AbstractBaseTest {
     assertTrue(frame.getBodyFrame() instanceof QueueDeleteOkBody);
   }
 
-  @Test
+  // TODO: support delete ifUnused with multiple gateways
+  // @Test
   void testReceiveQueueDeleteInUse() {
     openChannel();
     sendQueueDeclare();
