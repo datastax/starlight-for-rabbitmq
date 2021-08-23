@@ -16,6 +16,7 @@
 package com.datastax.oss.pulsar.rabbitmqgw;
 
 import com.google.common.collect.Sets;
+import java.util.Collections;
 import java.util.Optional;
 import java.util.Properties;
 import java.util.Set;
@@ -23,6 +24,8 @@ import lombok.Getter;
 import lombok.Setter;
 import org.apache.pulsar.common.configuration.Category;
 import org.apache.pulsar.common.configuration.FieldContext;
+import org.apache.pulsar.common.configuration.PropertiesContext;
+import org.apache.pulsar.common.configuration.PropertyContext;
 import org.apache.pulsar.common.configuration.PulsarConfiguration;
 
 @Getter
@@ -31,6 +34,7 @@ public class GatewayConfiguration implements PulsarConfiguration {
   @Category private static final String CATEGORY_SERVER = "Server";
   @Category private static final String CATEGORY_BROKER_DISCOVERY = "Broker Discovery";
   @Category private static final String CATEGORY_AUTHENTICATION = "Gateway Authentication";
+  @Category private static final String CATEGORY_TOKEN_AUTH = "Token Authentication Provider";
 
   @Category
   private static final String CATEGORY_CLIENT_AUTHENTICATION = "Broker Client Authorization";
@@ -84,9 +88,10 @@ public class GatewayConfiguration implements PulsarConfiguration {
 
   @FieldContext(
     category = CATEGORY_AUTHENTICATION,
-    doc = "Authentication provider name list (a comma-separated list of class names)"
+    doc =
+        "Authentication mechanism name list (a comma-separated list of mecanisms. Eg: PLAIN,EXTERNAL)"
   )
-  private Set<String> authenticationProviders = Sets.newTreeSet();
+  private Set<String> authenticationMechanisms = Sets.newTreeSet(Collections.singleton("PLAIN"));
 
   @FieldContext(
     category = CATEGORY_CLIENT_AUTHENTICATION,
@@ -109,8 +114,6 @@ public class GatewayConfiguration implements PulsarConfiguration {
   private String brokerClientTrustCertsFilePath;
 
   /** *** --- TLS --- *** */
-  @Deprecated private boolean tlsEnabledInProxy = false;
-
   @FieldContext(
     category = CATEGORY_TLS,
     doc = "Tls cert refresh duration in seconds (set 0 to check on every new connection)"
@@ -209,6 +212,36 @@ public class GatewayConfiguration implements PulsarConfiguration {
   @FieldContext(category = CATEGORY_KEYSTORE_TLS, doc = "TLS TrustStore password for gateway")
   private String tlsTrustStorePassword = null;
 
+  @PropertiesContext(
+    properties = {
+      @PropertyContext(
+        key = "tokenPublicKey",
+        doc =
+            @FieldContext(
+              category = CATEGORY_TOKEN_AUTH,
+              doc =
+                  "Asymmetric public/private key pair.\n\n"
+                      + "Configure the public key to be used to validate auth tokens"
+                      + " The key can be specified like:\n\n"
+                      + "tokenPublicKey=data:;base64,xxxxxxxxx\n"
+                      + "tokenPublicKey=file:///my/public.key  ( Note: key file must be DER-encoded )"
+            )
+      ),
+      @PropertyContext(
+        key = "tokenSecretKey",
+        doc =
+            @FieldContext(
+              category = CATEGORY_TOKEN_AUTH,
+              doc =
+                  "Symmetric key.\n\n"
+                      + "Configure the secret key to be used to validate auth tokens"
+                      + "The key can be specified like:\n\n"
+                      + "tokenSecretKey=data:;base64,xxxxxxxxx\n"
+                      + "tokenSecretKey=file:///my/secret.key  ( Note: key file must be DER-encoded )"
+            )
+      )
+    }
+  )
   @FieldContext(
     category = CATEGORY_AMQP,
     doc = "The maximum number of sessions which can exist concurrently on a connection."

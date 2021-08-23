@@ -30,7 +30,6 @@ import com.rabbitmq.client.ConnectionFactory;
 import com.rabbitmq.client.Envelope;
 import com.rabbitmq.client.GetResponse;
 import com.rabbitmq.client.ShutdownSignalException;
-import com.rabbitmq.client.impl.DefaultCredentialsProvider;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.Date;
@@ -71,15 +70,14 @@ public class RabbitmqInteropIT {
     GatewayConfiguration config = new GatewayConfiguration();
     config.setBrokerServiceURL(cluster.getAddress());
     config.setBrokerWebServiceURL(cluster.getAddress());
-    config.setServicePort(Optional.of(PortManager.nextFreePort()));
+    int port = PortManager.nextFreePort();
+    config.setServicePort(Optional.of(port));
     config.setZookeeperServers(cluster.getService().getConfig().getZookeeperServers());
     gatewayService = new GatewayService(config, null);
     gatewayService.start();
 
     factory = new ConnectionFactory();
-    factory.setVirtualHost("/");
-    factory.setHost("localhost");
-    factory.setPort(config.getServicePort().get());
+    factory.setPort(port);
   }
 
   @AfterAll
