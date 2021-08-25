@@ -1,8 +1,24 @@
+/*
+ * Copyright DataStax, Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 package com.datastax.oss.pulsar.rabbitmqtests;
 
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
+
 import com.datastax.oss.pulsar.rabbitmqgw.GatewayConfiguration;
 import com.datastax.oss.pulsar.rabbitmqgw.GatewayService;
 import com.datastax.oss.pulsar.rabbitmqgw.GatewayServiceStarter;
@@ -40,8 +56,7 @@ public class BrokerClientTlsConnectionWithKeyStoreIT {
 
   private static final String KEYSTORE_TYPE = "JKS";
 
-  @TempDir
-  public static Path tempDir;
+  @TempDir public static Path tempDir;
   private static PulsarCluster cluster;
   private static GatewayService gatewayService;
   private static final int brokerServicePortTls = PortManager.nextFreePort();
@@ -84,7 +99,8 @@ public class BrokerClientTlsConnectionWithKeyStoreIT {
     gatewayConfiguration.setBrokerWebServiceURL("https://localhost:" + webServicePortTls);
 
     gatewayConfiguration.setServicePort(Optional.of(PortManager.nextFreePort()));
-    gatewayConfiguration.setZookeeperServers(cluster.getService().getConfig().getZookeeperServers());
+    gatewayConfiguration.setZookeeperServers(
+        cluster.getService().getConfig().getZookeeperServers());
     gatewayConfiguration.setTlsEnabledWithBroker(true);
     // PulsarAdmin will only verify the client cert if this is enabled
     gatewayConfiguration.setTlsHostnameVerificationEnabled(true);
@@ -106,7 +122,8 @@ public class BrokerClientTlsConnectionWithKeyStoreIT {
 
     gatewayService =
         new GatewayService(
-            gatewayConfiguration, new AuthenticationService(GatewayServiceStarter.convertFrom(gatewayConfiguration)));
+            gatewayConfiguration,
+            new AuthenticationService(GatewayServiceStarter.convertFrom(gatewayConfiguration)));
     gatewayService.start();
 
     gatewayService.getPulsarAdmin().clusters().getClusters();
@@ -117,10 +134,12 @@ public class BrokerClientTlsConnectionWithKeyStoreIT {
   public void testBrokerTlsConnectionWithKeyStoreFailed() throws Exception {
     gatewayService =
         new GatewayService(
-            gatewayConfiguration, new AuthenticationService(GatewayServiceStarter.convertFrom(gatewayConfiguration)));
+            gatewayConfiguration,
+            new AuthenticationService(GatewayServiceStarter.convertFrom(gatewayConfiguration)));
     gatewayService.start();
 
-    assertThrows(PulsarAdminException.class, () -> gatewayService.getPulsarAdmin().clusters().getClusters());
+    assertThrows(
+        PulsarAdminException.class, () -> gatewayService.getPulsarAdmin().clusters().getClusters());
     try {
       gatewayService.getPulsarClient().getPartitionsForTopic("test").get(5, TimeUnit.SECONDS);
       fail("Should have timed out or thrown PulsarClientException");
@@ -130,5 +149,4 @@ public class BrokerClientTlsConnectionWithKeyStoreIT {
       assertTrue(e.getCause() instanceof PulsarClientException);
     }
   }
-
 }

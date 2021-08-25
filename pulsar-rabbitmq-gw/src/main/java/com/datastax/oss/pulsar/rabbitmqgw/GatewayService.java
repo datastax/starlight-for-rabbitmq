@@ -168,7 +168,8 @@ public class GatewayService implements Closeable {
     // set trust store if needed.
     if (config.isTlsEnabledWithBroker()) {
       if (config.isBrokerClientTlsEnabledWithKeyStore()) {
-        clientBuilder.useKeyStoreTls(true)
+        clientBuilder
+            .useKeyStoreTls(true)
             .tlsTrustStoreType(config.getBrokerClientTlsTrustStoreType())
             .tlsTrustStorePath(config.getBrokerClientTlsTrustStore())
             .tlsTrustStorePassword(config.getBrokerClientTlsTrustStorePassword());
@@ -200,7 +201,8 @@ public class GatewayService implements Closeable {
     // set trust store if needed.
     if (config.isTlsEnabledWithBroker()) {
       if (config.isBrokerClientTlsEnabledWithKeyStore()) {
-        adminBuilder.useKeyStoreTls(true)
+        adminBuilder
+            .useKeyStoreTls(true)
             .tlsTrustStoreType(config.getBrokerClientTlsTrustStoreType())
             .tlsTrustStorePath(config.getBrokerClientTlsTrustStore())
             .tlsTrustStorePassword(config.getBrokerClientTlsTrustStorePassword());
