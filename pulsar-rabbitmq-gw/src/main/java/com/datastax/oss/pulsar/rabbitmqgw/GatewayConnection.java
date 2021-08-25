@@ -34,7 +34,6 @@ import java.net.SocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.Map;
-import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -265,10 +264,10 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
           AuthenticationProvider tokenAuthProvider =
               authenticationService.getAuthenticationProvider("token");
           if (tokenAuthProvider != null) {
-            Optional<String> token = tryExtractTokenFromSaslPlain(response);
-            if (token.isPresent()) {
+            if (response.length > 2 && response[0] == 0 && response[1] == 0) {
+              String token = new String(response, 2, response.length - 2, StandardCharsets.UTF_8);
               AuthenticationDataCommand authData =
-                  new AuthenticationDataCommand(token.get(), remoteAddress, null);
+                  new AuthenticationDataCommand(token, remoteAddress, null);
               principal = authenticationService.authenticate(authData, "token");
             }
           }
@@ -299,44 +298,6 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
     processSaslResponse(response);
 
     _state = ConnectionState.AWAIT_TUNE_OK;
-  }
-
-  private Optional<String> tryExtractTokenFromSaslPlain(byte[] response) {
-    if (response == null && response.length == 0) {
-      return Optional.empty();
-    }
-
-    int authzidNullPosition = findNullPosition(response, 0);
-    if (authzidNullPosition < 0) {
-      return Optional.empty();
-    }
-    int authcidNullPosition = findNullPosition(response, authzidNullPosition + 1);
-    if (authcidNullPosition < 0) {
-      return Optional.empty();
-    }
-    String username =
-        new String(
-            response,
-            authzidNullPosition + 1,
-            authcidNullPosition - authzidNullPosition - 1,
-            StandardCharsets.UTF_8);
-    if (!username.equals("token")) {
-      return Optional.empty();
-    }
-    int passwordLen = response.length - authcidNullPosition - 1;
-    return Optional.of(
-        new String(response, authcidNullPosition + 1, passwordLen, StandardCharsets.UTF_8));
-  }
-
-  private int findNullPosition(byte[] response, int startPosition) {
-    int position = startPosition;
-    while (position < response.length) {
-      if (response[position] == (byte) 0) {
-        return position;
-      }
-      position++;
-    }
-    return -1;
   }
 
   @Override

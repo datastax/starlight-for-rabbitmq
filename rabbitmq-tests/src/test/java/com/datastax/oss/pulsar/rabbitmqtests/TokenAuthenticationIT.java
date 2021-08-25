@@ -30,15 +30,11 @@ import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.SignatureAlgorithm;
 import java.nio.file.Path;
 import java.util.Base64;
-import java.util.HashSet;
 import java.util.Optional;
-import java.util.Set;
 import javax.crypto.SecretKey;
 import org.apache.bookkeeper.util.PortManager;
-import org.apache.pulsar.broker.authentication.AuthenticationProviderToken;
 import org.apache.pulsar.broker.authentication.AuthenticationService;
 import org.apache.pulsar.broker.authentication.utils.AuthTokenUtils;
-import org.apache.pulsar.common.configuration.PulsarConfigurationLoader;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -95,22 +91,22 @@ public class TokenAuthenticationIT {
 
   @Test
   void testTokenAuthenticationSuccess() throws Exception {
-    factory.setCredentialsProvider(new DefaultCredentialsProvider("token", CLIENT_TOKEN));
+    factory.setCredentialsProvider(new DefaultCredentialsProvider("", CLIENT_TOKEN));
     Connection conn = factory.newConnection();
     assertTrue(conn.isOpen());
   }
 
   @Test
-  void testTokenAuthenticationInvalidUser() throws Exception {
+  void testTokenAuthenticationInvalidUser() {
     factory.setCredentialsProvider(new DefaultCredentialsProvider("nobody", CLIENT_TOKEN));
     assertThrows(PossibleAuthenticationFailureException.class, factory::newConnection);
   }
 
   @Test
-  void testTokenAuthenticationInvalidToken() throws Exception {
+  void testTokenAuthenticationInvalidToken() {
     SecretKey secretKey = AuthTokenUtils.createSecretKey(SignatureAlgorithm.HS256);
     String jwt = Jwts.builder().setSubject(CLIENT_ROLE).signWith(secretKey).compact();
-    factory.setCredentialsProvider(new DefaultCredentialsProvider("token", jwt));
+    factory.setCredentialsProvider(new DefaultCredentialsProvider("", jwt));
     assertThrows(PossibleAuthenticationFailureException.class, factory::newConnection);
   }
 }

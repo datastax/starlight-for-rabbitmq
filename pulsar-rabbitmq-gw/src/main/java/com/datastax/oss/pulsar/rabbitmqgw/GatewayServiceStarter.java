@@ -106,17 +106,21 @@ public class GatewayServiceStarter {
 
   public static ServiceConfiguration convertFrom(GatewayConfiguration config) {
     ServiceConfiguration authConfiguration = PulsarConfigurationLoader.convertFrom(config);
-    if (config.getAuthenticationMechanisms().contains("PLAIN")) {
-      checkArgument(
-          !isEmpty(config.getProperties().getProperty("tokenPublicKey"))
-              || !isEmpty(config.getProperties().getProperty("tokenSecretKey")),
-          "SASL PLAIN is only supported with JWT as password at the moment");
-      authConfiguration
-          .getAuthenticationProviders()
-          .add(AuthenticationProviderToken.class.getName());
-    }
-    if (config.getAuthenticationMechanisms().contains("EXTERNAL")) {
-      authConfiguration.getAuthenticationProviders().add(AuthenticationProviderTls.class.getName());
+    if (config.isAuthenticationEnabled()) {
+      if (config.getAuthenticationMechanisms().contains("PLAIN")) {
+        checkArgument(
+            !isEmpty(config.getProperties().getProperty("tokenPublicKey"))
+                || !isEmpty(config.getProperties().getProperty("tokenSecretKey")),
+            "SASL PLAIN is only supported with JWT as password at the moment");
+        authConfiguration
+            .getAuthenticationProviders()
+            .add(AuthenticationProviderToken.class.getName());
+      }
+      if (config.getAuthenticationMechanisms().contains("EXTERNAL")) {
+        authConfiguration
+            .getAuthenticationProviders()
+            .add(AuthenticationProviderTls.class.getName());
+      }
     }
     return authConfiguration;
   }

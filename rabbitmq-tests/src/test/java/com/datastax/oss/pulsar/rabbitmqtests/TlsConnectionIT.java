@@ -69,7 +69,6 @@ public class TlsConnectionIT {
   private static final String CLIENT_KEYSTORE_PW = "111111";
   private static final String CLIENT_TRUSTSTORE_PW = "111111";
 
-  private static final String CLIENT_KEYSTORE_CN = "clientuser";
   private static final String KEYSTORE_TYPE = "JKS";
 
   @TempDir public static Path tempDir;
@@ -121,6 +120,7 @@ public class TlsConnectionIT {
 
     factory = new ConnectionFactory();
     factory.setPort(port);
+    factory.enableHostnameVerification();
   }
 
   @AfterEach
@@ -213,11 +213,5 @@ public class TlsConnectionIT {
     factory.setSaslConfig(DefaultSaslConfig.EXTERNAL);
 
     assertThrows(PossibleAuthenticationFailureException.class, factory::newConnection);
-  }
-
-  private void setTlsConfig(boolean withKeyStore) {
-    if (withKeyStore) {
-      config.setTlsEnabledWithKeyStore(true);
-    }
   }
 }
