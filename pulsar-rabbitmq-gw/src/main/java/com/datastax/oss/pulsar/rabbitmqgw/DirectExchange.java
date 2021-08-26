@@ -25,7 +25,7 @@ import java.util.concurrent.CompletableFuture;
 import org.apache.pulsar.client.api.MessageId;
 import org.apache.qpid.server.model.LifetimePolicy;
 
-public class DirectExchange extends AbstractExchange {
+public final class DirectExchange extends AbstractExchange {
 
   public DirectExchange(String name, boolean durable, LifetimePolicy lifetimePolicy) {
     super(name, Type.direct, durable, lifetimePolicy);

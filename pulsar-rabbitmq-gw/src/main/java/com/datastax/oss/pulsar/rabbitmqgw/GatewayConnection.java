@@ -284,7 +284,7 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
           }
           AuthenticationDataCommand authData =
               new AuthenticationDataCommand(null, remoteAddress, sslSession);
-          principal = authenticationService.authenticate(authData, "tls");
+          authenticationService.authenticate(authData, "tls");
         } else {
           throw new AuthenticationException("Unsupported authentication mechanism");
         }

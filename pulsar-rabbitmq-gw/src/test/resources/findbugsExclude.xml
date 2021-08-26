@@ -22,4 +22,11 @@
     <Method name="&lt;init&gt;"/>
     <Bug pattern="DM_EXIT"/>
   </Match>
+  <Match>
+    <!-- Disable warnings about mutable objects and the use of public fields.
+      EI_EXPOSE_REP: May expose internal representation by returning reference to mutable object
+      EI_EXPOSE_REP2: May expose internal representation by incorporating reference to mutable object
+    -->
+    <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2,MS_PKGPROTECT"/>
+  </Match>
 </FindBugsFilter>
