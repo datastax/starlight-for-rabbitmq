@@ -60,7 +60,8 @@ public class ProtocolOutputConverter {
       long deliveryTag,
       AMQShortString consumerTag) {
     AMQBody deliverBody = createEncodedDeliverBody(info, isRedelivered, deliveryTag, consumerTag);
-    return writeMessageDelivery(contentBody, contentHeaderBody, channelId, deliverBody);
+    return writeMessageDelivery(
+        contentBody.getPayload(), contentHeaderBody, channelId, deliverBody);
   }
 
   interface DisposableMessageContentSource extends MessageContentSource {
@@ -68,7 +69,10 @@ public class ProtocolOutputConverter {
   }
 
   private long writeMessageDelivery(
-      ContentBody body, ContentHeaderBody contentHeaderBody, int channelId, AMQBody deliverBody) {
+      QpidByteBuffer payload,
+      ContentHeaderBody contentHeaderBody,
+      int channelId,
+      AMQBody deliverBody) {
 
     int bodySize = (int) contentHeaderBody.getBodySize();
     boolean msgCompressed = isCompressed(contentHeaderBody);
@@ -79,7 +83,7 @@ public class ProtocolOutputConverter {
     long length;
     if (msgCompressed
         && !compressionSupported
-        && (modifiedContent = inflateIfPossible(body)) != null) {
+        && (modifiedContent = inflateIfPossible(payload)) != null) {
       BasicContentHeaderProperties modifiedProps =
           new BasicContentHeaderProperties(contentHeaderBody.getProperties());
       modifiedProps.setEncoding((String) null);
@@ -89,7 +93,7 @@ public class ProtocolOutputConverter {
         && compressionSupported
         && contentHeaderBody.getProperties().getEncoding() == null
         && bodySize > MESSAGE_COMPRESSION_THRESHOLD_SIZE
-        && (modifiedContent = deflateIfPossible(body)) != null) {
+        && (modifiedContent = deflateIfPossible(payload)) != null) {
       BasicContentHeaderProperties modifiedProps =
           new BasicContentHeaderProperties(contentHeaderBody.getProperties());
       modifiedProps.setEncoding(GZIP_ENCODING);
@@ -97,11 +101,7 @@ public class ProtocolOutputConverter {
       length = writeMessageDeliveryModified(modifiedContent, channelId, deliverBody, modifiedProps);
     } else {
       writeMessageDeliveryUnchanged(
-          new ModifiedContentSource(body.getPayload()),
-          channelId,
-          deliverBody,
-          contentHeaderBody,
-          bodySize);
+          new ModifiedContentSource(payload), channelId, deliverBody, contentHeaderBody, bodySize);
 
       length = bodySize;
     }
@@ -113,8 +113,8 @@ public class ProtocolOutputConverter {
     return length;
   }
 
-  private DisposableMessageContentSource deflateIfPossible(ContentBody source) {
-    try (QpidByteBuffer contentBuffers = source.getPayload()) {
+  private DisposableMessageContentSource deflateIfPossible(QpidByteBuffer contentBuffers) {
+    try {
       return new ModifiedContentSource(QpidByteBuffer.deflate(contentBuffers));
     } catch (IOException e) {
       LOGGER.warn(
@@ -124,8 +124,8 @@ public class ProtocolOutputConverter {
     }
   }
 
-  private DisposableMessageContentSource inflateIfPossible(ContentBody source) {
-    try (QpidByteBuffer contentBuffers = source.getPayload()) {
+  private DisposableMessageContentSource inflateIfPossible(QpidByteBuffer contentBuffers) {
+    try {
       return new ModifiedContentSource(QpidByteBuffer.inflate(contentBuffers));
     } catch (IOException e) {
       LOGGER.warn(
@@ -235,7 +235,7 @@ public class ProtocolOutputConverter {
       long deliveryTag,
       int queueSize) {
     AMQBody deliver = createEncodedGetOkBody(info, isRedelivered, deliveryTag, queueSize);
-    return writeMessageDelivery(contentBody, contentHeaderBody, channelId, deliver);
+    return writeMessageDelivery(contentBody.getPayload(), contentHeaderBody, channelId, deliver);
   }
 
   private AMQBody createEncodedDeliverBody(
@@ -344,13 +344,16 @@ public class ProtocolOutputConverter {
             messagePublishInfo.getRoutingKey());
   }
 
-  /*public void writeReturn(MessagePublishInfo messagePublishInfo, ContentHeaderBody header, MessageContentSource message, int channelId, int replyCode, AMQShortString replyText)
-  {
-
-      AMQBody returnFrame = createEncodedReturnFrame(messagePublishInfo, replyCode, replyText);
-
-      writeMessageDelivery(message, header, channelId, returnFrame);
-  }*/
+  public void writeReturn(
+      MessagePublishInfo messagePublishInfo,
+      ContentHeaderBody header,
+      QpidByteBuffer payload,
+      int channelId,
+      int replyCode,
+      AMQShortString replyText) {
+    AMQBody returnFrame = createEncodedReturnFrame(messagePublishInfo, replyCode, replyText);
+    writeMessageDelivery(payload, header, channelId, returnFrame);
+  }
 
   public void writeFrame(AMQDataBlock block) {
     _connection.writeFrame(block);

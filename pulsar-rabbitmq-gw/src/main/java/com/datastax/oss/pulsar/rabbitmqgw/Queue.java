@@ -16,12 +16,8 @@
 package com.datastax.oss.pulsar.rabbitmqgw;
 
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import org.apache.pulsar.client.api.Message;
 import org.apache.qpid.server.model.ExclusivityPolicy;
@@ -30,30 +26,31 @@ import org.apache.qpid.server.model.LifetimePolicy;
 public class Queue {
 
   private final String name;
+  private final boolean durable;
   private final LifetimePolicy lifetimePolicy;
   private final ExclusivityPolicy exclusivityPolicy;
 
-  private final Map<String, Binding> bindings = new ConcurrentHashMap<>();
-  private final Set<String> exchangesToPoll = new HashSet<>();
   private final java.util.Queue<MessageRequest> messageRequests = new ConcurrentLinkedQueue<>();
-  private final java.util.Queue<Binding> pendingBindings = new ConcurrentLinkedQueue<>();
+  private final java.util.Queue<PulsarConsumer.PulsarConsumerMessage> pendingBindings =
+      new ConcurrentLinkedQueue<>();
 
-  private volatile ConsumerTarget _exclusiveSubscriber;
-  private List<ConsumerTarget> consumers = new ArrayList<>();
+  private volatile AMQConsumer _exclusiveSubscriber;
+  private final List<AMQConsumer> consumers = new ArrayList<>();
+  private final List<AbstractExchange> boundExchanges = new ArrayList<>();
 
-  public Queue(String name, LifetimePolicy lifetimePolicy, ExclusivityPolicy exclusivityPolicy) {
+  public Queue(
+      String name,
+      boolean durable,
+      LifetimePolicy lifetimePolicy,
+      ExclusivityPolicy exclusivityPolicy) {
     this.name = name;
+    this.durable = durable;
     this.lifetimePolicy = lifetimePolicy;
     this.exclusivityPolicy = exclusivityPolicy;
   }
 
   public String getName() {
     return name;
-  }
-
-  public void addBinding(Binding binding) {
-    bindings.put(binding.getExchange().getName(), binding);
-    exchangesToPoll.add(binding.getExchange().getName());
   }
 
   public int getQueueDepthMessages() {
@@ -65,6 +62,14 @@ public class Queue {
     return consumers.size();
   }
 
+  public boolean isUnused() {
+    return getConsumerCount() == 0;
+  }
+
+  public boolean isEmpty() {
+    return getQueueDepthMessages() == 0;
+  }
+
   public boolean isExclusive() {
     return exclusivityPolicy != ExclusivityPolicy.NONE;
   }
@@ -73,96 +78,95 @@ public class Queue {
     return lifetimePolicy;
   }
 
-  public CompletableFuture<Message<byte[]>> receiveAsync(boolean autoAck, int priority) {
+  public CompletableFuture<PulsarConsumer.PulsarConsumerMessage> receiveAsync(
+      AMQConsumer consumer) {
     // TODO: support consumer priority
-    MessageRequest messageRequest = new MessageRequest(autoAck);
-    messageRequests.add(messageRequest);
+    MessageRequest request = new MessageRequest(consumer);
+    messageRequests.add(request);
     deliverMessageIfAvailable();
-    return messageRequest.getMessage();
+    return request.getResponse();
   }
 
-  public Message<byte[]> receive(boolean autoAck) {
-    Binding binding = getReadyBinding();
-    if (binding != null) {
-      Message<byte[]> message = null;
-      try {
-        message = binding.getReceive().get();
-      } catch (Exception e) {
-        // TODO: should not happen. Close connection ?
-      }
-      if (autoAck) {
-        binding.ackMessage(message);
-      }
-      binding.receiveMessageAsync().thenAcceptAsync(this::deliverMessage);
-      return message;
+  public PulsarConsumer.PulsarConsumerMessage receive() {
+    PulsarConsumer.PulsarConsumerMessage consumerMessage = getReadyBinding();
+    if (consumerMessage != null) {
+      consumerMessage.getConsumer().receiveAndDeliverMessages();
+      return consumerMessage;
     }
     return null;
   }
 
-  public Binding getReadyBinding() {
-    return pendingBindings.poll();
+  public PulsarConsumer.PulsarConsumerMessage getReadyBinding() {
+    synchronized (this) {
+      return pendingBindings.poll();
+    }
   }
 
   public void deliverMessageIfAvailable() {
-    Binding binding = getReadyBinding();
-    if (binding != null) {
-      MessageRequest request = messageRequests.poll();
-      if (request != null) {
-        binding
-            .getReceive()
-            .thenAccept(
-                message -> {
-                  request.getMessage().complete(message);
-                  if (request.isAutoAck()) {
-                    binding.ackMessage(message);
-                  }
-                  binding.receiveMessageAsync().thenAcceptAsync(this::deliverMessage);
-                });
+    PulsarConsumer.PulsarConsumerMessage consumerMessage = getReadyBinding();
+    if (consumerMessage != null) {
+      deliverMessage(consumerMessage);
+    }
+  }
+
+  public void deliverMessage(PulsarConsumer.PulsarConsumerMessage consumerMessage) {
+    synchronized (this) {
+      if (consumerMessage != null) {
+        Message<byte[]> message = consumerMessage.getMessage();
+        boolean messageDelivered = false;
+        while (!messageRequests.isEmpty()) {
+          MessageRequest request = messageRequests.poll();
+          if (request != null && !request.getResponse().isDone()) {
+            boolean allocated = request.getConsumer().useCreditForMessage(message.size());
+            if (allocated) {
+              request.getResponse().complete(consumerMessage);
+              consumerMessage.getConsumer().receiveAndDeliverMessages();
+              messageDelivered = true;
+              break;
+            } else {
+              request.getConsumer().block();
+            }
+          }
+        }
+        if (!messageDelivered) {
+          pendingBindings.add(consumerMessage);
+        }
       }
     }
   }
 
-  public void deliverMessage(Binding binding) {
-    MessageRequest request;
-    do {
-      request = messageRequests.poll();
-    } while (request != null && request.getMessage().isDone());
+  public List<AbstractExchange> getBoundExchanges() {
+    return boundExchanges;
+  }
 
-    if (request != null) {
-      final MessageRequest req = request;
-      binding
-          .getReceive()
-          .thenAccept(
-              message -> {
-                req.getMessage().complete(message);
-                if (req.isAutoAck()) {
-                  binding.ackMessage(message);
-                }
-                binding.receiveMessageAsync().thenAcceptAsync(this::deliverMessage);
-              });
-    } else {
-      pendingBindings.add(binding);
-    }
+  public long clearQueue() {
+    // TODO: implement queue purge
+    return 0;
+  }
+
+  public boolean isDurable() {
+    return durable;
   }
 
   public static class MessageRequest {
-    private final CompletableFuture<Message<byte[]>> message = new CompletableFuture<>();
-    private final boolean autoAck;
+    private final AMQConsumer consumer;
+    private final CompletableFuture<PulsarConsumer.PulsarConsumerMessage> response =
+        new CompletableFuture<>();
 
-    public MessageRequest(boolean autoAck) {
-      this.autoAck = autoAck;
+    public MessageRequest(AMQConsumer consumer) {
+      this.consumer = consumer;
     }
 
-    public CompletableFuture<Message<byte[]>> getMessage() {
-      return message;
+    public CompletableFuture<PulsarConsumer.PulsarConsumerMessage> getResponse() {
+      return response;
     }
 
-    public boolean isAutoAck() {
-      return autoAck;
+    public AMQConsumer getConsumer() {
+      return consumer;
     }
   }
 
-  public void addConsumer(ConsumerTarget consumer, boolean exclusive) {
+  public void addConsumer(AMQConsumer consumer, boolean exclusive) {
     if (exclusive) {
       _exclusiveSubscriber = consumer;
     }
@@ -170,9 +174,13 @@ public class Queue {
     consumer.consume();
   }
 
-  public void unregisterConsumer(ConsumerTarget consumer) {
+  public void unregisterConsumer(AMQConsumer consumer) {
     consumers.remove(consumer);
     _exclusiveSubscriber = null;
+  }
+
+  public List<AMQConsumer> getConsumers() {
+    return consumers;
   }
 
   public boolean hasExclusiveConsumer() {

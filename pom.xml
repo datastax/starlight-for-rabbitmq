@@ -41,12 +41,13 @@
     <java.release.version>8</java.release.version>
     <maven.compiler.source>8</maven.compiler.source>
     <maven.compiler.target>8</maven.compiler.target>
-    <pulsar.version>2.7.2</pulsar.version>
+    <pulsar.version>2.8.0</pulsar.version>
     <curator.version>5.1.0</curator.version>
     <slf4j.version>1.7.30</slf4j.version>
     <logback.version>1.2.3</logback.version>
     <junit.version>5.7.1</junit.version>
     <surefire.version>3.0.0-M5</surefire.version>
+    <assertj.version>3.19.0</assertj.version>
   </properties>
   <dependencyManagement>
     <dependencies>
@@ -102,6 +103,12 @@
         <groupId>org.mockito</groupId>
         <artifactId>mockito-core</artifactId>
         <version>1.10.19</version>
+        <scope>test</scope>
+      </dependency>
+      <dependency>
+        <groupId>org.assertj</groupId>
+        <artifactId>assertj-core</artifactId>
+        <version>${assertj.version}</version>
         <scope>test</scope>
       </dependency>
     </dependencies>
@@ -169,6 +176,9 @@ limitations under the License.]]></inlineHeader>
               <include>src/**/*.properties</include>
               <include>**/pom.xml</include>
             </includes>
+            <excludes>
+              <exclude>**/rabbitmqtests/javaclient/**/*</exclude>
+            </excludes>
             <mapping>
               <java>SLASHSTAR_STYLE</java>
               <properties>SCRIPT_STYLE</properties>

@@ -28,6 +28,8 @@ import java.io.Closeable;
 import java.io.IOException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import org.apache.pulsar.client.admin.PulsarAdmin;
+import org.apache.pulsar.client.admin.PulsarAdminBuilder;
 import org.apache.pulsar.client.api.ClientBuilder;
 import org.apache.pulsar.client.api.PulsarClient;
 import org.apache.pulsar.client.api.PulsarClientException;
@@ -41,6 +43,7 @@ public class GatewayService implements Closeable {
 
   private final GatewayConfiguration config;
   private PulsarClient pulsarClient;
+  private PulsarAdmin pulsarAdmin;
 
   private final EventLoopGroup acceptorGroup;
   private final EventLoopGroup workerGroup;
@@ -61,8 +64,8 @@ public class GatewayService implements Closeable {
     checkNotNull(config);
     this.config = config;
 
-    this.acceptorGroup = EventLoopUtil.newEventLoopGroup(1, acceptorThreadFactory);
-    this.workerGroup = EventLoopUtil.newEventLoopGroup(numThreads, workersThreadFactory);
+    this.acceptorGroup = EventLoopUtil.newEventLoopGroup(1, true, acceptorThreadFactory);
+    this.workerGroup = EventLoopUtil.newEventLoopGroup(numThreads, true, workersThreadFactory);
   }
 
   public void start() throws Exception {
@@ -102,6 +105,10 @@ public class GatewayService implements Closeable {
     }
   }
 
+  public EventLoopGroup getWorkerGroup() {
+    return workerGroup;
+  }
+
   public synchronized PulsarClient getPulsarClient() throws PulsarClientException {
     // Do lazy initialization of client
     if (pulsarClient == null) {
@@ -126,6 +133,28 @@ public class GatewayService implements Closeable {
     }
 
     return clientBuilder.build();
+  }
+
+  public synchronized PulsarAdmin getPulsarAdmin() throws PulsarClientException {
+    // Do lazy initialization of client
+    if (pulsarAdmin == null) {
+      pulsarAdmin = createAdminInstance();
+    }
+    return pulsarAdmin;
+  }
+
+  private PulsarAdmin createAdminInstance() throws PulsarClientException {
+    PulsarAdminBuilder adminBuilder =
+        PulsarAdmin.builder().serviceHttpUrl(config.getBrokerWebServiceURL());
+
+    if (isNotBlank(config.getBrokerClientAuthenticationPlugin())
+        && isNotBlank(config.getBrokerClientAuthenticationParameters())) {
+      adminBuilder.authentication(
+          config.getBrokerClientAuthenticationPlugin(),
+          config.getBrokerClientAuthenticationParameters());
+    }
+
+    return adminBuilder.build();
   }
 
   public void close() {

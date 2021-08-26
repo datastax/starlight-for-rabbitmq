@@ -21,13 +21,12 @@ import com.google.common.annotations.VisibleForTesting;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
+import io.netty.channel.EventLoop;
 import io.netty.handler.timeout.IdleState;
 import io.netty.handler.timeout.IdleStateEvent;
 import io.netty.handler.timeout.IdleStateHandler;
-import java.io.IOException;
 import java.lang.reflect.Proxy;
 import java.net.SocketAddress;
-import java.nio.BufferUnderflowException;
 import java.util.Collections;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -41,7 +40,6 @@ import org.apache.qpid.server.protocol.ErrorCodes;
 import org.apache.qpid.server.protocol.ProtocolVersion;
 import org.apache.qpid.server.protocol.v0_8.AMQDecoder;
 import org.apache.qpid.server.protocol.v0_8.AMQFrameDecodingException;
-import org.apache.qpid.server.protocol.v0_8.AMQPInvalidClassException;
 import org.apache.qpid.server.protocol.v0_8.AMQShortString;
 import org.apache.qpid.server.protocol.v0_8.FieldTable;
 import org.apache.qpid.server.protocol.v0_8.ServerDecoder;
@@ -142,21 +140,36 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
   public void channelRead(ChannelHandlerContext ctx, Object msg) {
     ByteBuf buffer = (ByteBuf) msg;
     try {
-      _netInputBuffer.put(QpidByteBuffer.wrap(buffer.nioBuffer()));
+      QpidByteBuffer buf = QpidByteBuffer.wrap(buffer.nioBuffer());
+      if (_netInputBuffer.remaining() < buf.remaining()) {
+        QpidByteBuffer oldBuffer = _netInputBuffer;
+        _netInputBuffer = QpidByteBuffer.allocateDirect(_networkBufferSize);
+        if (oldBuffer.position() != 0) {
+          oldBuffer.limit(oldBuffer.position());
+          oldBuffer.slice();
+          oldBuffer.flip();
+          _netInputBuffer.put(oldBuffer);
+        }
+      }
+      _netInputBuffer.put(buf);
       _netInputBuffer.flip();
       _decoder.decodeBuffer(_netInputBuffer);
       receivedCompleteAllChannels();
       if (_netInputBuffer != null) {
         restoreApplicationBufferForWrite();
       }
-    } catch (AMQFrameDecodingException
-        | IOException
-        | AMQPInvalidClassException
-        | IllegalArgumentException
-        | IllegalStateException
-        | BufferUnderflowException e) {
+    } catch (AMQFrameDecodingException e) {
+      LOGGER.debug("Invalid frame", e);
+      sendConnectionClose(
+          // Hack to be compliant with RabbitMQ expectations
+          e.getMessage().startsWith("Unsupported content header class id:")
+              ? 505
+              : e.getErrorCode(),
+          e.getMessage(),
+          0);
+    } catch (Exception e) {
       LOGGER.warn("Unexpected exception", e);
-      throw new ConnectionScopedRuntimeException(e);
+      closeNetworkConnection();
     } finally {
       buffer.release();
     }
@@ -505,6 +518,9 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
   }
 
   public void closeNetworkConnection() {
+    if (!_orderlyClose.get()) {
+      completeAndCloseAllChannels();
+    }
     ctx.close();
   }
 
@@ -566,10 +582,11 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
     } catch (QpidException | AMQProtocolHeaderException e) {
       LOGGER.debug(
           "Received unsupported protocol initiation for protocol version: {} ",
-          getProtocolVersion());
+          getProtocolVersion(),
+          e);
 
       writeFrame(new ProtocolInitiation(ProtocolVersion.getLatestSupportedVersion()));
-      // TODO: shouldn't the connection be closed ?
+      closeNetworkConnection();
     }
   }
 
@@ -722,8 +739,13 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
     }
   }
 
+  public EventLoop getEventloop() {
+    return ctx.channel().eventLoop();
+  }
+
+  // TODO: support message compression (Qpid only)
   public boolean isCompressionSupported() {
-    return true;
+    return false;
   }
 
   public MethodRegistry getMethodRegistry() {

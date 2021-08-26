@@ -61,6 +61,6 @@ public final class MessageUtils {
     } catch (AMQFrameDecodingException | IllegalArgumentException e) {
       LOGGER.error("Couldn't decode AMQP headers", e);
     }
-    return new ContentHeaderBody(new BasicContentHeaderProperties(), message.getData().length);
+    return new ContentHeaderBody(new BasicContentHeaderProperties(), message.size());
   }
 }

@@ -66,8 +66,7 @@ class GatewayConnectionTest extends AbstractBaseTest {
 
     assertEquals(9, pi.getProtocolMajor());
     assertEquals(1, pi.getProtocolMinor());
-    // TODO: should close connection ?
-    assertTrue(channel.isOpen());
+    assertFalse(channel.isOpen());
   }
 
   @Test
@@ -81,7 +80,9 @@ class GatewayConnectionTest extends AbstractBaseTest {
     assertTrue(body instanceof ConnectionTuneBody);
     ConnectionTuneBody connectionTuneBody = (ConnectionTuneBody) body;
     assertEquals(256, connectionTuneBody.getChannelMax());
-    assertEquals(256 * 1024 - AMQFrame.getFrameOverhead(), connectionTuneBody.getFrameMax());
+    assertEquals(
+        config.getAmqpNetworkBufferSize() - AMQFrame.getFrameOverhead(),
+        connectionTuneBody.getFrameMax());
     assertEquals(0, connectionTuneBody.getHeartbeat());
   }
 
@@ -144,7 +145,7 @@ class GatewayConnectionTest extends AbstractBaseTest {
     sendProtocolHeader();
     sendConnectionStartOk();
 
-    AMQFrame frame = sendConnectionTuneOk(256, 1024 * 1024, 60);
+    AMQFrame frame = sendConnectionTuneOk(256, config.getAmqpNetworkBufferSize() * 2L, 60);
 
     assertIsConnectionCloseFrame(frame, ErrorCodes.SYNTAX_ERROR);
   }
@@ -166,7 +167,9 @@ class GatewayConnectionTest extends AbstractBaseTest {
 
     sendConnectionTuneOk(256, 0, 60);
 
-    assertEquals(256 * 1024 - AMQFrame.getFrameOverhead(), connection.getMaxFrameSize());
+    assertEquals(
+        config.getAmqpNetworkBufferSize() - AMQFrame.getFrameOverhead(),
+        connection.getMaxFrameSize());
   }
 
   @Test

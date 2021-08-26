@@ -62,7 +62,7 @@ public class Pre0_10CreditManager implements FlowCreditManager_0_8 {
   public void restoreCredit(final long messageCredit, final long bytesCredit) {
     _messageCredit.add(messageCredit);
     long messageCreditSum = _messageCredit.longValue();
-    if (messageCreditSum > _messageCreditLimit) {
+    if (_messageCreditLimit != 0 && messageCreditSum > _messageCreditLimit) {
       throw new IllegalStateException(
           String.format(
               "Consumer credit accounting error. Restored more credit than we ever had: messageCredit=%d  messageCreditLimit=%d",
@@ -71,7 +71,7 @@ public class Pre0_10CreditManager implements FlowCreditManager_0_8 {
 
     _bytesCredit.add(bytesCredit);
     long _bytesCreditSum = _bytesCredit.longValue();
-    if (_bytesCreditSum > _bytesCreditLimit) {
+    if (_bytesCreditLimit != 0 && _bytesCreditSum > _bytesCreditLimit) {
       throw new IllegalStateException(
           String.format(
               "Consumer credit accounting error. Restored more credit than we ever had: bytesCredit=%d  bytesCreditLimit=%d",
