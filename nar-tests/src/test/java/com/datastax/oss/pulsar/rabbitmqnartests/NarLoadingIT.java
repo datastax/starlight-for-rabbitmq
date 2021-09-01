@@ -15,16 +15,28 @@
  */
 package com.datastax.oss.pulsar.rabbitmqnartests;
 
+import com.datastax.oss.pulsar.rabbitmqnartests.utils.PulsarCluster;
 import com.google.common.collect.Sets;
+import com.rabbitmq.client.Connection;
+import com.rabbitmq.client.ConnectionFactory;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Optional;
+import org.apache.bookkeeper.util.PortManager;
 import org.apache.pulsar.proxy.server.ProxyConfiguration;
 import org.apache.pulsar.proxy.server.ProxyService;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 public class NarLoadingIT {
+
+  @TempDir public static Path tempDir;
+
   @Test
   public void loadsNar() throws Exception {
+    PulsarCluster cluster = new PulsarCluster(tempDir);
+    cluster.start();
+
     ProxyConfiguration proxyConfiguration = new ProxyConfiguration();
 
     Path handlerPath = Paths.get("target/test-protocol-proxy-handler.nar").toAbsolutePath();
@@ -33,8 +45,28 @@ public class NarLoadingIT {
 
     proxyConfiguration.setProxyProtocolHandlerDirectory(protocolHandlerDir);
     proxyConfiguration.setProxyMessagingProtocols(Sets.newHashSet("rabbitmq"));
-    //proxyConfiguration.setNarExtractionDirectory("/tmp");
+
+    int port = PortManager.nextFreePort();
+    proxyConfiguration.getProperties().put("amqpServicePort",String.valueOf(port));
+    proxyConfiguration
+        .getProperties()
+        .put("zookeeperServers", cluster.getService().getConfig().getZookeeperServers());
+    proxyConfiguration
+        .getProperties()
+        .put("brokerServiceURL", cluster.getService().getBrokerServiceUrl());
+    proxyConfiguration
+        .getProperties()
+        .put("brokerWebServiceURL", cluster.getService().getWebServiceAddress());
+
     ProxyService pulsarProxy = new ProxyService(proxyConfiguration, null);
     pulsarProxy.start();
+
+    ConnectionFactory factory = new ConnectionFactory();
+    factory.setPort(port);
+
+    Connection connection = factory.newConnection();
+
+    connection.close();
+    pulsarProxy.close();
   }
 }

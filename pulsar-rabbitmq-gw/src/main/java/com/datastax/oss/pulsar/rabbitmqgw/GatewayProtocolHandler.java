@@ -20,7 +20,6 @@ import io.netty.channel.socket.SocketChannel;
 import java.net.InetSocketAddress;
 import java.util.Map;
 import lombok.SneakyThrows;
-import org.apache.pulsar.common.configuration.PulsarConfigurationLoader;
 import org.apache.pulsar.proxy.protocol.ProtocolHandler;
 import org.apache.pulsar.proxy.server.ProxyConfiguration;
 import org.apache.pulsar.proxy.server.ProxyService;
@@ -45,7 +44,7 @@ public class GatewayProtocolHandler implements ProtocolHandler {
   @SneakyThrows
   @Override
   public void initialize(ProxyConfiguration conf) {
-    config = PulsarConfigurationLoader.create(conf.getProperties(), GatewayConfiguration.class);
+    config = ConfigurationUtils.create(conf.getProperties(), GatewayConfiguration.class);
   }
 
   @SneakyThrows
