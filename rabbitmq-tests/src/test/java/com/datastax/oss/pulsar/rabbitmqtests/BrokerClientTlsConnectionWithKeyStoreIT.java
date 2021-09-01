@@ -98,7 +98,7 @@ public class BrokerClientTlsConnectionWithKeyStoreIT {
     gatewayConfiguration.setBrokerServiceURL("pulsar+ssl://localhost:" + brokerServicePortTls);
     gatewayConfiguration.setBrokerWebServiceURL("https://localhost:" + webServicePortTls);
 
-    gatewayConfiguration.setServicePort(Optional.of(PortManager.nextFreePort()));
+    gatewayConfiguration.setAmqpServicePort(Optional.of(PortManager.nextFreePort()));
     gatewayConfiguration.setZookeeperServers(
         cluster.getService().getConfig().getZookeeperServers());
     gatewayConfiguration.setTlsEnabledWithBroker(true);

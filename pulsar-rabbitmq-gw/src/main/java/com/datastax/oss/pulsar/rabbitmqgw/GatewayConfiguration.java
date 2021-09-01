@@ -18,294 +18,30 @@ package com.datastax.oss.pulsar.rabbitmqgw;
 import com.google.common.collect.Sets;
 import java.util.Collections;
 import java.util.Optional;
-import java.util.Properties;
 import java.util.Set;
 import lombok.Getter;
 import lombok.Setter;
-import org.apache.pulsar.common.configuration.Category;
 import org.apache.pulsar.common.configuration.FieldContext;
-import org.apache.pulsar.common.configuration.PropertiesContext;
-import org.apache.pulsar.common.configuration.PropertyContext;
-import org.apache.pulsar.common.configuration.PulsarConfiguration;
+import org.apache.pulsar.proxy.server.ProxyConfiguration;
 
 @Getter
 @Setter
-public class GatewayConfiguration implements PulsarConfiguration {
-  @Category private static final String CATEGORY_SERVER = "Server";
-  @Category private static final String CATEGORY_BROKER_DISCOVERY = "Broker Discovery";
-  @Category private static final String CATEGORY_AUTHENTICATION = "Gateway Authentication";
-  @Category private static final String CATEGORY_TOKEN_AUTH = "Token Authentication Provider";
-
-  @Category
-  private static final String CATEGORY_CLIENT_AUTHENTICATION = "Broker Client Authorization";
-
-  @Category private static final String CATEGORY_TLS = "TLS";
-  @Category private static final String CATEGORY_KEYSTORE_TLS = "KeyStoreTLS";
-
+public class GatewayConfiguration extends ProxyConfiguration {
   private static final String CATEGORY_AMQP = "AMQP";
 
-  @FieldContext(
-    category = CATEGORY_SERVER,
-    required = true,
-    doc = "The Zookeeper quorum connection string (as a comma-separated list)"
-  )
-  private String zookeeperServers;
+  @FieldContext(category = CATEGORY_AMQP, doc = "The port for serving AMQP")
+  private Optional<Integer> amqpServicePort = Optional.of(5672);
+
+  @FieldContext(category = CATEGORY_AMQP, doc = "The port for serving tls secured AMQP")
+  private Optional<Integer> amqpServicePortTls = Optional.empty();
 
   @FieldContext(
-    category = CATEGORY_BROKER_DISCOVERY,
-    doc = "The service url points to the broker cluster"
-  )
-  private String brokerServiceURL;
-
-  @FieldContext(
-    category = CATEGORY_BROKER_DISCOVERY,
-    doc = "The web service url points to the broker cluster"
-  )
-  private String brokerWebServiceURL;
-
-  @FieldContext(category = CATEGORY_SERVER, doc = "Hostname or IP address the service binds on")
-  private String bindAddress = "0.0.0.0";
-
-  @FieldContext(
-    category = CATEGORY_SERVER,
-    doc =
-        "Hostname or IP address the service advertises to the outside world."
-            + " If not set, the value of `InetAddress.getLocalHost().getCanonicalHostName()` is used."
-  )
-  private String advertisedAddress;
-
-  @FieldContext(category = CATEGORY_SERVER, doc = "The port for serving AMQP")
-  private Optional<Integer> servicePort = Optional.of(5672);
-
-  @FieldContext(category = CATEGORY_SERVER, doc = "The port for serving tls secured AMQP")
-  private Optional<Integer> servicePortTls = Optional.empty();
-
-  @FieldContext(
-    category = CATEGORY_AUTHENTICATION,
-    doc = "Whether authentication is enabled for the Pulsar Gateway"
-  )
-  private boolean authenticationEnabled = false;
-
-  @FieldContext(
-    category = CATEGORY_AUTHENTICATION,
+    category = CATEGORY_AMQP,
     doc =
         "Authentication mechanism name list (a comma-separated list of mecanisms. Eg: PLAIN,EXTERNAL)"
   )
   private Set<String> authenticationMechanisms = Sets.newTreeSet(Collections.singleton("PLAIN"));
 
-  @FieldContext(
-    category = CATEGORY_CLIENT_AUTHENTICATION,
-    doc = "The authentication plugin used by the Pulsar Gateway to authenticate with Pulsar brokers"
-  )
-  private String brokerClientAuthenticationPlugin;
-
-  @FieldContext(
-    category = CATEGORY_CLIENT_AUTHENTICATION,
-    doc =
-        "The authentication parameters used by the Pulsar Gateway to authenticate with Pulsar brokers"
-  )
-  private String brokerClientAuthenticationParameters;
-
-  @FieldContext(
-    category = CATEGORY_CLIENT_AUTHENTICATION,
-    doc =
-        "The path to trusted certificates used by the Pulsar Gateway to authenticate with Pulsar brokers"
-  )
-  private String brokerClientTrustCertsFilePath;
-
-  @FieldContext(
-    category = CATEGORY_CLIENT_AUTHENTICATION,
-    doc = "Whether TLS is enabled when communicating with Pulsar brokers"
-  )
-  private boolean tlsEnabledWithBroker = false;
-
-  /** *** --- TLS --- *** */
-  @FieldContext(
-    category = CATEGORY_TLS,
-    doc = "Tls cert refresh duration in seconds (set 0 to check on every new connection)"
-  )
-  private long tlsCertRefreshCheckDurationSec = 300; // 5 mins
-
-  @FieldContext(category = CATEGORY_TLS, doc = "Path for the TLS certificate file")
-  private String tlsCertificateFilePath;
-
-  @FieldContext(category = CATEGORY_TLS, doc = "Path for the TLS private key file")
-  private String tlsKeyFilePath;
-
-  @FieldContext(
-    category = CATEGORY_TLS,
-    doc =
-        "Path for the trusted TLS certificate file.\n\n"
-            + "This cert is used to verify that any certs presented by connecting clients"
-            + " are signed by a certificate authority. If this verification fails, then the"
-            + " certs are untrusted and the connections are dropped"
-  )
-  private String tlsTrustCertsFilePath;
-
-  @FieldContext(
-    category = CATEGORY_TLS,
-    doc =
-        "Accept untrusted TLS certificate from client.\n\n"
-            + "If true, a client with a cert which cannot be verified with the `tlsTrustCertsFilePath`"
-            + " cert will be allowed to connect to the server, though the cert will not be used for"
-            + " client authentication"
-  )
-  private boolean tlsAllowInsecureConnection = false;
-
-  @FieldContext(
-    category = CATEGORY_TLS,
-    doc = "Whether the hostname is validated when the gateway creates a TLS connection with brokers"
-  )
-  private boolean tlsHostnameVerificationEnabled = false;
-
-  @FieldContext(
-    category = CATEGORY_TLS,
-    doc =
-        "Specify the tls protocols the broker will use to negotiate during TLS handshake"
-            + " (a comma-separated list of protocol names).\n\n"
-            + "Examples:- [TLSv1.3, TLSv1.2]"
-  )
-  private Set<String> tlsProtocols = Sets.newTreeSet();
-
-  @FieldContext(
-    category = CATEGORY_TLS,
-    doc =
-        "Specify the tls cipher the gateway will use to negotiate during TLS Handshake"
-            + " (a comma-separated list of ciphers).\n\n"
-            + "Examples:- [TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256]"
-  )
-  private Set<String> tlsCiphers = Sets.newTreeSet();
-
-  @FieldContext(
-    category = CATEGORY_TLS,
-    doc =
-        "Whether client certificates are required for TLS.\n\n"
-            + " Connections are rejected if the client certificate isn't trusted"
-  )
-  private boolean tlsRequireTrustedClientCertOnConnect = false;
-
-  /** ** --- KeyStore TLS config variables --- *** */
-  @FieldContext(
-    category = CATEGORY_KEYSTORE_TLS,
-    doc = "Enable TLS with KeyStore type configuration for gateway"
-  )
-  private boolean tlsEnabledWithKeyStore = false;
-
-  @FieldContext(category = CATEGORY_KEYSTORE_TLS, doc = "TLS Provider")
-  private String tlsProvider = null;
-
-  @FieldContext(
-    category = CATEGORY_KEYSTORE_TLS,
-    doc = "TLS KeyStore type configuration for gateway: JKS, PKCS12"
-  )
-  private String tlsKeyStoreType = "JKS";
-
-  @FieldContext(category = CATEGORY_KEYSTORE_TLS, doc = "TLS KeyStore path for gateway")
-  private String tlsKeyStore = null;
-
-  @FieldContext(category = CATEGORY_KEYSTORE_TLS, doc = "TLS KeyStore password for gateway")
-  private String tlsKeyStorePassword = null;
-
-  @FieldContext(
-    category = CATEGORY_KEYSTORE_TLS,
-    doc = "TLS TrustStore type configuration for gateway: JKS, PKCS12"
-  )
-  private String tlsTrustStoreType = "JKS";
-
-  @FieldContext(category = CATEGORY_KEYSTORE_TLS, doc = "TLS TrustStore path for gateway")
-  private String tlsTrustStore = null;
-
-  @FieldContext(category = CATEGORY_KEYSTORE_TLS, doc = "TLS TrustStore password for gateway")
-  private String tlsTrustStorePassword = null;
-
-  /* --- KeyStore TLS config variables used for gateway to auth with broker--- */
-  @FieldContext(
-    category = CATEGORY_KEYSTORE_TLS,
-    doc = "Whether the Pulsar gateway use KeyStore type to authenticate with Pulsar brokers"
-  )
-  private boolean brokerClientTlsEnabledWithKeyStore = false;
-
-  @FieldContext(
-    category = CATEGORY_KEYSTORE_TLS,
-    doc = "The TLS Provider used by the Pulsar gateway to authenticate with Pulsar brokers"
-  )
-  private String brokerClientSslProvider = null;
-
-  // needed when client auth is required
-  @FieldContext(
-    category = CATEGORY_KEYSTORE_TLS,
-    doc =
-        "TLS TrustStore type configuration for gateway: JKS, PKCS12 "
-            + " used by the Pulsar gateway to authenticate with Pulsar brokers"
-  )
-  private String brokerClientTlsTrustStoreType = "JKS";
-
-  @FieldContext(
-    category = CATEGORY_KEYSTORE_TLS,
-    doc =
-        "TLS TrustStore path for gateway, "
-            + " used by the Pulsar gateway to authenticate with Pulsar brokers"
-  )
-  private String brokerClientTlsTrustStore = null;
-
-  @FieldContext(
-    category = CATEGORY_KEYSTORE_TLS,
-    doc =
-        "TLS TrustStore password for gateway, "
-            + " used by the Pulsar gateway to authenticate with Pulsar brokers"
-  )
-  private String brokerClientTlsTrustStorePassword = null;
-
-  @FieldContext(
-    category = CATEGORY_KEYSTORE_TLS,
-    doc =
-        "Specify the tls cipher the gateway will use to negotiate during TLS Handshake"
-            + " (a comma-separated list of ciphers).\n\n"
-            + "Examples:- [TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256].\n"
-            + " used by the Pulsar gateway to authenticate with Pulsar brokers"
-  )
-  private Set<String> brokerClientTlsCiphers = Sets.newTreeSet();
-
-  @FieldContext(
-    category = CATEGORY_KEYSTORE_TLS,
-    doc =
-        "Specify the tls protocols the broker will use to negotiate during TLS handshake"
-            + " (a comma-separated list of protocol names).\n\n"
-            + "Examples:- [TLSv1.2, TLSv1.1, TLSv1] \n"
-            + " used by the Pulsar gateway to authenticate with Pulsar brokers"
-  )
-  private Set<String> brokerClientTlsProtocols = Sets.newTreeSet();
-
-  @PropertiesContext(
-    properties = {
-      @PropertyContext(
-        key = "tokenPublicKey",
-        doc =
-            @FieldContext(
-              category = CATEGORY_TOKEN_AUTH,
-              doc =
-                  "Asymmetric public/private key pair.\n\n"
-                      + "Configure the public key to be used to validate auth tokens"
-                      + " The key can be specified like:\n\n"
-                      + "tokenPublicKey=data:;base64,xxxxxxxxx\n"
-                      + "tokenPublicKey=file:///my/public.key  ( Note: key file must be DER-encoded )"
-            )
-      ),
-      @PropertyContext(
-        key = "tokenSecretKey",
-        doc =
-            @FieldContext(
-              category = CATEGORY_TOKEN_AUTH,
-              doc =
-                  "Symmetric key.\n\n"
-                      + "Configure the secret key to be used to validate auth tokens"
-                      + "The key can be specified like:\n\n"
-                      + "tokenSecretKey=data:;base64,xxxxxxxxx\n"
-                      + "tokenSecretKey=file:///my/secret.key  ( Note: key file must be DER-encoded )"
-            )
-      )
-    }
-  )
   @FieldContext(
     category = CATEGORY_AMQP,
     doc = "The maximum number of sessions which can exist concurrently on a connection."
@@ -346,14 +82,4 @@ public class GatewayConfiguration implements PulsarConfiguration {
         "Timeout in ms after which the connection closes even if a ConnectionCloseOk frame is not received"
   )
   private int amqpConnectionCloseTimeout = 2000;
-
-  public Optional<Integer> getServicePort() {
-    return servicePort;
-  }
-
-  public Optional<Integer> getServicePortTls() {
-    return servicePortTls;
-  }
-
-  private Properties properties = new Properties();
 }

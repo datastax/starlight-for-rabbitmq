@@ -96,7 +96,7 @@ public class GatewayServiceStarter {
                     }
                   }));
 
-      gatewayService.start();
+      gatewayService.start(true);
 
     } catch (Exception e) {
       log.error("Failed to start pulsar RabbitMQ gateway service. error msg " + e.getMessage(), e);
