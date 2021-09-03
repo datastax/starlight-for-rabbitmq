@@ -44,6 +44,13 @@ public class GatewayConfiguration extends ProxyConfiguration {
 
   @FieldContext(
     category = CATEGORY_AMQP,
+    doc =
+        "If set, the RabbitMQ service will use these parameters to authenticate on Pulsar's brokers. If not set, the brokerClientAuthenticationParameters setting will be used. This setting allows to have different credentials for the proxy and for the RabbitMQ service"
+  )
+  private String amqpBrokerClientAuthenticationParameters;
+
+  @FieldContext(
+    category = CATEGORY_AMQP,
     doc = "The maximum number of sessions which can exist concurrently on a connection."
   )
   private int amqpSessionCountLimit = 256;
@@ -67,7 +74,7 @@ public class GatewayConfiguration extends ProxyConfiguration {
 
   @FieldContext(category = CATEGORY_AMQP, doc = "Network buffer size.")
   // TODO: Network buffer size must be bigger than Netty's receive buffer. Also configure Netty with
-  // this.
+  //  this.
   private int amqpNetworkBufferSize = 2 * 1024 * 1024;
 
   @FieldContext(category = CATEGORY_AMQP, doc = "Max message size.")

@@ -70,7 +70,7 @@
             <configuration>
               <tasks>
                 <echo>copy proxy protocol handler</echo>
-                <copy file="${basedir}/../pulsar-rabbitmq-gw/target/pulsar-rabbitmq-gw-${project.version}.nar" tofile="${project.build.directory}/test-protocol-proxy-handler.nar"/>
+                <copy file="${basedir}/../pulsar-rabbitmq-gw/target/pulsar-rabbitmq-gw-${project.version}.nar" tofile="${project.build.directory}/test-protocol-handler.nar"/>
               </tasks>
             </configuration>
           </execution>

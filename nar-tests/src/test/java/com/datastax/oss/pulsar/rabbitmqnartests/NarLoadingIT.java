@@ -15,14 +15,15 @@
  */
 package com.datastax.oss.pulsar.rabbitmqnartests;
 
+import com.datastax.oss.pulsar.rabbitmqnartests.utils.BookKeeperCluster;
 import com.datastax.oss.pulsar.rabbitmqnartests.utils.PulsarCluster;
 import com.google.common.collect.Sets;
 import com.rabbitmq.client.Connection;
 import com.rabbitmq.client.ConnectionFactory;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Optional;
 import org.apache.bookkeeper.util.PortManager;
+import org.apache.pulsar.broker.ServiceConfiguration;
 import org.apache.pulsar.proxy.server.ProxyConfiguration;
 import org.apache.pulsar.proxy.server.ProxyService;
 import org.junit.jupiter.api.Test;
@@ -34,20 +35,30 @@ public class NarLoadingIT {
 
   @Test
   public void loadsNar() throws Exception {
-    PulsarCluster cluster = new PulsarCluster(tempDir);
+    Path handlerPath = Paths.get("target/test-protocol-handler.nar").toAbsolutePath();
+    String protocolHandlerDir = handlerPath.toFile().getParent();
+
+    ServiceConfiguration pulsarConfig = new ServiceConfiguration();
+    pulsarConfig.setProtocolHandlerDirectory(protocolHandlerDir);
+    pulsarConfig.setMessagingProtocols(Sets.newHashSet("rabbitmq"));
+
+    int portOnBroker = PortManager.nextFreePort();
+    pulsarConfig.getProperties().put("amqpServicePort", String.valueOf(portOnBroker));
+
+    BookKeeperCluster bookKeeperCluster = new BookKeeperCluster(tempDir, PortManager.nextFreePort());
+    pulsarConfig
+        .getProperties()
+        .put("zookeeperServers", bookKeeperCluster.getZooKeeperAddress());
+
+    PulsarCluster cluster = new PulsarCluster(pulsarConfig, bookKeeperCluster);
     cluster.start();
 
     ProxyConfiguration proxyConfiguration = new ProxyConfiguration();
-
-    Path handlerPath = Paths.get("target/test-protocol-proxy-handler.nar").toAbsolutePath();
-
-    String protocolHandlerDir = handlerPath.toFile().getParent();
-
     proxyConfiguration.setProxyProtocolHandlerDirectory(protocolHandlerDir);
     proxyConfiguration.setProxyMessagingProtocols(Sets.newHashSet("rabbitmq"));
 
-    int port = PortManager.nextFreePort();
-    proxyConfiguration.getProperties().put("amqpServicePort",String.valueOf(port));
+    int portOnProxy = PortManager.nextFreePort();
+    proxyConfiguration.getProperties().put("amqpServicePort", String.valueOf(portOnProxy));
     proxyConfiguration
         .getProperties()
         .put("zookeeperServers", cluster.getService().getConfig().getZookeeperServers());
@@ -62,11 +73,16 @@ public class NarLoadingIT {
     pulsarProxy.start();
 
     ConnectionFactory factory = new ConnectionFactory();
-    factory.setPort(port);
-
+    factory.setPort(portOnBroker);
     Connection connection = factory.newConnection();
-
     connection.close();
+
+    factory = new ConnectionFactory();
+    factory.setPort(portOnProxy);
+    connection = factory.newConnection();
+    connection.close();
+
     pulsarProxy.close();
+    cluster.close();
   }
 }

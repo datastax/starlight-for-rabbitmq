@@ -18,21 +18,18 @@ package com.datastax.oss.pulsar.rabbitmqgw;
 import io.netty.channel.ChannelInitializer;
 import io.netty.channel.socket.SocketChannel;
 import java.net.InetSocketAddress;
-import java.util.HashSet;
 import java.util.Map;
-import java.util.Set;
 import lombok.SneakyThrows;
-import org.apache.pulsar.broker.ServiceConfiguration;
-import org.apache.pulsar.broker.ServiceConfigurationUtils;
-import org.apache.pulsar.broker.protocol.ProtocolHandler;
-import org.apache.pulsar.broker.service.BrokerService;
+import org.apache.pulsar.proxy.protocol.ProtocolHandler;
+import org.apache.pulsar.proxy.server.ProxyConfiguration;
+import org.apache.pulsar.proxy.server.ProxyService;
 
-public class GatewayProtocolHandler implements ProtocolHandler {
+public class GatewayProxyProtocolHandler implements ProtocolHandler {
+
   public static final String PROTOCOL_NAME = "rabbitmq";
 
-  private GatewayConfiguration config;
-  private GatewayService service;
-  private String bindAddress;
+  GatewayConfiguration config;
+  GatewayService service;
 
   @Override
   public String protocolName() {
@@ -46,33 +43,14 @@ public class GatewayProtocolHandler implements ProtocolHandler {
 
   @SneakyThrows
   @Override
-  public void initialize(ServiceConfiguration conf) {
+  public void initialize(ProxyConfiguration conf) {
     config = ConfigurationUtils.create(conf.getProperties(), GatewayConfiguration.class);
-    bindAddress = ServiceConfigurationUtils.getDefaultOrConfiguredAddress(config.getBindAddress());
-  }
-
-  @Override
-  public String getProtocolDataToAdvertise() {
-    Set<String> addresses = new HashSet<>();
-    config
-        .getAmqpServicePort()
-        .map(port -> addresses.add(String.format("amqp://%s:%d", bindAddress, port)));
-    config
-        .getAmqpServicePortTls()
-        .map(port -> addresses.add(String.format("amqps://%s:%d", bindAddress, port)));
-    return String.join(", ", addresses);
   }
 
   @SneakyThrows
   @Override
-  public void start(BrokerService brokerService) {
-    bindAddress = brokerService.getPulsar().getBindAddress();
-    service =
-        new GatewayService(
-            config,
-            brokerService.getAuthenticationService(),
-            brokerService.getPulsar().getSafeBrokerServiceUrl(),
-            brokerService.getPulsar().getSafeWebServiceAddress());
+  public void start(ProxyService proxyService) {
+    service = new GatewayService(config, proxyService.getAuthenticationService());
     service.start(false);
   }
 

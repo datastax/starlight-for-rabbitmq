@@ -130,6 +130,21 @@ public class BrokerClientTlsAuthenticationIT {
   }
 
   @Test
+  public void testBrokerAuthenticationTlsInProxySuccessful() throws Exception {
+    gatewayConfiguration.setBrokerClientAuthenticationParameters("");
+    gatewayConfiguration.setAmqpBrokerClientAuthenticationParameters(
+        "tlsCertFile:" + TLS_CLIENT_CERT_FILE_PATH + ",tlsKeyFile:" + TLS_CLIENT_KEY_FILE_PATH);
+    gatewayService =
+        new GatewayService(
+            gatewayConfiguration,
+            new AuthenticationService(GatewayServiceStarter.convertFrom(gatewayConfiguration)));
+    gatewayService.start();
+
+    gatewayService.getPulsarAdmin().clusters().getClusters();
+    gatewayService.getPulsarClient().getPartitionsForTopic("test").get(5, TimeUnit.SECONDS);
+  }
+
+  @Test
   public void testBrokerTlsConnexionFails() throws Exception {
     gatewayConfiguration.setBrokerClientTrustCertsFilePath(
         "./src/test/resources/authentication/tls/other-cacert.pem");

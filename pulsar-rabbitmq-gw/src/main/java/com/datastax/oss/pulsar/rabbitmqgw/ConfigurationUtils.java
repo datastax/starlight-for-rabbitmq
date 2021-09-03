@@ -123,7 +123,7 @@ public final class ConfigurationUtils {
                   }
                 } catch (Exception e) {
                   throw new IllegalArgumentException(
-x                      format(
+                      format(
                           "failed to initialize %s field while setting value %s",
                           f.getName(), properties.get(f.getName())),
                       e);

@@ -67,6 +67,8 @@ import org.slf4j.LoggerFactory;
 public class GatewayService implements Closeable {
 
   private final GatewayConfiguration config;
+  private final String brokerServiceUrl;
+  private final String brokerWebServiceUrl;
   private final AuthenticationService authenticationService;
   private PulsarClient pulsarClient;
   private PulsarAdmin pulsarAdmin;
@@ -97,8 +99,22 @@ public class GatewayService implements Closeable {
   private SubscriptionCleaner subscriptionCleaner;
 
   public GatewayService(GatewayConfiguration config, AuthenticationService authenticationService) {
+    this(
+        config,
+        authenticationService,
+        config.getBrokerServiceURL(),
+        config.getBrokerWebServiceURL());
+  }
+
+  public GatewayService(
+      GatewayConfiguration config,
+      AuthenticationService authenticationService,
+      String brokerServiceUrl,
+      String brokerWebServiceUrl) {
     checkNotNull(config);
     this.config = config;
+    this.brokerServiceUrl = brokerServiceUrl;
+    this.brokerWebServiceUrl = brokerWebServiceUrl;
     this.authenticationService = authenticationService;
 
     this.acceptorGroup = EventLoopUtil.newEventLoopGroup(1, true, acceptorThreadFactory);
@@ -178,15 +194,18 @@ public class GatewayService implements Closeable {
 
   private PulsarClient createClientInstance() throws PulsarClientException {
     ClientBuilder clientBuilder =
-        PulsarClient.builder()
-            .statsInterval(0, TimeUnit.SECONDS)
-            .serviceUrl(config.getBrokerServiceURL());
+        PulsarClient.builder().statsInterval(0, TimeUnit.SECONDS).serviceUrl(brokerServiceUrl);
 
-    if (isNotBlank(config.getBrokerClientAuthenticationPlugin())
-        && isNotBlank(config.getBrokerClientAuthenticationParameters())) {
-      clientBuilder.authentication(
-          config.getBrokerClientAuthenticationPlugin(),
-          config.getBrokerClientAuthenticationParameters());
+    if (isNotBlank(config.getBrokerClientAuthenticationPlugin())) {
+      if (isNotBlank(config.getAmqpBrokerClientAuthenticationParameters())) {
+        clientBuilder.authentication(
+            config.getBrokerClientAuthenticationPlugin(),
+            config.getAmqpBrokerClientAuthenticationParameters());
+      } else if (isNotBlank(config.getBrokerClientAuthenticationParameters())) {
+        clientBuilder.authentication(
+            config.getBrokerClientAuthenticationPlugin(),
+            config.getBrokerClientAuthenticationParameters());
+      }
     }
 
     // set trust store if needed.
@@ -212,14 +231,18 @@ public class GatewayService implements Closeable {
   }
 
   private PulsarAdmin createAdminInstance() throws PulsarClientException {
-    PulsarAdminBuilder adminBuilder =
-        PulsarAdmin.builder().serviceHttpUrl(config.getBrokerWebServiceURL());
+    PulsarAdminBuilder adminBuilder = PulsarAdmin.builder().serviceHttpUrl(brokerWebServiceUrl);
 
-    if (isNotBlank(config.getBrokerClientAuthenticationPlugin())
-        && isNotBlank(config.getBrokerClientAuthenticationParameters())) {
-      adminBuilder.authentication(
-          config.getBrokerClientAuthenticationPlugin(),
-          config.getBrokerClientAuthenticationParameters());
+    if (isNotBlank(config.getBrokerClientAuthenticationPlugin())) {
+      if (isNotBlank(config.getAmqpBrokerClientAuthenticationParameters())) {
+        adminBuilder.authentication(
+            config.getBrokerClientAuthenticationPlugin(),
+            config.getAmqpBrokerClientAuthenticationParameters());
+      } else if (isNotBlank(config.getBrokerClientAuthenticationParameters())) {
+        adminBuilder.authentication(
+            config.getBrokerClientAuthenticationPlugin(),
+            config.getBrokerClientAuthenticationParameters());
+      }
     }
 
     // set trust store if needed.
