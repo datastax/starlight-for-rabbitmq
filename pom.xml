@@ -33,6 +33,7 @@
   <modules>
     <module>pulsar-rabbitmq-gw</module>
     <module>rabbitmq-tests</module>
+    <module>nar-tests</module>
   </modules>
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>

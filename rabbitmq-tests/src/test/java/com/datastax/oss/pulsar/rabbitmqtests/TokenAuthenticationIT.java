@@ -60,7 +60,7 @@ public class TokenAuthenticationIT {
     config.setBrokerServiceURL(cluster.getAddress());
     config.setBrokerWebServiceURL(cluster.getAddress());
     int port = PortManager.nextFreePort();
-    config.setServicePort(Optional.of(port));
+    config.setAmqpServicePort(Optional.of(port));
     config.setZookeeperServers(cluster.getService().getConfig().getZookeeperServers());
 
     config.setAuthenticationEnabled(true);

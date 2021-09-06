@@ -22,14 +22,20 @@ import com.datastax.oss.pulsar.rabbitmqgw.metadata.ContextMetadata;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.ImmutableMap;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.AdaptiveRecvByteBufAllocator;
 import io.netty.channel.Channel;
+import io.netty.channel.ChannelInitializer;
 import io.netty.channel.ChannelOption;
 import io.netty.channel.EventLoopGroup;
+import io.netty.channel.socket.SocketChannel;
 import io.netty.util.concurrent.DefaultThreadFactory;
 import java.io.Closeable;
 import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
@@ -44,6 +50,7 @@ import org.apache.curator.x.async.modeled.ModelSpec;
 import org.apache.curator.x.async.modeled.ModeledFramework;
 import org.apache.curator.x.async.modeled.ZPath;
 import org.apache.curator.x.async.modeled.versioned.Versioned;
+import org.apache.pulsar.broker.ServiceConfigurationUtils;
 import org.apache.pulsar.broker.authentication.AuthenticationService;
 import org.apache.pulsar.client.admin.PulsarAdmin;
 import org.apache.pulsar.client.admin.PulsarAdminBuilder;
@@ -60,6 +67,8 @@ import org.slf4j.LoggerFactory;
 public class GatewayService implements Closeable {
 
   private final GatewayConfiguration config;
+  private final String brokerServiceUrl;
+  private final String brokerWebServiceUrl;
   private final AuthenticationService authenticationService;
   private PulsarClient pulsarClient;
   private PulsarAdmin pulsarAdmin;
@@ -67,8 +76,7 @@ public class GatewayService implements Closeable {
   private final EventLoopGroup acceptorGroup;
   private final EventLoopGroup workerGroup;
 
-  private Channel listenChannel;
-  private Channel listenChannelTls;
+  private final List<Channel> listenChannels = new ArrayList<>();
 
   private final DefaultThreadFactory acceptorThreadFactory =
       new DefaultThreadFactory("pulsar-rabbitmqgw-acceptor");
@@ -91,8 +99,22 @@ public class GatewayService implements Closeable {
   private SubscriptionCleaner subscriptionCleaner;
 
   public GatewayService(GatewayConfiguration config, AuthenticationService authenticationService) {
+    this(
+        config,
+        authenticationService,
+        config.getBrokerServiceURL(),
+        config.getBrokerWebServiceURL());
+  }
+
+  public GatewayService(
+      GatewayConfiguration config,
+      AuthenticationService authenticationService,
+      String brokerServiceUrl,
+      String brokerWebServiceUrl) {
     checkNotNull(config);
     this.config = config;
+    this.brokerServiceUrl = brokerServiceUrl;
+    this.brokerWebServiceUrl = brokerWebServiceUrl;
     this.authenticationService = authenticationService;
 
     this.acceptorGroup = EventLoopUtil.newEventLoopGroup(1, true, acceptorThreadFactory);
@@ -100,6 +122,10 @@ public class GatewayService implements Closeable {
   }
 
   public void start() throws Exception {
+    start(true);
+  }
+
+  public void start(boolean startChannels) throws Exception {
     pulsarClient = createClientInstance();
     pulsarAdmin = createAdminInstance();
     AsyncCuratorFramework curator = createCuratorInstance();
@@ -108,40 +134,54 @@ public class GatewayService implements Closeable {
     subscriptionCleaner = new SubscriptionCleaner(this, curator.unwrap());
     subscriptionCleaner.start();
 
-    ServerBootstrap bootstrap = new ServerBootstrap();
-    bootstrap.childOption(ChannelOption.ALLOCATOR, PulsarByteBufAllocator.DEFAULT);
-    bootstrap.group(acceptorGroup, workerGroup);
-    bootstrap.childOption(ChannelOption.TCP_NODELAY, true);
-    bootstrap.childOption(
-        ChannelOption.RCVBUF_ALLOCATOR,
-        new AdaptiveRecvByteBufAllocator(1024, 16 * 1024, 1 * 1024 * 1024));
+    if (startChannels) {
+      for (Map.Entry<InetSocketAddress, ChannelInitializer<SocketChannel>> entry :
+          newChannelInitializers().entrySet()) {
+        InetSocketAddress address = entry.getKey();
+        ChannelInitializer<SocketChannel> channelInitializer = entry.getValue();
+        ServerBootstrap bootstrap = new ServerBootstrap();
+        bootstrap.childOption(ChannelOption.ALLOCATOR, PulsarByteBufAllocator.DEFAULT);
+        bootstrap.group(acceptorGroup, workerGroup);
+        bootstrap.childOption(ChannelOption.TCP_NODELAY, true);
+        bootstrap.childOption(
+            ChannelOption.RCVBUF_ALLOCATOR,
+            new AdaptiveRecvByteBufAllocator(1024, 16 * 1024, 1 * 1024 * 1024));
 
-    bootstrap.channel(EventLoopUtil.getServerSocketChannelClass(workerGroup));
-    EventLoopUtil.enableTriggeredMode(bootstrap);
+        bootstrap.channel(EventLoopUtil.getServerSocketChannelClass(workerGroup));
+        EventLoopUtil.enableTriggeredMode(bootstrap);
 
-    bootstrap.childHandler(new ServiceChannelInitializer(this, config, false));
-    // Bind and start to accept incoming connections.
-    if (config.getServicePort().isPresent()) {
-      try {
-        listenChannel =
-            bootstrap.bind(config.getBindAddress(), config.getServicePort().get()).sync().channel();
-        LOG.info("Started Pulsar RabbitMQ Gateway at {}", listenChannel.localAddress());
-      } catch (Exception e) {
-        throw new IOException(
-            "Failed to bind Pulsar RabbitMQ Gateway on port " + config.getServicePort().get(), e);
+        bootstrap.childHandler(channelInitializer);
+        try {
+          Channel listenChannel = bootstrap.bind(address).sync().channel();
+          listenChannels.add(listenChannel);
+          LOG.info("Started Pulsar RabbitMQ Gateway at {}", listenChannel.localAddress());
+        } catch (Exception e) {
+          throw new IOException("Failed to bind Pulsar RabbitMQ on address " + address, e);
+        }
       }
     }
+  }
 
-    if (config.getServicePortTls().isPresent()) {
-      ServerBootstrap tlsBootstrap = bootstrap.clone();
-      tlsBootstrap.childHandler(new ServiceChannelInitializer(this, config, true));
-      listenChannelTls =
-          tlsBootstrap
-              .bind(config.getBindAddress(), config.getServicePortTls().get())
-              .sync()
-              .channel();
-      LOG.info("Started Pulsar TLS RabbitMQ Gateway on {}", listenChannelTls.localAddress());
-    }
+  public Map<InetSocketAddress, ChannelInitializer<SocketChannel>> newChannelInitializers() {
+    String bindAddress =
+        ServiceConfigurationUtils.getDefaultOrConfiguredAddress(config.getBindAddress());
+    ImmutableMap.Builder<InetSocketAddress, ChannelInitializer<SocketChannel>> builder =
+        ImmutableMap.builder();
+    config
+        .getAmqpServicePort()
+        .map(
+            port ->
+                builder.put(
+                    new InetSocketAddress(bindAddress, port),
+                    new ServiceChannelInitializer(this, config, false)));
+    config
+        .getAmqpServicePortTls()
+        .map(
+            port ->
+                builder.put(
+                    new InetSocketAddress(bindAddress, port),
+                    new ServiceChannelInitializer(this, config, true)));
+    return builder.build();
   }
 
   public EventLoopGroup getWorkerGroup() {
@@ -154,15 +194,18 @@ public class GatewayService implements Closeable {
 
   private PulsarClient createClientInstance() throws PulsarClientException {
     ClientBuilder clientBuilder =
-        PulsarClient.builder()
-            .statsInterval(0, TimeUnit.SECONDS)
-            .serviceUrl(config.getBrokerServiceURL());
+        PulsarClient.builder().statsInterval(0, TimeUnit.SECONDS).serviceUrl(brokerServiceUrl);
 
-    if (isNotBlank(config.getBrokerClientAuthenticationPlugin())
-        && isNotBlank(config.getBrokerClientAuthenticationParameters())) {
-      clientBuilder.authentication(
-          config.getBrokerClientAuthenticationPlugin(),
-          config.getBrokerClientAuthenticationParameters());
+    if (isNotBlank(config.getBrokerClientAuthenticationPlugin())) {
+      if (isNotBlank(config.getAmqpBrokerClientAuthenticationParameters())) {
+        clientBuilder.authentication(
+            config.getBrokerClientAuthenticationPlugin(),
+            config.getAmqpBrokerClientAuthenticationParameters());
+      } else if (isNotBlank(config.getBrokerClientAuthenticationParameters())) {
+        clientBuilder.authentication(
+            config.getBrokerClientAuthenticationPlugin(),
+            config.getBrokerClientAuthenticationParameters());
+      }
     }
 
     // set trust store if needed.
@@ -188,14 +231,18 @@ public class GatewayService implements Closeable {
   }
 
   private PulsarAdmin createAdminInstance() throws PulsarClientException {
-    PulsarAdminBuilder adminBuilder =
-        PulsarAdmin.builder().serviceHttpUrl(config.getBrokerWebServiceURL());
+    PulsarAdminBuilder adminBuilder = PulsarAdmin.builder().serviceHttpUrl(brokerWebServiceUrl);
 
-    if (isNotBlank(config.getBrokerClientAuthenticationPlugin())
-        && isNotBlank(config.getBrokerClientAuthenticationParameters())) {
-      adminBuilder.authentication(
-          config.getBrokerClientAuthenticationPlugin(),
-          config.getBrokerClientAuthenticationParameters());
+    if (isNotBlank(config.getBrokerClientAuthenticationPlugin())) {
+      if (isNotBlank(config.getAmqpBrokerClientAuthenticationParameters())) {
+        adminBuilder.authentication(
+            config.getBrokerClientAuthenticationPlugin(),
+            config.getAmqpBrokerClientAuthenticationParameters());
+      } else if (isNotBlank(config.getBrokerClientAuthenticationParameters())) {
+        adminBuilder.authentication(
+            config.getBrokerClientAuthenticationPlugin(),
+            config.getBrokerClientAuthenticationParameters());
+      }
     }
 
     // set trust store if needed.
@@ -231,13 +278,7 @@ public class GatewayService implements Closeable {
   }
 
   public void close() throws IOException {
-    if (listenChannel != null) {
-      listenChannel.close();
-    }
-
-    if (listenChannelTls != null) {
-      listenChannelTls.close();
-    }
+    listenChannels.forEach(Channel::close);
 
     if (subscriptionCleaner != null) {
       subscriptionCleaner.close();

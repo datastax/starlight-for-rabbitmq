@@ -77,7 +77,7 @@ public class BrokerTestCase {
       connectionFactory.setNioParams(nioParams());
     }
     connectionFactory.setAutomaticRecoveryEnabled(isAutomaticRecoveryEnabled());
-    connectionFactory.setPort(gatewayService.getConfig().getServicePort().get());
+    connectionFactory.setPort(gatewayService.getConfig().getAmqpServicePort().get());
     return connectionFactory;
   }
 
@@ -127,7 +127,7 @@ public class BrokerTestCase {
     GatewayConfiguration config = new GatewayConfiguration();
     config.setBrokerServiceURL(cluster.getAddress());
     config.setBrokerWebServiceURL(cluster.getAddress());
-    config.setServicePort(Optional.of(PortManager.nextFreePort()));
+    config.setAmqpServicePort(Optional.of(PortManager.nextFreePort()));
     config.setZookeeperServers(cluster.getService().getConfig().getZookeeperServers());
     gatewayService = new GatewayService(config, null);
     gatewayService.start();

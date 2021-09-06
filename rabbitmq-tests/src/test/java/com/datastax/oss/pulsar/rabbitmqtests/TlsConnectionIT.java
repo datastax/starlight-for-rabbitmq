@@ -32,7 +32,6 @@ import javax.net.ssl.SSLContext;
 import org.apache.bookkeeper.util.PortManager;
 import org.apache.pulsar.broker.PulsarServerException;
 import org.apache.pulsar.broker.authentication.AuthenticationService;
-import org.apache.pulsar.common.configuration.PulsarConfigurationLoader;
 import org.apache.pulsar.common.util.SecurityUtility;
 import org.apache.pulsar.common.util.keystoretls.KeyStoreSSLContext;
 import org.junit.jupiter.api.AfterAll;
@@ -98,7 +97,7 @@ public class TlsConnectionIT {
     config = new GatewayConfiguration();
     config.setBrokerServiceURL(cluster.getAddress());
     config.setBrokerWebServiceURL(cluster.getAddress());
-    config.setServicePortTls(Optional.of(port));
+    config.setAmqpServicePortTls(Optional.of(port));
     config.setZookeeperServers(cluster.getService().getConfig().getZookeeperServers());
 
     config.setTlsKeyStoreType(KEYSTORE_TYPE);
@@ -116,7 +115,7 @@ public class TlsConnectionIT {
 
     gatewayService =
         new GatewayService(
-            config, new AuthenticationService(PulsarConfigurationLoader.convertFrom(config)));
+            config, new AuthenticationService(GatewayServiceStarter.convertFrom(config)));
 
     factory = new ConnectionFactory();
     factory.setPort(port);

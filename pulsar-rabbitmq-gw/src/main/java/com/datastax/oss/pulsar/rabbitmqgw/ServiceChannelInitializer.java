@@ -22,6 +22,7 @@ import io.netty.handler.ssl.SslHandler;
 import org.apache.pulsar.common.util.NettyServerSslContextBuilder;
 import org.apache.pulsar.common.util.SslContextAutoRefreshBuilder;
 import org.apache.pulsar.common.util.keystoretls.NettySSLContextAutoRefreshBuilder;
+import org.apache.pulsar.proxy.server.ProxyConfiguration;
 
 /** Initialize service channel handlers. */
 public class ServiceChannelInitializer extends ChannelInitializer<SocketChannel> {
@@ -35,7 +36,7 @@ public class ServiceChannelInitializer extends ChannelInitializer<SocketChannel>
   private NettySSLContextAutoRefreshBuilder serverSSLContextAutoRefreshBuilder;
 
   public ServiceChannelInitializer(
-      GatewayService gatewayService, GatewayConfiguration serviceConfig, boolean enableTls) {
+      GatewayService gatewayService, ProxyConfiguration serviceConfig, boolean enableTls) {
     super();
     this.gatewayService = gatewayService;
     this.enableTls = enableTls;

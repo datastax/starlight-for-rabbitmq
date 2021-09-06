@@ -41,7 +41,7 @@ public class ConnectionOpen extends BrokerTestCase {
     SocketFrameHandler fh =
         new SocketFrameHandler(
             SocketFactory.getDefault()
-                .createSocket("localhost", gatewayService.getConfig().getServicePort().get()));
+                .createSocket("localhost", gatewayService.getConfig().getAmqpServicePort().get()));
     fh.sendHeader();
     AMQCommand command = new AMQCommand();
     while (!command.handleFrame(fh.readFrame())) {}
@@ -62,7 +62,7 @@ public class ConnectionOpen extends BrokerTestCase {
     // keep the frame handler's socket
     Socket fhSocket =
         SocketFactory.getDefault()
-            .createSocket("localhost", gatewayService.getConfig().getServicePort().get());
+            .createSocket("localhost", gatewayService.getConfig().getAmqpServicePort().get());
     SocketFrameHandler fh = new SocketFrameHandler(fhSocket);
     fh.sendHeader(100, 3); // major, minor
     DataInputStream in = fh.getInputStream();

@@ -105,7 +105,7 @@ public class BrokerClientTlsAuthenticationIT {
     gatewayConfiguration.setBrokerServiceURL("pulsar+ssl://localhost:" + brokerServicePortTls);
     gatewayConfiguration.setBrokerWebServiceURL("https://localhost:" + webServicePortTls);
 
-    gatewayConfiguration.setServicePort(Optional.of(PortManager.nextFreePort()));
+    gatewayConfiguration.setAmqpServicePort(Optional.of(PortManager.nextFreePort()));
     gatewayConfiguration.setZookeeperServers(
         cluster.getService().getConfig().getZookeeperServers());
     gatewayConfiguration.setTlsEnabledWithBroker(true);
@@ -119,6 +119,21 @@ public class BrokerClientTlsAuthenticationIT {
 
   @Test
   public void testBrokerAuthenticationTlsSuccessful() throws Exception {
+    gatewayService =
+        new GatewayService(
+            gatewayConfiguration,
+            new AuthenticationService(GatewayServiceStarter.convertFrom(gatewayConfiguration)));
+    gatewayService.start();
+
+    gatewayService.getPulsarAdmin().clusters().getClusters();
+    gatewayService.getPulsarClient().getPartitionsForTopic("test").get(5, TimeUnit.SECONDS);
+  }
+
+  @Test
+  public void testBrokerAuthenticationTlsInProxySuccessful() throws Exception {
+    gatewayConfiguration.setBrokerClientAuthenticationParameters("");
+    gatewayConfiguration.setAmqpBrokerClientAuthenticationParameters(
+        "tlsCertFile:" + TLS_CLIENT_CERT_FILE_PATH + ",tlsKeyFile:" + TLS_CLIENT_KEY_FILE_PATH);
     gatewayService =
         new GatewayService(
             gatewayConfiguration,
