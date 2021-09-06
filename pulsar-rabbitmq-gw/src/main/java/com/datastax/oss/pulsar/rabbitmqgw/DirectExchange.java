@@ -15,11 +15,81 @@
  */
 package com.datastax.oss.pulsar.rabbitmqgw;
 
+import com.datastax.oss.pulsar.rabbitmqgw.metadata.BindingMetadata;
+import com.datastax.oss.pulsar.rabbitmqgw.metadata.BindingSetMetadata;
+import com.datastax.oss.pulsar.rabbitmqgw.metadata.VirtualHostMetadata;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import org.apache.pulsar.client.api.MessageId;
 import org.apache.qpid.server.model.LifetimePolicy;
 
 public class DirectExchange extends AbstractExchange {
 
   public DirectExchange(String name, boolean durable, LifetimePolicy lifetimePolicy) {
     super(name, Type.direct, durable, lifetimePolicy);
+  }
+
+  @Override
+  public CompletableFuture<Void> bind(
+      VirtualHostMetadata vhost,
+      String exchange,
+      String queue,
+      String routingKey,
+      GatewayConnection connection) {
+    BindingSetMetadata bindings = vhost.getExchanges().get(exchange).getBindings().get(queue);
+    if (bindings != null && !bindings.getKeys().contains(routingKey)) {
+      bindings.getKeys().add(routingKey);
+      /*
+       TODO: Pulsar 2.8 has an issue with subscriptions containing a / in their name. Forge another name ?
+      */
+      String topic = getTopicName(connection.getNamespace(), name, routingKey).toString();
+      String subscriptionName = (topic + "-" + UUID.randomUUID()).replace("/", "_");
+      return connection
+          .getGatewayService()
+          .getPulsarAdmin()
+          .topics()
+          .createSubscriptionAsync(topic, subscriptionName, MessageId.latest)
+          .thenAccept(
+              it -> {
+                BindingMetadata bindingMetadata =
+                    new BindingMetadata(exchange, topic, subscriptionName);
+                bindingMetadata.getKeys().add(routingKey);
+                Map<String, BindingMetadata> subscriptions =
+                    vhost.getSubscriptions().computeIfAbsent(queue, q -> new HashMap<>());
+                subscriptions.put(subscriptionName, bindingMetadata);
+              });
+    }
+    return CompletableFuture.completedFuture(null);
+  }
+
+  @Override
+  public CompletableFuture<Void> unbind(
+      VirtualHostMetadata vhost,
+      String exchange,
+      String queue,
+      String routingKey,
+      GatewayConnection connection) {
+
+    BindingSetMetadata bindings = vhost.getExchanges().get(exchange).getBindings().get(queue);
+    Map<String, BindingMetadata> queueSubscriptions = vhost.getSubscriptions().get(queue);
+    for (BindingMetadata subscription : queueSubscriptions.values()) {
+      if (subscription.getLastMessageId() == null
+          && subscription.getExchange().equals(exchange)
+          && subscription.getKeys().contains(routingKey)) {
+        return connection
+            .getGatewayService()
+            .getPulsarAdmin()
+            .topics()
+            .getLastMessageIdAsync(subscription.getTopic())
+            .thenAccept(
+                lastMessageId -> {
+                  subscription.setLastMessageId(lastMessageId.toByteArray());
+                  bindings.getKeys().remove(routingKey);
+                });
+      }
+    }
+    return CompletableFuture.completedFuture(null);
   }
 }

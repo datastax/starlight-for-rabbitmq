@@ -17,11 +17,13 @@ package com.datastax.oss.pulsar.rabbitmqgw;
 
 import static java.nio.charset.StandardCharsets.US_ASCII;
 
+import com.datastax.oss.pulsar.rabbitmqgw.metadata.ContextMetadata;
+import com.datastax.oss.pulsar.rabbitmqgw.metadata.ExchangeMetadata;
+import com.datastax.oss.pulsar.rabbitmqgw.metadata.VirtualHostMetadata;
 import com.google.common.annotations.VisibleForTesting;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
-import io.netty.channel.EventLoop;
 import io.netty.handler.timeout.IdleState;
 import io.netty.handler.timeout.IdleStateEvent;
 import io.netty.handler.timeout.IdleStateHandler;
@@ -34,8 +36,11 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.apache.bookkeeper.util.collections.ConcurrentLongHashMap;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.curator.x.async.modeled.versioned.Versioned;
 import org.apache.qpid.server.QpidException;
 import org.apache.qpid.server.bytebuffer.QpidByteBuffer;
+import org.apache.qpid.server.exchange.ExchangeDefaults;
+import org.apache.qpid.server.model.LifetimePolicy;
 import org.apache.qpid.server.protocol.ErrorCodes;
 import org.apache.qpid.server.protocol.ProtocolVersion;
 import org.apache.qpid.server.protocol.v0_8.AMQDecoder;
@@ -84,7 +89,6 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
   private ChannelHandlerContext ctx;
   private SocketAddress remoteAddress;
   private String namespace;
-  private VirtualHost vhost;
 
   // Variables copied from Qpid's AMQPConnection_0_8Impl
   private ServerDecoder _decoder;
@@ -332,8 +336,7 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
       setMaxFrameSize(calculatedFrameMax);
 
       // 0 means no implied limit, except that forced by protocol limitations (0xFFFF)
-      int value = ((channelMax == 0) || (channelMax > 0xFFFF)) ? 0xFFFF : channelMax;
-      _maxNoOfChannels = value;
+      _maxNoOfChannels = ((channelMax == 0) || (channelMax > 0xFFFF)) ? 0xFFFF : channelMax;
     }
     _state = ConnectionState.AWAIT_OPEN;
   }
@@ -392,13 +395,64 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
     }
 
     // TODO: can vhosts have / in their name ? in that case they could be mapped to tenant+namespace
+    // TODO: remove redundant namespace (or vhost) field
     this.namespace = "public/" + (StringUtils.isEmpty(virtualHostStr) ? "default" : virtualHostStr);
-    this.vhost = this.getGatewayService().getOrCreateVhost(namespace);
-    // TODO: check or create namespace with the admin client ?
-    MethodRegistry methodRegistry = getMethodRegistry();
-    AMQMethodBody responseBody = methodRegistry.createConnectionOpenOkBody(virtualHostName);
-    writeFrame(responseBody.generateFrame(0));
-    _state = ConnectionState.OPEN;
+    Versioned<ContextMetadata> versionedContext = getGatewayService().getContextMetadata();
+    if (!versionedContext.model().getVhosts().containsKey(namespace)) {
+      Versioned<ContextMetadata> newContext =
+          getGatewayService().newContextMetadata(versionedContext);
+      VirtualHostMetadata virtualHostMetadata = new VirtualHostMetadata();
+      virtualHostMetadata.setNamespace(namespace);
+      virtualHostMetadata
+          .getExchanges()
+          .put(
+              ExchangeDefaults.DEFAULT_EXCHANGE_NAME,
+              new ExchangeMetadata(ExchangeMetadata.Type.direct, true, LifetimePolicy.PERMANENT));
+      virtualHostMetadata
+          .getExchanges()
+          .put(
+              ExchangeDefaults.DIRECT_EXCHANGE_NAME,
+              new ExchangeMetadata(ExchangeMetadata.Type.direct, true, LifetimePolicy.PERMANENT));
+      virtualHostMetadata
+          .getExchanges()
+          .put(
+              ExchangeDefaults.FANOUT_EXCHANGE_NAME,
+              new ExchangeMetadata(ExchangeMetadata.Type.fanout, true, LifetimePolicy.PERMANENT));
+      virtualHostMetadata
+          .getExchanges()
+          .put(
+              ExchangeDefaults.TOPIC_EXCHANGE_NAME,
+              new ExchangeMetadata(ExchangeMetadata.Type.topic, true, LifetimePolicy.PERMANENT));
+      virtualHostMetadata
+          .getExchanges()
+          .put(
+              ExchangeDefaults.HEADERS_EXCHANGE_NAME,
+              new ExchangeMetadata(ExchangeMetadata.Type.headers, true, LifetimePolicy.PERMANENT));
+      newContext.model().getVhosts().put(namespace, virtualHostMetadata);
+      getGatewayService()
+          .saveContext(newContext)
+          .thenAccept(
+              it -> {
+                AMQMethodBody responseBody =
+                    getMethodRegistry().createConnectionOpenOkBody(virtualHostName);
+                writeFrame(responseBody.generateFrame(0));
+                _state = ConnectionState.OPEN;
+              })
+          .exceptionally(
+              t -> {
+                String errorMessage =
+                    "Error while saving new vhost in configuration store: '" + namespace + "'";
+                LOGGER.error(errorMessage, t);
+                sendConnectionClose(ErrorCodes.INTERNAL_ERROR, errorMessage, 0);
+                return null;
+              });
+    } else {
+      // TODO: check and create the Pulsar namespace with the admin client if not exists ?
+      MethodRegistry methodRegistry = getMethodRegistry();
+      AMQMethodBody responseBody = methodRegistry.createConnectionOpenOkBody(virtualHostName);
+      writeFrame(responseBody.generateFrame(0));
+      _state = ConnectionState.OPEN;
+    }
   }
 
   @Override
@@ -426,15 +480,10 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
           channelId);
     } else {
       LOGGER.debug("Connecting to: {}", namespace);
-
       final AMQChannel channel = new AMQChannel(this, channelId);
-
       addChannel(channel);
-
       ChannelOpenOkBody response;
-
       response = getMethodRegistry().createChannelOpenOkBody();
-
       writeFrame(response.generateFrame(channelId));
     }
   }
@@ -572,8 +621,8 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
       AMQMethodBody responseBody =
           getMethodRegistry()
               .createConnectionStartBody(
-                  (short) pv.getMajorVersion(),
-                  (short) pv.getActualMinorVersion(),
+                  pv.getMajorVersion(),
+                  pv.getActualMinorVersion(),
                   serverProperties,
                   mechanisms.getBytes(US_ASCII),
                   locales.getBytes(US_ASCII));
@@ -739,10 +788,6 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
     }
   }
 
-  public EventLoop getEventloop() {
-    return ctx.channel().eventLoop();
-  }
-
   // TODO: support message compression (Qpid only)
   public boolean isCompressionSupported() {
     return false;
@@ -758,10 +803,6 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
 
   public String getNamespace() {
     return namespace;
-  }
-
-  public VirtualHost getVhost() {
-    return vhost;
   }
 
   public GatewayService getGatewayService() {

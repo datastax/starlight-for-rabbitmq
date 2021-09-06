@@ -15,32 +15,76 @@
 
 package com.datastax.oss.pulsar.rabbitmqtests.javaclient.functional;
 
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
 import com.datastax.oss.pulsar.rabbitmqtests.javaclient.BrokerTestCase;
 import java.io.IOException;
+import java.time.Duration;
+import org.awaitility.Awaitility;
 import org.junit.Ignore;
 import org.junit.Test;
 
 public class Nowait extends BrokerTestCase {
 
   @Test
-  public void testQueueDeclareWithNowait() throws IOException {
+  public void testQueueDeclareWithNowait() throws Exception {
     String q = generateQueueName();
     channel.queueDeclareNoWait(q, false, true, true, null);
+
+    Awaitility.await()
+        .atMost(Duration.ofSeconds(5))
+        .until(
+            () ->
+                gatewayService
+                    .getContextMetadata()
+                    .model()
+                    .getVhosts()
+                    .get("public/default")
+                    .getQueues()
+                    .containsKey(q));
+
     channel.queueDeclarePassive(q);
   }
 
   @Test
-  public void testQueueBindWithNowait() throws IOException {
+  public void testQueueBindWithNowait() throws Exception {
     String q = generateQueueName();
-    channel.queueDeclareNoWait(q, false, true, true, null);
+    channel.queueDeclare(q, false, true, true, null);
     channel.queueBindNoWait(q, "amq.fanout", "", null);
+
+    Awaitility.await()
+        .atMost(Duration.ofSeconds(5))
+        .until(
+            () ->
+                gatewayService
+                    .getContextMetadata()
+                    .model()
+                    .getVhosts()
+                    .get("public/default")
+                    .getExchanges()
+                    .get("amq.fanout")
+                    .getBindings()
+                    .containsKey(q));
   }
 
   @Test
-  public void testExchangeDeclareWithNowait() throws IOException {
+  public void testExchangeDeclareWithNowait() throws Exception {
     String x = generateExchangeName();
     try {
       channel.exchangeDeclareNoWait(x, "fanout", false, false, false, null);
+
+      Awaitility.await()
+          .atMost(Duration.ofSeconds(5))
+          .until(
+              () ->
+                  gatewayService
+                      .getContextMetadata()
+                      .model()
+                      .getVhosts()
+                      .get("public/default")
+                      .getExchanges()
+                      .containsKey(x));
+
       channel.exchangeDeclarePassive(x);
     } finally {
       channel.exchangeDelete(x);
@@ -73,16 +117,57 @@ public class Nowait extends BrokerTestCase {
   }
 
   @Test
-  public void testQueueDeleteWithNowait() throws IOException {
+  public void testQueueDeleteWithNowait() throws Exception {
     String q = generateQueueName();
-    channel.queueDeclareNoWait(q, false, true, true, null);
+    channel.queueDeclare(q, false, true, true, null);
+    assertTrue(
+        gatewayService
+            .getContextMetadata()
+            .model()
+            .getVhosts()
+            .get("public/default")
+            .getQueues()
+            .containsKey(q));
+
     channel.queueDeleteNoWait(q, false, false);
+
+    Awaitility.await()
+        .atMost(Duration.ofSeconds(5))
+        .until(
+            () ->
+                !gatewayService
+                    .getContextMetadata()
+                    .model()
+                    .getVhosts()
+                    .get("public/default")
+                    .getQueues()
+                    .containsKey(q));
   }
 
   @Test
-  public void testExchangeDeleteWithNowait() throws IOException {
+  public void testExchangeDeleteWithNowait() throws Exception {
     String x = generateExchangeName();
-    channel.exchangeDeclareNoWait(x, "fanout", false, false, false, null);
+    channel.exchangeDeclare(x, "fanout", false, false, false, null);
+    assertTrue(
+        gatewayService
+            .getContextMetadata()
+            .model()
+            .getVhosts()
+            .get("public/default")
+            .getExchanges()
+            .containsKey(x));
+
     channel.exchangeDeleteNoWait(x, false);
+    Awaitility.await()
+        .atMost(Duration.ofSeconds(5))
+        .until(
+            () ->
+                !gatewayService
+                    .getContextMetadata()
+                    .model()
+                    .getVhosts()
+                    .get("public/default")
+                    .getExchanges()
+                    .containsKey(x));
   }
 }

@@ -15,11 +15,10 @@
  */
 package com.datastax.oss.pulsar.rabbitmqgw;
 
-import java.util.UUID;
+import io.netty.channel.EventLoop;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
-import org.apache.pulsar.client.admin.PulsarAdmin;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.apache.pulsar.client.api.Consumer;
 import org.apache.pulsar.client.api.Message;
 import org.apache.pulsar.client.api.MessageId;
@@ -29,33 +28,44 @@ import org.apache.pulsar.client.api.SubscriptionType;
 public class PulsarConsumer {
 
   private final String topic;
-  private final GatewayConnection connection;
-  private final PulsarAdmin pulsarAdmin;
+  private final GatewayService gatewayService;
   private final Queue queue;
-  private final Consumer<byte[]> pulsarConsumer;
-  private final String subscriptionName;
-  private volatile MessageId lastMessageId;
-  private volatile ScheduledFuture<?> scheduledFuture;
+  private volatile Consumer<byte[]> pulsarConsumer;
 
-  PulsarConsumer(String topic, GatewayConnection connection, Queue queue)
-      throws PulsarClientException {
+  private final String subscriptionName;
+
+  private volatile MessageId lastMessageId;
+
+  private final EventLoop eventLoop;
+
+  private final AtomicBoolean closing;
+
+  PulsarConsumer(String topic, String subscriptionName, GatewayService service, Queue queue) {
     this.topic = topic;
-    // TODO: Pulsar 2.8 has an issue with subscriptions containing a / in their name. Forge another
-    //  name ?
-    this.subscriptionName = (topic + "-" + UUID.randomUUID()).replace("/", "_");
-    this.connection = connection;
-    this.pulsarAdmin = connection.getGatewayService().getPulsarAdmin();
+    this.subscriptionName = subscriptionName;
+    this.gatewayService = service;
     this.queue = queue;
-    this.pulsarConsumer =
-        connection
-            .getGatewayService()
-            .getPulsarClient()
-            .newConsumer()
-            .topic(topic)
-            .subscriptionName(subscriptionName)
-            .subscriptionType(SubscriptionType.Shared)
-            .negativeAckRedeliveryDelay(0, TimeUnit.MILLISECONDS)
-            .subscribe();
+    this.eventLoop = service.getWorkerGroup().next();
+    this.closing = new AtomicBoolean(false);
+  }
+
+  public CompletableFuture<Void> subscribe() {
+    return gatewayService
+        .getPulsarClient()
+        .newConsumer()
+        .topic(topic)
+        .subscriptionName(subscriptionName)
+        .subscriptionType(SubscriptionType.Shared)
+        .negativeAckRedeliveryDelay(0, TimeUnit.MILLISECONDS)
+        .subscribeAsync()
+        .thenAccept(
+            consumer -> {
+              if (!closing.get()) {
+                this.pulsarConsumer = consumer;
+              } else {
+                consumer.closeAsync();
+              }
+            });
   }
 
   private CompletableFuture<PulsarConsumerMessage> receiveMessageAsync() {
@@ -88,9 +98,7 @@ public class PulsarConsumer {
 
                   // Receive messages again after some time to check if we get unacked messages
                   // Note: unacked messages are sent in priority by the broker
-                  connection
-                      .getEventloop()
-                      .schedule(this::resumeConsumption, 100, TimeUnit.MILLISECONDS);
+                  this.eventLoop.schedule(this::resumeConsumption, 100, TimeUnit.MILLISECONDS);
                   return null;
                 } else {
                   pulsarConsumer.resume();
@@ -100,8 +108,12 @@ public class PulsarConsumer {
             });
   }
 
+  public void setLastMessageId(MessageId lastMessageId) {
+    this.lastMessageId = lastMessageId;
+  }
+
   public CompletableFuture<Void> receiveAndDeliverMessages() {
-    return receiveMessageAsync().thenAcceptAsync(queue::deliverMessage, connection.getEventloop());
+    return receiveMessageAsync().thenAcceptAsync(queue::deliverMessage, this.eventLoop);
   }
 
   private CompletableFuture<Void> resumeConsumption() {
@@ -109,49 +121,11 @@ public class PulsarConsumer {
     return receiveAndDeliverMessages();
   }
 
-  public CompletableFuture<Void> shutdown() {
-    // TODO: prevent multiple shutdowns
-    return pulsarConsumer
-        .getLastMessageIdAsync()
-        .thenAccept(
-            messageId -> {
-              lastMessageId = messageId;
-              scheduledFuture =
-                  connection
-                      .getEventloop()
-                      .scheduleAtFixedRate(
-                          this::checkIfSubscriptionCanBeRemoved, 1, 1, TimeUnit.SECONDS);
-            });
-  }
-
   public void close() {
-    pulsarConsumer.closeAsync();
-    pulsarAdmin.topics().deleteSubscriptionAsync(topic, subscriptionName, true);
-    if (scheduledFuture != null) {
-      scheduledFuture.cancel(false);
+    closing.set(true);
+    if (pulsarConsumer != null) {
+      pulsarConsumer.closeAsync().thenRun(() -> pulsarConsumer = null);
     }
-  }
-
-  private void checkIfSubscriptionCanBeRemoved() {
-    pulsarAdmin
-        .topics()
-        .peekMessagesAsync(topic, subscriptionName, 1)
-        .whenComplete(
-            (messages, throwable) -> {
-              if (throwable != null) {
-                // TODO: log error and close channel
-                scheduledFuture.cancel(false);
-                return;
-              }
-              if (messages.size() > 0) {
-                Message<byte[]> message = messages.get(0);
-                if (message.getMessageId().compareTo(lastMessageId) <= 0) {
-                  return;
-                }
-              }
-              // All messages have been acked, can close the consumer
-              close();
-            });
   }
 
   public CompletableFuture<Void> ackMessage(MessageId messageId) {

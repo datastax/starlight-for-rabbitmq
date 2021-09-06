@@ -152,7 +152,7 @@ public abstract class RequeueOnClose extends BrokerTestCase {
     close();
 
     // FIXME: this tempo shouldn't be needed. But we sometimes receive an unsollicited frame that
-    // causes a crash (same reason as the need for a default consumer ?)
+    //  causes a crash (same reason as the need for a default consumer ?)
     Thread.sleep(100);
 
     open();
@@ -202,7 +202,7 @@ public abstract class RequeueOnClose extends BrokerTestCase {
    */
   // @Test
   // FIXME: this test is not passing because at some point an ack is done on a message that is not
-  // in the unacked map and when that arrives RabbitMQ closes the channel
+  //  in the unacked map and when that arrives RabbitMQ closes the channel
   public void requeueInFlightConsumerAck() throws Exception {
     for (int i = 0; i < 5; i++) {
       publishLotsAndConsumeSome(true, true);
@@ -230,7 +230,7 @@ public abstract class RequeueOnClose extends BrokerTestCase {
    */
   // @Test
   // FIXME: this test is not passing because at some point an ack is done on a message that is not
-  // in the unacked map and when that arrives RabbitMQ closes the channel
+  //  in the unacked map and when that arrives RabbitMQ closes the channel
   public void requeueInFlightConsumerAckNoCancel() throws Exception {
     for (int i = 0; i < 5; i++) {
       publishLotsAndConsumeSome(true, false);

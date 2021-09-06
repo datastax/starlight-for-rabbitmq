@@ -18,6 +18,10 @@ package com.datastax.oss.pulsar.rabbitmqgw;
 import static com.google.common.base.Preconditions.checkNotNull;
 import static org.apache.commons.lang3.StringUtils.isNotBlank;
 
+import com.datastax.oss.pulsar.rabbitmqgw.metadata.ContextMetadata;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.annotations.VisibleForTesting;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.AdaptiveRecvByteBufAllocator;
 import io.netty.channel.Channel;
@@ -26,11 +30,24 @@ import io.netty.channel.EventLoopGroup;
 import io.netty.util.concurrent.DefaultThreadFactory;
 import java.io.Closeable;
 import java.io.IOException;
+import java.util.Map;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import org.apache.curator.RetryPolicy;
+import org.apache.curator.framework.CuratorFramework;
+import org.apache.curator.framework.CuratorFrameworkFactory;
+import org.apache.curator.retry.ExponentialBackoffRetry;
+import org.apache.curator.x.async.AsyncCuratorFramework;
+import org.apache.curator.x.async.modeled.JacksonModelSerializer;
+import org.apache.curator.x.async.modeled.ModelSpec;
+import org.apache.curator.x.async.modeled.ModeledFramework;
+import org.apache.curator.x.async.modeled.ZPath;
+import org.apache.curator.x.async.modeled.versioned.Versioned;
 import org.apache.pulsar.client.admin.PulsarAdmin;
 import org.apache.pulsar.client.admin.PulsarAdminBuilder;
 import org.apache.pulsar.client.api.ClientBuilder;
+import org.apache.pulsar.client.api.MessageId;
 import org.apache.pulsar.client.api.PulsarClient;
 import org.apache.pulsar.client.api.PulsarClientException;
 import org.apache.pulsar.common.allocator.PulsarByteBufAllocator;
@@ -58,7 +75,18 @@ public class GatewayService implements Closeable {
 
   private static final int numThreads = Runtime.getRuntime().availableProcessors();
 
-  private final ConcurrentHashMap<String, VirtualHost> vhosts = new ConcurrentHashMap<>();
+  private final Map<String, Map<String, Queue>> queues = new ConcurrentHashMap<>();
+
+  public static final ModelSpec<ContextMetadata> METADATA_MODEL_SPEC =
+      ModelSpec.builder(
+              ZPath.parseWithIds("/config"), JacksonModelSerializer.build(ContextMetadata.class))
+          .build();
+  private ModeledFramework<ContextMetadata> metadataModel;
+  private final ObjectMapper mapper = new ObjectMapper();
+
+  private volatile Versioned<ContextMetadata> contextMetadata =
+      Versioned.from(new ContextMetadata(), 0);
+  private SubscriptionCleaner subscriptionCleaner;
 
   public GatewayService(GatewayConfiguration config) {
     checkNotNull(config);
@@ -69,6 +97,14 @@ public class GatewayService implements Closeable {
   }
 
   public void start() throws Exception {
+    pulsarClient = createClientInstance();
+    pulsarAdmin = createAdminInstance();
+    AsyncCuratorFramework curator = createCuratorInstance();
+    metadataModel = ModeledFramework.wrap(curator, METADATA_MODEL_SPEC);
+    workerGroup.scheduleWithFixedDelay(this::loadContext, 0, 100, TimeUnit.MILLISECONDS);
+    subscriptionCleaner = new SubscriptionCleaner(this, curator.unwrap());
+    subscriptionCleaner.start();
+
     ServerBootstrap bootstrap = new ServerBootstrap();
     bootstrap.childOption(ChannelOption.ALLOCATOR, PulsarByteBufAllocator.DEFAULT);
     bootstrap.group(acceptorGroup, workerGroup);
@@ -109,11 +145,7 @@ public class GatewayService implements Closeable {
     return workerGroup;
   }
 
-  public synchronized PulsarClient getPulsarClient() throws PulsarClientException {
-    // Do lazy initialization of client
-    if (pulsarClient == null) {
-      pulsarClient = createClientInstance();
-    }
+  public PulsarClient getPulsarClient() {
     return pulsarClient;
   }
 
@@ -135,11 +167,7 @@ public class GatewayService implements Closeable {
     return clientBuilder.build();
   }
 
-  public synchronized PulsarAdmin getPulsarAdmin() throws PulsarClientException {
-    // Do lazy initialization of client
-    if (pulsarAdmin == null) {
-      pulsarAdmin = createAdminInstance();
-    }
+  public PulsarAdmin getPulsarAdmin() {
     return pulsarAdmin;
   }
 
@@ -157,13 +185,31 @@ public class GatewayService implements Closeable {
     return adminBuilder.build();
   }
 
-  public void close() {
+  private AsyncCuratorFramework createCuratorInstance() {
+    RetryPolicy retryPolicy = new ExponentialBackoffRetry(1000, 3);
+    CuratorFramework client =
+        CuratorFrameworkFactory.builder()
+            .connectString(config.getZookeeperServers())
+            .sessionTimeoutMs(5000)
+            .connectionTimeoutMs(5000)
+            .retryPolicy(retryPolicy)
+            .namespace("pulsar-rabbitmq-gw")
+            .build();
+    client.start();
+    return AsyncCuratorFramework.wrap(client);
+  }
+
+  public void close() throws IOException {
     if (listenChannel != null) {
       listenChannel.close();
     }
 
     if (listenChannelTls != null) {
       listenChannelTls.close();
+    }
+
+    if (subscriptionCleaner != null) {
+      subscriptionCleaner.close();
     }
 
     acceptorGroup.shutdownGracefully();
@@ -174,9 +220,94 @@ public class GatewayService implements Closeable {
     return config;
   }
 
-  public VirtualHost getOrCreateVhost(String namespace) {
-    return vhosts.computeIfAbsent(namespace, VirtualHost::new);
+  private static final Logger LOG = LoggerFactory.getLogger(GatewayService.class);
+
+  public Map<String, Map<String, Queue>> getQueues() {
+    return queues;
   }
 
-  private static final Logger LOG = LoggerFactory.getLogger(GatewayService.class);
+  public Versioned<ContextMetadata> getContextMetadata() {
+    return contextMetadata;
+  }
+
+  @VisibleForTesting
+  public void setContextMetadata(Versioned<ContextMetadata> contextMetadata) {
+    this.contextMetadata = contextMetadata;
+  }
+
+  public Versioned<ContextMetadata> newContextMetadata(Versioned<ContextMetadata> previousContext) {
+    try {
+      ContextMetadata contextMetadata =
+          mapper.readValue(
+              mapper.writeValueAsString(previousContext.model()), ContextMetadata.class);
+      return Versioned.from(contextMetadata, previousContext.version());
+    } catch (JsonProcessingException e) {
+      LOG.error("Error while cloning context", e);
+      return null;
+    }
+  }
+
+  public CompletionStage<ContextMetadata> saveContext(Versioned<ContextMetadata> metadata) {
+    return metadataModel.versioned().set(metadata).thenCompose(it -> loadContext());
+  }
+
+  public CompletionStage<ContextMetadata> loadContext() {
+    return metadataModel
+        .versioned()
+        .read()
+        .thenApply(
+            context -> {
+              contextMetadata = context;
+              return updateContext(contextMetadata.model());
+            });
+  }
+
+  public synchronized ContextMetadata updateContext(ContextMetadata contextMetadata) {
+    contextMetadata
+        .getVhosts()
+        .forEach(
+            (namespace, vhostMetadata) -> {
+              Map<String, Queue> vhostQueues =
+                  queues.computeIfAbsent(namespace, it -> new ConcurrentHashMap<>());
+
+              vhostMetadata
+                  .getSubscriptions()
+                  .forEach(
+                      (queueName, queueSubscriptions) ->
+                          queueSubscriptions.forEach(
+                              (subscriptionName, bindingMetadata) -> {
+                                Queue queue =
+                                    vhostQueues.computeIfAbsent(queueName, q -> new Queue());
+                                PulsarConsumer pulsarConsumer =
+                                    queue.getSubscriptions().get(subscriptionName);
+                                if (pulsarConsumer == null) {
+                                  pulsarConsumer =
+                                      new PulsarConsumer(
+                                          bindingMetadata.getTopic(),
+                                          subscriptionName,
+                                          this,
+                                          queue);
+                                  // TODO: handle subscription errors
+                                  pulsarConsumer
+                                      .subscribe()
+                                      .thenRun(pulsarConsumer::receiveAndDeliverMessages);
+                                  queue.getSubscriptions().put(subscriptionName, pulsarConsumer);
+                                } else {
+                                  if (bindingMetadata.getLastMessageId() != null) {
+                                    try {
+                                      MessageId messageId =
+                                          MessageId.fromByteArray(
+                                              bindingMetadata.getLastMessageId());
+                                      pulsarConsumer.setLastMessageId(messageId);
+                                    } catch (IOException e) {
+                                      LOG.error(
+                                          "Error while deserializing binding's lastMessageId", e);
+                                    }
+                                  }
+                                }
+                              }));
+            });
+
+    return contextMetadata;
+  }
 }

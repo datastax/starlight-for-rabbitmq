@@ -29,7 +29,7 @@ public class Pre0_10CreditManager implements FlowCreditManager_0_8 {
   private volatile long _bytesCreditLimit;
   private volatile long _messageCreditLimit;
 
-  private final LongAdder _bytesCredit = new LongAdder();;
+  private final LongAdder _bytesCredit = new LongAdder();
   private final LongAdder _messageCredit = new LongAdder();
 
   Pre0_10CreditManager(

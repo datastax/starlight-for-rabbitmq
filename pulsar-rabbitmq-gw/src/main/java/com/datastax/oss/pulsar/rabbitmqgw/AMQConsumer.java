@@ -91,7 +91,7 @@ public class AMQConsumer {
                 }
               })
           .thenRunAsync(this::consume);
-      // TODO: run the task on the channel event loop and remove the synchronization blocks
+      // TODO: run the task on the event loop and remove the synchronization blocks
       // .thenRunAsync(this::consume, channel.getConnection().getEventloop());
     }
   }
@@ -128,7 +128,7 @@ public class AMQConsumer {
     }
   }
 
-  public AMQShortString getTag() {
-    return tag;
+  public boolean unsubscribe() {
+    return channel.unsubscribeConsumer(tag);
   }
 }

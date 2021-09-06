@@ -15,9 +15,14 @@
  */
 package com.datastax.oss.pulsar.rabbitmqgw;
 
+import com.datastax.oss.pulsar.rabbitmqgw.metadata.BindingMetadata;
+import com.datastax.oss.pulsar.rabbitmqgw.metadata.BindingSetMetadata;
+import com.datastax.oss.pulsar.rabbitmqgw.metadata.VirtualHostMetadata;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
-import org.apache.pulsar.client.api.PulsarClientException;
-import org.apache.pulsar.common.naming.TopicName;
+import org.apache.pulsar.client.api.MessageId;
 import org.apache.qpid.server.model.LifetimePolicy;
 
 public class FanoutExchange extends AbstractExchange {
@@ -27,24 +32,63 @@ public class FanoutExchange extends AbstractExchange {
   }
 
   @Override
-  public void bind(Queue queue, String routingKey, GatewayConnection connection)
-      throws PulsarClientException {
-    super.bind(queue, "", connection);
+  public CompletableFuture<Void> bind(
+      VirtualHostMetadata vhost,
+      String exchange,
+      String queue,
+      String routingKey,
+      GatewayConnection connection) {
+    BindingSetMetadata bindings = vhost.getExchanges().get(exchange).getBindings().get(queue);
+    bindings.getKeys().add(routingKey);
+    Map<String, BindingMetadata> subscriptions =
+        vhost.getSubscriptions().computeIfAbsent(queue, q -> new HashMap<>());
+    for (BindingMetadata bindingMetadata : subscriptions.values()) {
+      if (bindingMetadata.getLastMessageId() == null
+          && bindingMetadata.getExchange().equals(exchange)) {
+        // There's already an active subscription
+        return CompletableFuture.completedFuture(null);
+      }
+    }
+    String topic = getTopicName(connection.getNamespace(), name, "").toString();
+    String subscriptionName = (topic + "-" + UUID.randomUUID()).replace("/", "_");
+    return connection
+        .getGatewayService()
+        .getPulsarAdmin()
+        .topics()
+        .createSubscriptionAsync(topic, subscriptionName, MessageId.latest)
+        .thenAccept(
+            it ->
+                subscriptions.put(
+                    subscriptionName, new BindingMetadata(exchange, topic, subscriptionName)));
   }
 
   @Override
-  public CompletableFuture<Void> unbind(Queue queue, String routingKey) {
-    super.unbind(queue, "");
-    return null;
-  }
-
-  @Override
-  public boolean hasBinding(String bindingKey, Queue queue) {
-    return super.hasBinding("", queue);
-  }
-
-  @Override
-  public TopicName getTopicName(String vHost, String exchangeName, String routingKey) {
-    return super.getTopicName(vHost, exchangeName, "");
+  public CompletableFuture<Void> unbind(
+      VirtualHostMetadata vhost,
+      String exchange,
+      String queue,
+      String routingKey,
+      GatewayConnection connection) {
+    Map<String, BindingSetMetadata> bindings = vhost.getExchanges().get(exchange).getBindings();
+    if (bindings.get(queue).getKeys().size() == 1) {
+      // Removing the last key
+      Map<String, BindingMetadata> queueSubscriptions = vhost.getSubscriptions().get(queue);
+      for (BindingMetadata subscription : queueSubscriptions.values()) {
+        if (subscription.getLastMessageId() == null
+            && subscription.getExchange().equals(exchange)) {
+          return connection
+              .getGatewayService()
+              .getPulsarAdmin()
+              .topics()
+              .getLastMessageIdAsync(subscription.getTopic())
+              .thenAccept(
+                  lastMessageId -> {
+                    subscription.setLastMessageId(lastMessageId.toByteArray());
+                    bindings.remove(queue);
+                  });
+        }
+      }
+    }
+    return CompletableFuture.completedFuture(null);
   }
 }

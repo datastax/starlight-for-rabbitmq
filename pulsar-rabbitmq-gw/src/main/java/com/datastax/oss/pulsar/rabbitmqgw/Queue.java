@@ -17,41 +17,25 @@ package com.datastax.oss.pulsar.rabbitmqgw;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import org.apache.pulsar.client.api.Message;
-import org.apache.qpid.server.model.ExclusivityPolicy;
-import org.apache.qpid.server.model.LifetimePolicy;
 
 public class Queue {
-
-  private final String name;
-  private final boolean durable;
-  private final LifetimePolicy lifetimePolicy;
-  private final ExclusivityPolicy exclusivityPolicy;
 
   private final java.util.Queue<MessageRequest> messageRequests = new ConcurrentLinkedQueue<>();
   private final java.util.Queue<PulsarConsumer.PulsarConsumerMessage> pendingBindings =
       new ConcurrentLinkedQueue<>();
 
+  private final Map<String, PulsarConsumer> subscriptions = new ConcurrentHashMap<>();
+
   private volatile AMQConsumer _exclusiveSubscriber;
+
   private final List<AMQConsumer> consumers = new ArrayList<>();
-  private final List<AbstractExchange> boundExchanges = new ArrayList<>();
 
-  public Queue(
-      String name,
-      boolean durable,
-      LifetimePolicy lifetimePolicy,
-      ExclusivityPolicy exclusivityPolicy) {
-    this.name = name;
-    this.durable = durable;
-    this.lifetimePolicy = lifetimePolicy;
-    this.exclusivityPolicy = exclusivityPolicy;
-  }
-
-  public String getName() {
-    return name;
-  }
+  public Queue() {}
 
   public int getQueueDepthMessages() {
     // TODO: implement message count in queue ?
@@ -62,20 +46,8 @@ public class Queue {
     return consumers.size();
   }
 
-  public boolean isUnused() {
-    return getConsumerCount() == 0;
-  }
-
-  public boolean isEmpty() {
-    return getQueueDepthMessages() == 0;
-  }
-
-  public boolean isExclusive() {
-    return exclusivityPolicy != ExclusivityPolicy.NONE;
-  }
-
-  public LifetimePolicy getLifetimePolicy() {
-    return lifetimePolicy;
+  public Map<String, PulsarConsumer> getSubscriptions() {
+    return subscriptions;
   }
 
   public CompletableFuture<PulsarConsumer.PulsarConsumerMessage> receiveAsync(
@@ -135,17 +107,9 @@ public class Queue {
     }
   }
 
-  public List<AbstractExchange> getBoundExchanges() {
-    return boundExchanges;
-  }
-
   public long clearQueue() {
     // TODO: implement queue purge
     return 0;
-  }
-
-  public boolean isDurable() {
-    return durable;
   }
 
   public static class MessageRequest {

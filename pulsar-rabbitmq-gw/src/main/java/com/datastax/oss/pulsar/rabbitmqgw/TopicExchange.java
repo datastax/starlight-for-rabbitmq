@@ -15,7 +15,8 @@
  */
 package com.datastax.oss.pulsar.rabbitmqgw;
 
-import org.apache.pulsar.client.api.PulsarClientException;
+import com.datastax.oss.pulsar.rabbitmqgw.metadata.VirtualHostMetadata;
+import java.util.concurrent.CompletableFuture;
 import org.apache.qpid.server.model.LifetimePolicy;
 
 public class TopicExchange extends AbstractExchange {
@@ -25,8 +26,22 @@ public class TopicExchange extends AbstractExchange {
   }
 
   @Override
-  public void bind(Queue queue, String routingKey, GatewayConnection connection)
-      throws PulsarClientException {
-    // TODO: bind topic exchange
+  public CompletableFuture<Void> bind(
+      VirtualHostMetadata vhost,
+      String exchange,
+      String queue,
+      String routingKey,
+      GatewayConnection connection) {
+    return CompletableFuture.completedFuture(null);
+  }
+
+  @Override
+  public CompletableFuture<Void> unbind(
+      VirtualHostMetadata vhost,
+      String exchange,
+      String queue,
+      String routingKey,
+      GatewayConnection gatewayConnection) {
+    return CompletableFuture.completedFuture(null);
   }
 }

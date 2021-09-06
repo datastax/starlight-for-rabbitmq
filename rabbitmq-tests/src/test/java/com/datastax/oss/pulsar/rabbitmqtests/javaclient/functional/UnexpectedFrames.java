@@ -125,8 +125,8 @@ public class UnexpectedFrames extends BrokerTestCase {
         });
   }
 
-  // TODO: Qpid accepts that a content header frame is not followed by a content body frame. Is it a
-  //  big deal ?
+  // TODO: Qpid accepts that a content header frame is not followed by a content body frame but not
+  //  RabbitMQ. Is it a big deal ?
   // @Test
   public void missingBody() throws IOException {
     expectUnexpectedFrameError(
@@ -159,7 +159,7 @@ public class UnexpectedFrames extends BrokerTestCase {
         });
   }
 
-  // TODO: Qpid accepts heartbeats on channel. Is it a big deal ?
+  // TODO: Qpid accepts heartbeats on channel but not RabbitMQ. Is it a big deal ?
   // @Test
   public void heartbeatOnChannel() throws IOException {
     expectUnexpectedFrameError(

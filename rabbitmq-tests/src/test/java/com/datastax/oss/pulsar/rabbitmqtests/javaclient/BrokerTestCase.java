@@ -28,6 +28,7 @@ import java.security.NoSuchAlgorithmException;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeoutException;
 import javax.net.ssl.SSLContext;
 import org.apache.bookkeeper.util.PortManager;
@@ -127,6 +128,7 @@ public class BrokerTestCase {
     config.setBrokerServiceURL(cluster.getAddress());
     config.setBrokerWebServiceURL(cluster.getAddress());
     config.setServicePort(Optional.of(PortManager.nextFreePort()));
+    config.setZookeeperServers(cluster.getService().getConfig().getZookeeperServers());
     gatewayService = new GatewayService(config);
     gatewayService.start();
   }
@@ -165,7 +167,8 @@ public class BrokerTestCase {
    */
   protected void releaseResources() throws IOException {}
 
-  protected void restart() throws IOException, TimeoutException {
+  protected void restart()
+      throws IOException, TimeoutException, ExecutionException, InterruptedException {
     tearDown();
     bareRestart();
     setUp();

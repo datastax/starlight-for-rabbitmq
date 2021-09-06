@@ -25,17 +25,21 @@ import static org.mockito.Matchers.anyInt;
 import static org.mockito.Matchers.anyListOf;
 import static org.mockito.Matchers.anyLong;
 import static org.mockito.Matchers.anyString;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.when;
 
+import com.datastax.oss.pulsar.rabbitmqgw.metadata.ContextMetadata;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufAllocator;
 import io.netty.channel.embedded.EmbeddedChannel;
 import java.util.Collections;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.TimeUnit;
+import org.apache.curator.x.async.modeled.versioned.Versioned;
 import org.apache.pulsar.client.admin.PulsarAdmin;
 import org.apache.pulsar.client.admin.Topics;
 import org.apache.pulsar.client.api.ConsumerBuilder;
@@ -62,6 +66,7 @@ import org.apache.qpid.server.protocol.v0_8.transport.ConnectionTuneOkBody;
 import org.apache.qpid.server.protocol.v0_8.transport.ProtocolInitiation;
 import org.apache.qpid.server.transport.ByteBufferSender;
 import org.junit.jupiter.api.BeforeEach;
+import org.mockito.stubbing.Answer;
 
 public class AbstractBaseTest {
   public static final int CHANNEL_ID = 42;
@@ -93,7 +98,7 @@ public class AbstractBaseTest {
     when(consumerBuilder.negativeAckRedeliveryDelay(anyLong(), any(TimeUnit.class)))
         .thenReturn(consumerBuilder);
     when(consumerBuilder.receiverQueueSize(anyInt())).thenReturn(consumerBuilder);
-    when(consumerBuilder.subscribe()).thenReturn(consumer);
+    when(consumerBuilder.subscribeAsync()).thenReturn(CompletableFuture.completedFuture(consumer));
 
     when(consumer.receiveAsync()).thenReturn(new CompletableFuture<>());
     when(consumer.getLastMessageIdAsync())
@@ -105,8 +110,24 @@ public class AbstractBaseTest {
     PulsarAdmin pulsarAdmin = mock(PulsarAdmin.class);
     Topics topics = mock(Topics.class);
 
+    doReturn(CompletableFuture.completedFuture(null))
+        .when(topics)
+        .createSubscriptionAsync(anyString(), anyString(), any());
+    doReturn(CompletableFuture.completedFuture(MessageId.latest))
+        .when(topics)
+        .getLastMessageIdAsync(anyString());
     doReturn(topics).when(pulsarAdmin).topics();
     doReturn(pulsarAdmin).when(gatewayService).getPulsarAdmin();
+
+    Answer<CompletionStage<ContextMetadata>> answer =
+        invocation -> {
+          Versioned<ContextMetadata> contextMetadata =
+              (Versioned<ContextMetadata>) invocation.getArguments()[0];
+          gatewayService.setContextMetadata(contextMetadata);
+          return CompletableFuture.completedFuture(
+              gatewayService.updateContext(contextMetadata.model()));
+        };
+    doAnswer(answer).when(gatewayService).saveContext(any());
   }
 
   protected void sendData(AMQDataBlock data) {
@@ -115,9 +136,24 @@ public class AbstractBaseTest {
     channel.writeInbound(byteBuf);
   }
 
-  protected <T> T exchangeData(AMQDataBlock data) {
+  protected <T> T exchangeDataNoWait(AMQDataBlock data) {
     sendData(data);
     return channel.readOutbound();
+  }
+
+  protected <T> T exchangeData(AMQDataBlock data) {
+    sendData(data);
+
+    T read = null;
+    long now = System.currentTimeMillis();
+    while (System.currentTimeMillis() - now < 1000 && read == null) {
+      read = channel.readOutbound();
+      try {
+        Thread.sleep(10);
+      } catch (InterruptedException e) {
+      }
+    }
+    return read;
   }
 
   protected void openConnection() {
@@ -152,7 +188,7 @@ public class AbstractBaseTest {
   protected AMQFrame sendConnectionTuneOk(int channelMax, long frameMax, int heartbeat) {
     ConnectionTuneOkBody connectionTuneOkBody =
         new ConnectionTuneOkBody(channelMax, frameMax, heartbeat);
-    return exchangeData(connectionTuneOkBody.generateFrame(1));
+    return exchangeDataNoWait(connectionTuneOkBody.generateFrame(1));
   }
 
   protected AMQFrame sendConnectionOpen() {
