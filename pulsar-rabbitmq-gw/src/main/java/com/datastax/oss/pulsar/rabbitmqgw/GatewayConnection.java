@@ -22,21 +22,29 @@ import com.datastax.oss.pulsar.rabbitmqgw.metadata.ExchangeMetadata;
 import com.datastax.oss.pulsar.rabbitmqgw.metadata.VirtualHostMetadata;
 import com.google.common.annotations.VisibleForTesting;
 import io.netty.buffer.ByteBuf;
+import io.netty.channel.ChannelHandler;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
+import io.netty.handler.ssl.SslHandler;
 import io.netty.handler.timeout.IdleState;
 import io.netty.handler.timeout.IdleStateEvent;
 import io.netty.handler.timeout.IdleStateHandler;
 import java.lang.reflect.Proxy;
 import java.net.SocketAddress;
+import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import javax.naming.AuthenticationException;
+import javax.net.ssl.SSLSession;
 import org.apache.bookkeeper.util.collections.ConcurrentLongHashMap;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.curator.x.async.modeled.versioned.Versioned;
+import org.apache.pulsar.broker.authentication.AuthenticationDataCommand;
+import org.apache.pulsar.broker.authentication.AuthenticationProvider;
+import org.apache.pulsar.broker.authentication.AuthenticationService;
 import org.apache.qpid.server.QpidException;
 import org.apache.qpid.server.bytebuffer.QpidByteBuffer;
 import org.apache.qpid.server.exchange.ExchangeDefaults;
@@ -165,7 +173,7 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
     } catch (AMQFrameDecodingException e) {
       LOGGER.debug("Invalid frame", e);
       sendConnectionClose(
-          // Hack to be compliant with RabbitMQ expectations
+          // To be compliant with RabbitMQ expectations
           e.getMessage().startsWith("Unsupported content header class id:")
               ? 505
               : e.getErrorCode(),
@@ -248,8 +256,44 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
       return;
     }
 
-    // TODO: implement SASL mechanisms ?
-
+    if (gatewayService.getConfig().isAuthenticationEnabled()) {
+      String principal = null;
+      AuthenticationService authenticationService = gatewayService.getAuthenticationService();
+      try {
+        if ("PLAIN".equals(mechanism.toString())) {
+          AuthenticationProvider tokenAuthProvider =
+              authenticationService.getAuthenticationProvider("token");
+          if (tokenAuthProvider != null) {
+            if (response.length > 2 && response[0] == 0 && response[1] == 0) {
+              String token = new String(response, 2, response.length - 2, StandardCharsets.UTF_8);
+              AuthenticationDataCommand authData =
+                  new AuthenticationDataCommand(token, remoteAddress, null);
+              principal = authenticationService.authenticate(authData, "token");
+            }
+          }
+          if (principal == null) {
+            throw new AuthenticationException(
+                "SASL PLAIN is only supported with JWT as password at the moment");
+          }
+        } else if ("EXTERNAL".equals(mechanism.toString())) {
+          ChannelHandler sslHandler =
+              ctx.channel().pipeline().get(ServiceChannelInitializer.TLS_HANDLER);
+          SSLSession sslSession = null;
+          if (sslHandler != null) {
+            sslSession = ((SslHandler) sslHandler).engine().getSession();
+          }
+          AuthenticationDataCommand authData =
+              new AuthenticationDataCommand(null, remoteAddress, sslSession);
+          authenticationService.authenticate(authData, "tls");
+        } else {
+          throw new AuthenticationException("Unsupported authentication mechanism");
+        }
+      } catch (AuthenticationException e) {
+        LOGGER.debug("Invalid authentication", e);
+        sendConnectionClose(ErrorCodes.NOT_ALLOWED, "Invalid authentication", 0);
+        return;
+      }
+    }
     // setClientProperties(clientProperties);
     processSaslResponse(response);
 
@@ -594,18 +638,8 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
       ProtocolVersion pv = pi.checkVersion(); // Fails if not correct
       setProtocolVersion(pv);
 
-      // TODO: support authorization mechanisms
-      /*StringBuilder mechanismBuilder = new StringBuilder();
-      for(String mechanismName : getPort().getAuthenticationProvider().getAvailableMechanisms(getTransport().isSecure()))
-      {
-          if(mechanismBuilder.length() != 0)
-          {
-              mechanismBuilder.append(' ');
-          }
-          mechanismBuilder.append(mechanismName);
-      }
-      String mechanisms = mechanismBuilder.toString();*/
-      String mechanisms = "PLAIN";
+      String mechanisms =
+          String.join(" ", gatewayService.getConfig().getAuthenticationMechanisms());
 
       String locales = "en_US";
 

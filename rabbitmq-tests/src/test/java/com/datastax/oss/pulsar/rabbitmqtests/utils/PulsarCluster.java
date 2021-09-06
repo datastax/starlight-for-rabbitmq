@@ -30,19 +30,18 @@ public class PulsarCluster implements AutoCloseable {
   private final BookKeeperCluster bookKeeperCluster;
 
   public PulsarCluster(Path tempDir) throws Exception {
-    this(tempDir, true);
+    this(tempDir, new ServiceConfiguration());
   }
 
-  public PulsarCluster(Path tempDir, boolean allowAutoTopicCreation) throws Exception {
+  public PulsarCluster(Path tempDir, ServiceConfiguration config) throws Exception {
     this.bookKeeperCluster = new BookKeeperCluster(tempDir, PortManager.nextFreePort());
-    ServiceConfiguration config = new ServiceConfiguration();
     config.setZookeeperServers(bookKeeperCluster.getZooKeeperAddress());
     config.setClusterName("localhost");
     config.setManagedLedgerDefaultEnsembleSize(1);
     config.setManagedLedgerDefaultWriteQuorum(1);
     config.setManagedLedgerDefaultAckQuorum(1);
     config.setBrokerServicePort(Optional.of(PortManager.nextFreePort()));
-    config.setAllowAutoTopicCreation(allowAutoTopicCreation);
+    config.setAllowAutoTopicCreation(true);
     config.setWebSocketServiceEnabled(false);
     config.setSystemTopicEnabled(true);
     config.setBookkeeperNumberOfChannelsPerBookie(1);

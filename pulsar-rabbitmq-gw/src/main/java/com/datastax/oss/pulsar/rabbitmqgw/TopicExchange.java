@@ -32,7 +32,10 @@ public class TopicExchange extends AbstractExchange {
       String queue,
       String routingKey,
       GatewayConnection connection) {
-    return CompletableFuture.completedFuture(null);
+    CompletableFuture<Void> result = new CompletableFuture<>();
+    result.completeExceptionally(
+        new UnsupportedOperationException("Binding topic exchange not supported at the moment"));
+    return result;
   }
 
   @Override
@@ -42,6 +45,9 @@ public class TopicExchange extends AbstractExchange {
       String queue,
       String routingKey,
       GatewayConnection gatewayConnection) {
-    return CompletableFuture.completedFuture(null);
+    CompletableFuture<Void> result = new CompletableFuture<>();
+    result.completeExceptionally(
+        new UnsupportedOperationException("Binding header exchange not supported at the moment"));
+    return result;
   }
 }

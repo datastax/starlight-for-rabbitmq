@@ -16,6 +16,7 @@
 package com.datastax.oss.pulsar.rabbitmqgw;
 
 import com.google.common.collect.Sets;
+import java.util.Collections;
 import java.util.Optional;
 import java.util.Properties;
 import java.util.Set;
@@ -23,6 +24,8 @@ import lombok.Getter;
 import lombok.Setter;
 import org.apache.pulsar.common.configuration.Category;
 import org.apache.pulsar.common.configuration.FieldContext;
+import org.apache.pulsar.common.configuration.PropertiesContext;
+import org.apache.pulsar.common.configuration.PropertyContext;
 import org.apache.pulsar.common.configuration.PulsarConfiguration;
 
 @Getter
@@ -30,6 +33,8 @@ import org.apache.pulsar.common.configuration.PulsarConfiguration;
 public class GatewayConfiguration implements PulsarConfiguration {
   @Category private static final String CATEGORY_SERVER = "Server";
   @Category private static final String CATEGORY_BROKER_DISCOVERY = "Broker Discovery";
+  @Category private static final String CATEGORY_AUTHENTICATION = "Gateway Authentication";
+  @Category private static final String CATEGORY_TOKEN_AUTH = "Token Authentication Provider";
 
   @Category
   private static final String CATEGORY_CLIENT_AUTHENTICATION = "Broker Client Authorization";
@@ -76,28 +81,45 @@ public class GatewayConfiguration implements PulsarConfiguration {
   private Optional<Integer> servicePortTls = Optional.empty();
 
   @FieldContext(
+    category = CATEGORY_AUTHENTICATION,
+    doc = "Whether authentication is enabled for the Pulsar Gateway"
+  )
+  private boolean authenticationEnabled = false;
+
+  @FieldContext(
+    category = CATEGORY_AUTHENTICATION,
+    doc =
+        "Authentication mechanism name list (a comma-separated list of mecanisms. Eg: PLAIN,EXTERNAL)"
+  )
+  private Set<String> authenticationMechanisms = Sets.newTreeSet(Collections.singleton("PLAIN"));
+
+  @FieldContext(
     category = CATEGORY_CLIENT_AUTHENTICATION,
-    doc = "The authentication plugin used by the Pulsar proxy to authenticate with Pulsar brokers"
+    doc = "The authentication plugin used by the Pulsar Gateway to authenticate with Pulsar brokers"
   )
   private String brokerClientAuthenticationPlugin;
 
   @FieldContext(
     category = CATEGORY_CLIENT_AUTHENTICATION,
     doc =
-        "The authentication parameters used by the Pulsar proxy to authenticate with Pulsar brokers"
+        "The authentication parameters used by the Pulsar Gateway to authenticate with Pulsar brokers"
   )
   private String brokerClientAuthenticationParameters;
 
   @FieldContext(
     category = CATEGORY_CLIENT_AUTHENTICATION,
     doc =
-        "The path to trusted certificates used by the Pulsar proxy to authenticate with Pulsar brokers"
+        "The path to trusted certificates used by the Pulsar Gateway to authenticate with Pulsar brokers"
   )
   private String brokerClientTrustCertsFilePath;
 
-  /** *** --- TLS --- *** */
-  @Deprecated private boolean tlsEnabledInProxy = false;
+  @FieldContext(
+    category = CATEGORY_CLIENT_AUTHENTICATION,
+    doc = "Whether TLS is enabled when communicating with Pulsar brokers"
+  )
+  private boolean tlsEnabledWithBroker = false;
 
+  /** *** --- TLS --- *** */
   @FieldContext(
     category = CATEGORY_TLS,
     doc = "Tls cert refresh duration in seconds (set 0 to check on every new connection)"
@@ -132,7 +154,7 @@ public class GatewayConfiguration implements PulsarConfiguration {
 
   @FieldContext(
     category = CATEGORY_TLS,
-    doc = "Whether the hostname is validated when the proxy creates a TLS connection with brokers"
+    doc = "Whether the hostname is validated when the gateway creates a TLS connection with brokers"
   )
   private boolean tlsHostnameVerificationEnabled = false;
 
@@ -148,7 +170,7 @@ public class GatewayConfiguration implements PulsarConfiguration {
   @FieldContext(
     category = CATEGORY_TLS,
     doc =
-        "Specify the tls cipher the proxy will use to negotiate during TLS Handshake"
+        "Specify the tls cipher the gateway will use to negotiate during TLS Handshake"
             + " (a comma-separated list of ciphers).\n\n"
             + "Examples:- [TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256]"
   )
@@ -165,7 +187,7 @@ public class GatewayConfiguration implements PulsarConfiguration {
   /** ** --- KeyStore TLS config variables --- *** */
   @FieldContext(
     category = CATEGORY_KEYSTORE_TLS,
-    doc = "Enable TLS with KeyStore type configuration for proxy"
+    doc = "Enable TLS with KeyStore type configuration for gateway"
   )
   private boolean tlsEnabledWithKeyStore = false;
 
@@ -174,28 +196,116 @@ public class GatewayConfiguration implements PulsarConfiguration {
 
   @FieldContext(
     category = CATEGORY_KEYSTORE_TLS,
-    doc = "TLS KeyStore type configuration for proxy: JKS, PKCS12"
+    doc = "TLS KeyStore type configuration for gateway: JKS, PKCS12"
   )
   private String tlsKeyStoreType = "JKS";
 
-  @FieldContext(category = CATEGORY_KEYSTORE_TLS, doc = "TLS KeyStore path for proxy")
+  @FieldContext(category = CATEGORY_KEYSTORE_TLS, doc = "TLS KeyStore path for gateway")
   private String tlsKeyStore = null;
 
-  @FieldContext(category = CATEGORY_KEYSTORE_TLS, doc = "TLS KeyStore password for proxy")
+  @FieldContext(category = CATEGORY_KEYSTORE_TLS, doc = "TLS KeyStore password for gateway")
   private String tlsKeyStorePassword = null;
 
   @FieldContext(
     category = CATEGORY_KEYSTORE_TLS,
-    doc = "TLS TrustStore type configuration for proxy: JKS, PKCS12"
+    doc = "TLS TrustStore type configuration for gateway: JKS, PKCS12"
   )
   private String tlsTrustStoreType = "JKS";
 
-  @FieldContext(category = CATEGORY_KEYSTORE_TLS, doc = "TLS TrustStore path for proxy")
+  @FieldContext(category = CATEGORY_KEYSTORE_TLS, doc = "TLS TrustStore path for gateway")
   private String tlsTrustStore = null;
 
-  @FieldContext(category = CATEGORY_KEYSTORE_TLS, doc = "TLS TrustStore password for proxy")
+  @FieldContext(category = CATEGORY_KEYSTORE_TLS, doc = "TLS TrustStore password for gateway")
   private String tlsTrustStorePassword = null;
 
+  /* --- KeyStore TLS config variables used for gateway to auth with broker--- */
+  @FieldContext(
+    category = CATEGORY_KEYSTORE_TLS,
+    doc = "Whether the Pulsar gateway use KeyStore type to authenticate with Pulsar brokers"
+  )
+  private boolean brokerClientTlsEnabledWithKeyStore = false;
+
+  @FieldContext(
+    category = CATEGORY_KEYSTORE_TLS,
+    doc = "The TLS Provider used by the Pulsar gateway to authenticate with Pulsar brokers"
+  )
+  private String brokerClientSslProvider = null;
+
+  // needed when client auth is required
+  @FieldContext(
+    category = CATEGORY_KEYSTORE_TLS,
+    doc =
+        "TLS TrustStore type configuration for gateway: JKS, PKCS12 "
+            + " used by the Pulsar gateway to authenticate with Pulsar brokers"
+  )
+  private String brokerClientTlsTrustStoreType = "JKS";
+
+  @FieldContext(
+    category = CATEGORY_KEYSTORE_TLS,
+    doc =
+        "TLS TrustStore path for gateway, "
+            + " used by the Pulsar gateway to authenticate with Pulsar brokers"
+  )
+  private String brokerClientTlsTrustStore = null;
+
+  @FieldContext(
+    category = CATEGORY_KEYSTORE_TLS,
+    doc =
+        "TLS TrustStore password for gateway, "
+            + " used by the Pulsar gateway to authenticate with Pulsar brokers"
+  )
+  private String brokerClientTlsTrustStorePassword = null;
+
+  @FieldContext(
+    category = CATEGORY_KEYSTORE_TLS,
+    doc =
+        "Specify the tls cipher the gateway will use to negotiate during TLS Handshake"
+            + " (a comma-separated list of ciphers).\n\n"
+            + "Examples:- [TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256].\n"
+            + " used by the Pulsar gateway to authenticate with Pulsar brokers"
+  )
+  private Set<String> brokerClientTlsCiphers = Sets.newTreeSet();
+
+  @FieldContext(
+    category = CATEGORY_KEYSTORE_TLS,
+    doc =
+        "Specify the tls protocols the broker will use to negotiate during TLS handshake"
+            + " (a comma-separated list of protocol names).\n\n"
+            + "Examples:- [TLSv1.2, TLSv1.1, TLSv1] \n"
+            + " used by the Pulsar gateway to authenticate with Pulsar brokers"
+  )
+  private Set<String> brokerClientTlsProtocols = Sets.newTreeSet();
+
+  @PropertiesContext(
+    properties = {
+      @PropertyContext(
+        key = "tokenPublicKey",
+        doc =
+            @FieldContext(
+              category = CATEGORY_TOKEN_AUTH,
+              doc =
+                  "Asymmetric public/private key pair.\n\n"
+                      + "Configure the public key to be used to validate auth tokens"
+                      + " The key can be specified like:\n\n"
+                      + "tokenPublicKey=data:;base64,xxxxxxxxx\n"
+                      + "tokenPublicKey=file:///my/public.key  ( Note: key file must be DER-encoded )"
+            )
+      ),
+      @PropertyContext(
+        key = "tokenSecretKey",
+        doc =
+            @FieldContext(
+              category = CATEGORY_TOKEN_AUTH,
+              doc =
+                  "Symmetric key.\n\n"
+                      + "Configure the secret key to be used to validate auth tokens"
+                      + "The key can be specified like:\n\n"
+                      + "tokenSecretKey=data:;base64,xxxxxxxxx\n"
+                      + "tokenSecretKey=file:///my/secret.key  ( Note: key file must be DER-encoded )"
+            )
+      )
+    }
+  )
   @FieldContext(
     category = CATEGORY_AMQP,
     doc = "The maximum number of sessions which can exist concurrently on a connection."

@@ -44,6 +44,7 @@ import org.apache.curator.x.async.modeled.ModelSpec;
 import org.apache.curator.x.async.modeled.ModeledFramework;
 import org.apache.curator.x.async.modeled.ZPath;
 import org.apache.curator.x.async.modeled.versioned.Versioned;
+import org.apache.pulsar.broker.authentication.AuthenticationService;
 import org.apache.pulsar.client.admin.PulsarAdmin;
 import org.apache.pulsar.client.admin.PulsarAdminBuilder;
 import org.apache.pulsar.client.api.ClientBuilder;
@@ -59,6 +60,7 @@ import org.slf4j.LoggerFactory;
 public class GatewayService implements Closeable {
 
   private final GatewayConfiguration config;
+  private final AuthenticationService authenticationService;
   private PulsarClient pulsarClient;
   private PulsarAdmin pulsarAdmin;
 
@@ -88,9 +90,10 @@ public class GatewayService implements Closeable {
       Versioned.from(new ContextMetadata(), 0);
   private SubscriptionCleaner subscriptionCleaner;
 
-  public GatewayService(GatewayConfiguration config) {
+  public GatewayService(GatewayConfiguration config, AuthenticationService authenticationService) {
     checkNotNull(config);
     this.config = config;
+    this.authenticationService = authenticationService;
 
     this.acceptorGroup = EventLoopUtil.newEventLoopGroup(1, true, acceptorThreadFactory);
     this.workerGroup = EventLoopUtil.newEventLoopGroup(numThreads, true, workersThreadFactory);
@@ -153,15 +156,28 @@ public class GatewayService implements Closeable {
     ClientBuilder clientBuilder =
         PulsarClient.builder()
             .statsInterval(0, TimeUnit.SECONDS)
-            .serviceUrl(config.getBrokerServiceURL())
-            .allowTlsInsecureConnection(config.isTlsAllowInsecureConnection())
-            .tlsTrustCertsFilePath(config.getBrokerClientTrustCertsFilePath());
+            .serviceUrl(config.getBrokerServiceURL());
 
     if (isNotBlank(config.getBrokerClientAuthenticationPlugin())
         && isNotBlank(config.getBrokerClientAuthenticationParameters())) {
       clientBuilder.authentication(
           config.getBrokerClientAuthenticationPlugin(),
           config.getBrokerClientAuthenticationParameters());
+    }
+
+    // set trust store if needed.
+    if (config.isTlsEnabledWithBroker()) {
+      if (config.isBrokerClientTlsEnabledWithKeyStore()) {
+        clientBuilder
+            .useKeyStoreTls(true)
+            .tlsTrustStoreType(config.getBrokerClientTlsTrustStoreType())
+            .tlsTrustStorePath(config.getBrokerClientTlsTrustStore())
+            .tlsTrustStorePassword(config.getBrokerClientTlsTrustStorePassword());
+      } else {
+        clientBuilder.tlsTrustCertsFilePath(config.getBrokerClientTrustCertsFilePath());
+      }
+      clientBuilder.allowTlsInsecureConnection(config.isTlsAllowInsecureConnection());
+      clientBuilder.enableTlsHostnameVerification(config.isTlsHostnameVerificationEnabled());
     }
 
     return clientBuilder.build();
@@ -180,6 +196,21 @@ public class GatewayService implements Closeable {
       adminBuilder.authentication(
           config.getBrokerClientAuthenticationPlugin(),
           config.getBrokerClientAuthenticationParameters());
+    }
+
+    // set trust store if needed.
+    if (config.isTlsEnabledWithBroker()) {
+      if (config.isBrokerClientTlsEnabledWithKeyStore()) {
+        adminBuilder
+            .useKeyStoreTls(true)
+            .tlsTrustStoreType(config.getBrokerClientTlsTrustStoreType())
+            .tlsTrustStorePath(config.getBrokerClientTlsTrustStore())
+            .tlsTrustStorePassword(config.getBrokerClientTlsTrustStorePassword());
+      } else {
+        adminBuilder.tlsTrustCertsFilePath(config.getBrokerClientTrustCertsFilePath());
+      }
+      adminBuilder.allowTlsInsecureConnection(config.isTlsAllowInsecureConnection());
+      adminBuilder.enableTlsHostnameVerification(config.isTlsHostnameVerificationEnabled());
     }
 
     return adminBuilder.build();
@@ -309,5 +340,9 @@ public class GatewayService implements Closeable {
             });
 
     return contextMetadata;
+  }
+
+  public AuthenticationService getAuthenticationService() {
+    return authenticationService;
   }
 }

@@ -71,7 +71,7 @@ import org.mockito.stubbing.Answer;
 public class AbstractBaseTest {
   public static final int CHANNEL_ID = 42;
   protected final GatewayConfiguration config = new GatewayConfiguration();
-  protected final GatewayService gatewayService = spy(new GatewayService(config));
+  protected final GatewayService gatewayService = spy(new GatewayService(config, null));
   protected final GatewayConnection connection = new GatewayConnection(gatewayService);
   protected EmbeddedChannel channel;
   protected ProducerBase producer = mock(ProducerBase.class);

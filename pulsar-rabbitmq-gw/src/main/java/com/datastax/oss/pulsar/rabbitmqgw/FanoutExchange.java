@@ -25,7 +25,7 @@ import java.util.concurrent.CompletableFuture;
 import org.apache.pulsar.client.api.MessageId;
 import org.apache.qpid.server.model.LifetimePolicy;
 
-public class FanoutExchange extends AbstractExchange {
+public final class FanoutExchange extends AbstractExchange {
 
   public FanoutExchange(String name, boolean durable, LifetimePolicy lifetimePolicy) {
     super(name, Type.fanout, durable, lifetimePolicy);

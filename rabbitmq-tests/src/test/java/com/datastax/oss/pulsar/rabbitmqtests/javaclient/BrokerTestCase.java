@@ -129,7 +129,7 @@ public class BrokerTestCase {
     config.setBrokerWebServiceURL(cluster.getAddress());
     config.setServicePort(Optional.of(PortManager.nextFreePort()));
     config.setZookeeperServers(cluster.getService().getConfig().getZookeeperServers());
-    gatewayService = new GatewayService(config);
+    gatewayService = new GatewayService(config, null);
     gatewayService.start();
   }
 

@@ -42,12 +42,22 @@
     <maven.compiler.source>8</maven.compiler.source>
     <maven.compiler.target>8</maven.compiler.target>
     <pulsar.version>2.8.0</pulsar.version>
+    <qpid.version>8.0.0</qpid.version>
+    <failsafe.version>2.4.2</failsafe.version>
+    <lombok.version>1.18.20</lombok.version>
     <curator.version>5.1.0</curator.version>
+    <jcommander.version>1.78</jcommander.version>
+    <guava.version>30.1-jre</guava.version>
+    <commonslang3.version>3.12.0</commonslang3.version>
     <slf4j.version>1.7.30</slf4j.version>
     <logback.version>1.2.3</logback.version>
     <junit.version>5.7.1</junit.version>
+    <spotbugs.version>4.2.3</spotbugs.version>
+    <mockito.version>1.10.19</mockito.version>
     <surefire.version>3.0.0-M5</surefire.version>
     <assertj.version>3.19.0</assertj.version>
+    <awaitility.version>4.1.0</awaitility.version>
+    <rabbitmqclient.version>5.12.0</rabbitmqclient.version>
   </properties>
   <dependencyManagement>
     <dependencies>
@@ -72,6 +82,16 @@
         <version>${pulsar.version}</version>
       </dependency>
       <dependency>
+        <groupId>org.apache.pulsar</groupId>
+        <artifactId>pulsar-client-admin-original</artifactId>
+        <version>${pulsar.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.curator</groupId>
+        <artifactId>curator-x-async</artifactId>
+        <version>${curator.version}</version>
+      </dependency>
+      <dependency>
         <groupId>org.apache.curator</groupId>
         <artifactId>curator-test</artifactId>
         <version>${curator.version}</version>
@@ -81,6 +101,41 @@
             <artifactId>*</artifactId>
           </exclusion>
         </exclusions>
+      </dependency>
+      <dependency>
+        <groupId>com.beust</groupId>
+        <artifactId>jcommander</artifactId>
+        <version>${jcommander.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.google.guava</groupId>
+        <artifactId>guava</artifactId>
+        <version>${guava.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.commons</groupId>
+        <artifactId>commons-lang3</artifactId>
+        <version>${commonslang3.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.qpid</groupId>
+        <artifactId>qpid-broker-core</artifactId>
+        <version>${qpid.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.qpid</groupId>
+        <artifactId>qpid-broker-plugins-amqp-0-8-protocol</artifactId>
+        <version>${qpid.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>net.jodah</groupId>
+        <artifactId>failsafe</artifactId>
+        <version>${failsafe.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.projectlombok</groupId>
+        <artifactId>lombok</artifactId>
+        <version>${lombok.version}</version>
       </dependency>
       <dependency>
         <groupId>org.junit.jupiter</groupId>
@@ -97,18 +152,30 @@
       <dependency>
         <groupId>com.github.spotbugs</groupId>
         <artifactId>spotbugs-annotations</artifactId>
-        <version>4.2.3</version>
+        <version>${spotbugs.version}</version>
       </dependency>
       <dependency>
         <groupId>org.mockito</groupId>
         <artifactId>mockito-core</artifactId>
-        <version>1.10.19</version>
+        <version>${mockito.version}</version>
         <scope>test</scope>
       </dependency>
       <dependency>
         <groupId>org.assertj</groupId>
         <artifactId>assertj-core</artifactId>
         <version>${assertj.version}</version>
+        <scope>test</scope>
+      </dependency>
+      <dependency>
+        <groupId>org.awaitility</groupId>
+        <artifactId>awaitility</artifactId>
+        <version>${awaitility.version}</version>
+        <scope>test</scope>
+      </dependency>
+      <dependency>
+        <groupId>com.rabbitmq</groupId>
+        <artifactId>amqp-client</artifactId>
+        <version>${rabbitmqclient.version}</version>
         <scope>test</scope>
       </dependency>
     </dependencies>

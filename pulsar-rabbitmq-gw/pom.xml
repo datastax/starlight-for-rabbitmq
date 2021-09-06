@@ -33,17 +33,14 @@
     <dependency>
       <groupId>com.beust</groupId>
       <artifactId>jcommander</artifactId>
-      <version>1.78</version>
     </dependency>
     <dependency>
       <groupId>com.google.guava</groupId>
       <artifactId>guava</artifactId>
-      <version>30.1-jre</version>
     </dependency>
     <dependency>
       <groupId>org.apache.commons</groupId>
       <artifactId>commons-lang3</artifactId>
-      <version>3.12.0</version>
     </dependency>
     <dependency>
       <groupId>org.apache.pulsar</groupId>
@@ -60,17 +57,14 @@
     <dependency>
       <groupId>org.apache.qpid</groupId>
       <artifactId>qpid-broker-core</artifactId>
-      <version>8.0.0</version>
     </dependency>
     <dependency>
       <groupId>org.apache.qpid</groupId>
       <artifactId>qpid-broker-plugins-amqp-0-8-protocol</artifactId>
-      <version>8.0.0</version>
     </dependency>
     <dependency>
       <groupId>org.apache.curator</groupId>
       <artifactId>curator-x-async</artifactId>
-      <version>5.1.0</version>
     </dependency>
     <dependency>
       <groupId>com.github.spotbugs</groupId>
@@ -79,7 +73,6 @@
     <dependency>
       <groupId>org.projectlombok</groupId>
       <artifactId>lombok</artifactId>
-      <version>1.18.20</version>
     </dependency>
     <dependency>
       <groupId>org.junit.jupiter</groupId>
@@ -92,16 +85,8 @@
       <scope>test</scope>
     </dependency>
     <dependency>
-      <groupId>org.apache.pulsar</groupId>
-      <artifactId>pulsar-client-admin-original</artifactId>
-      <version>2.8.0</version>
-      <scope>compile</scope>
-    </dependency>
-    <dependency>
       <groupId>net.jodah</groupId>
       <artifactId>failsafe</artifactId>
-      <version>2.4.2</version>
-      <scope>compile</scope>
     </dependency>
   </dependencies>
   <build>

@@ -85,7 +85,7 @@ public abstract class AbstractExchange {
       case headers:
         return new HeadersExchange(name, durable, lifetimePolicy);
       default:
-        return null;
+        throw new IllegalArgumentException("Unknown exchange type");
     }
   }
 
