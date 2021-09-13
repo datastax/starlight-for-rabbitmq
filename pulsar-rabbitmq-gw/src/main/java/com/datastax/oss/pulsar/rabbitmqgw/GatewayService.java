@@ -267,7 +267,7 @@ public class GatewayService implements Closeable {
     RetryPolicy retryPolicy = new ExponentialBackoffRetry(1000, 3);
     CuratorFramework client =
         CuratorFrameworkFactory.builder()
-            .connectString(config.getZookeeperServers())
+            .connectString(config.getConfigurationStoreServers())
             .sessionTimeoutMs(5000)
             .connectionTimeoutMs(5000)
             .retryPolicy(retryPolicy)

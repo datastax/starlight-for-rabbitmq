@@ -37,7 +37,8 @@ public class PulsarCluster implements AutoCloseable {
     this(config, new BookKeeperCluster(tempDir, PortManager.nextFreePort()));
   }
 
-  public PulsarCluster(ServiceConfiguration config, BookKeeperCluster bookKeeperCluster) throws Exception {
+  public PulsarCluster(ServiceConfiguration config, BookKeeperCluster bookKeeperCluster)
+      throws Exception {
     this.bookKeeperCluster = bookKeeperCluster;
     config.setZookeeperServers(bookKeeperCluster.getZooKeeperAddress());
     config.setClusterName("localhost");

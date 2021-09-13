@@ -18,9 +18,9 @@ package com.datastax.oss.pulsar.rabbitmqtests;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.datastax.oss.pulsar.rabbitmqgw.ConfigurationUtils;
 import com.datastax.oss.pulsar.rabbitmqgw.GatewayConfiguration;
 import com.datastax.oss.pulsar.rabbitmqgw.GatewayService;
-import com.datastax.oss.pulsar.rabbitmqgw.GatewayServiceStarter;
 import com.datastax.oss.pulsar.rabbitmqtests.utils.PulsarCluster;
 import com.rabbitmq.client.Connection;
 import com.rabbitmq.client.ConnectionFactory;
@@ -61,7 +61,8 @@ public class TokenAuthenticationIT {
     config.setBrokerWebServiceURL(cluster.getAddress());
     int port = PortManager.nextFreePort();
     config.setAmqpServicePort(Optional.of(port));
-    config.setZookeeperServers(cluster.getService().getConfig().getZookeeperServers());
+    config.setConfigurationStoreServers(
+        cluster.getService().getConfig().getConfigurationStoreServers());
 
     config.setAuthenticationEnabled(true);
     config
@@ -72,7 +73,7 @@ public class TokenAuthenticationIT {
 
     gatewayService =
         new GatewayService(
-            config, new AuthenticationService(GatewayServiceStarter.convertFrom(config)));
+            config, new AuthenticationService(ConfigurationUtils.convertFrom(config)));
     gatewayService.start();
 
     factory = new ConnectionFactory();

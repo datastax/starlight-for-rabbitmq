@@ -45,10 +45,9 @@ public class NarLoadingIT {
     int portOnBroker = PortManager.nextFreePort();
     pulsarConfig.getProperties().put("amqpServicePort", String.valueOf(portOnBroker));
 
-    BookKeeperCluster bookKeeperCluster = new BookKeeperCluster(tempDir, PortManager.nextFreePort());
-    pulsarConfig
-        .getProperties()
-        .put("zookeeperServers", bookKeeperCluster.getZooKeeperAddress());
+    BookKeeperCluster bookKeeperCluster =
+        new BookKeeperCluster(tempDir, PortManager.nextFreePort());
+    pulsarConfig.getProperties().put("zookeeperServers", bookKeeperCluster.getZooKeeperAddress());
 
     PulsarCluster cluster = new PulsarCluster(pulsarConfig, bookKeeperCluster);
     cluster.start();

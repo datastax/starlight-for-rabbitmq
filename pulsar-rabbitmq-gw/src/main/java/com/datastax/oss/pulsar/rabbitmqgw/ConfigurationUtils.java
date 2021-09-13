@@ -15,8 +15,10 @@
  */
 package com.datastax.oss.pulsar.rabbitmqgw;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 import static java.lang.String.format;
+import static org.apache.commons.lang3.StringUtils.isEmpty;
 import static org.apache.pulsar.common.util.FieldParser.setEmptyValue;
 import static org.apache.pulsar.common.util.FieldParser.value;
 
@@ -24,10 +26,15 @@ import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.lang.reflect.Field;
+import java.lang.reflect.Modifier;
+import java.util.Arrays;
 import java.util.Map;
 import java.util.Properties;
 import java.util.stream.Stream;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.pulsar.broker.ServiceConfiguration;
+import org.apache.pulsar.broker.authentication.AuthenticationProviderTls;
+import org.apache.pulsar.broker.authentication.AuthenticationProviderToken;
 import org.apache.pulsar.common.configuration.PulsarConfiguration;
 
 /** Configuration Utils. */
@@ -133,4 +140,47 @@ public final class ConfigurationUtils {
   }
 
   private ConfigurationUtils() {}
+
+  public static ServiceConfiguration convertFrom(GatewayConfiguration conf)
+      throws RuntimeException {
+    try {
+      final ServiceConfiguration convertedConf = ServiceConfiguration.class.newInstance();
+      Field[] confFields = conf.getClass().getSuperclass().getDeclaredFields();
+      Arrays.stream(confFields)
+          .forEach(
+              confField -> {
+                try {
+                  Field convertedConfField =
+                      ServiceConfiguration.class.getDeclaredField(confField.getName());
+                  confField.setAccessible(true);
+                  if (!Modifier.isStatic(convertedConfField.getModifiers())) {
+                    convertedConfField.setAccessible(true);
+                    convertedConfField.set(convertedConf, confField.get(conf));
+                  }
+                } catch (NoSuchFieldException ignored) {
+                } catch (IllegalAccessException e) {
+                  throw new RuntimeException(
+                      "Exception caused while converting configuration: " + e.getMessage(), e);
+                }
+              });
+      if (conf.isAuthenticationEnabled()) {
+        if (conf.getAmqpAuthenticationMechanisms().contains("PLAIN")) {
+          checkArgument(
+              !isEmpty(conf.getProperties().getProperty("tokenPublicKey"))
+                  || !isEmpty(conf.getProperties().getProperty("tokenSecretKey")),
+              "SASL PLAIN is only supported with JWT as password at the moment");
+          convertedConf
+              .getAuthenticationProviders()
+              .add(AuthenticationProviderToken.class.getName());
+        }
+        if (conf.getAmqpAuthenticationMechanisms().contains("EXTERNAL")) {
+          convertedConf.getAuthenticationProviders().add(AuthenticationProviderTls.class.getName());
+        }
+      }
+      return convertedConf;
+    } catch (InstantiationException | IllegalAccessException e) {
+      throw new RuntimeException(
+          "Exception caused while converting configuration: " + e.getMessage(), e);
+    }
+  }
 }

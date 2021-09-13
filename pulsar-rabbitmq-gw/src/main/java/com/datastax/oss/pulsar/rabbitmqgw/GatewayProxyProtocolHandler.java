@@ -15,11 +15,14 @@
  */
 package com.datastax.oss.pulsar.rabbitmqgw;
 
+import static com.datastax.oss.pulsar.rabbitmqgw.ConfigurationUtils.convertFrom;
+
 import io.netty.channel.ChannelInitializer;
 import io.netty.channel.socket.SocketChannel;
 import java.net.InetSocketAddress;
 import java.util.Map;
 import lombok.SneakyThrows;
+import org.apache.pulsar.broker.authentication.AuthenticationService;
 import org.apache.pulsar.proxy.protocol.ProtocolHandler;
 import org.apache.pulsar.proxy.server.ProxyConfiguration;
 import org.apache.pulsar.proxy.server.ProxyService;
@@ -50,7 +53,7 @@ public class GatewayProxyProtocolHandler implements ProtocolHandler {
   @SneakyThrows
   @Override
   public void start(ProxyService proxyService) {
-    service = new GatewayService(config, proxyService.getAuthenticationService());
+    service = new GatewayService(config, new AuthenticationService(convertFrom(config)));
     service.start(false);
   }
 

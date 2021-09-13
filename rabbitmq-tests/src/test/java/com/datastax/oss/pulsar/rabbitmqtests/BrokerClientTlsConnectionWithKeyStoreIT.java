@@ -19,9 +19,9 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
+import com.datastax.oss.pulsar.rabbitmqgw.ConfigurationUtils;
 import com.datastax.oss.pulsar.rabbitmqgw.GatewayConfiguration;
 import com.datastax.oss.pulsar.rabbitmqgw.GatewayService;
-import com.datastax.oss.pulsar.rabbitmqgw.GatewayServiceStarter;
 import com.datastax.oss.pulsar.rabbitmqtests.utils.PulsarCluster;
 import java.io.IOException;
 import java.nio.file.Path;
@@ -99,8 +99,8 @@ public class BrokerClientTlsConnectionWithKeyStoreIT {
     gatewayConfiguration.setBrokerWebServiceURL("https://localhost:" + webServicePortTls);
 
     gatewayConfiguration.setAmqpServicePort(Optional.of(PortManager.nextFreePort()));
-    gatewayConfiguration.setZookeeperServers(
-        cluster.getService().getConfig().getZookeeperServers());
+    gatewayConfiguration.setConfigurationStoreServers(
+        cluster.getService().getConfig().getConfigurationStoreServers());
     gatewayConfiguration.setTlsEnabledWithBroker(true);
     // PulsarAdmin will only verify the client cert if this is enabled
     gatewayConfiguration.setTlsHostnameVerificationEnabled(true);
@@ -123,7 +123,7 @@ public class BrokerClientTlsConnectionWithKeyStoreIT {
     gatewayService =
         new GatewayService(
             gatewayConfiguration,
-            new AuthenticationService(GatewayServiceStarter.convertFrom(gatewayConfiguration)));
+            new AuthenticationService(ConfigurationUtils.convertFrom(gatewayConfiguration)));
     gatewayService.start();
 
     gatewayService.getPulsarAdmin().clusters().getClusters();
@@ -135,7 +135,7 @@ public class BrokerClientTlsConnectionWithKeyStoreIT {
     gatewayService =
         new GatewayService(
             gatewayConfiguration,
-            new AuthenticationService(GatewayServiceStarter.convertFrom(gatewayConfiguration)));
+            new AuthenticationService(ConfigurationUtils.convertFrom(gatewayConfiguration)));
     gatewayService.start();
 
     assertThrows(
