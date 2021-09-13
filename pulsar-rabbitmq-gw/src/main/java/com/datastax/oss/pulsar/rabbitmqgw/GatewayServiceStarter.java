@@ -15,9 +15,7 @@
  */
 package com.datastax.oss.pulsar.rabbitmqgw;
 
-import static com.google.common.base.Preconditions.checkArgument;
 import static org.apache.commons.lang3.StringUtils.isBlank;
-import static org.apache.commons.lang3.StringUtils.isEmpty;
 
 import com.beust.jcommander.JCommander;
 import com.beust.jcommander.Parameter;
@@ -25,9 +23,6 @@ import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import org.apache.pulsar.broker.PulsarServerException;
-import org.apache.pulsar.broker.ServiceConfiguration;
-import org.apache.pulsar.broker.authentication.AuthenticationProviderTls;
-import org.apache.pulsar.broker.authentication.AuthenticationProviderToken;
 import org.apache.pulsar.broker.authentication.AuthenticationService;
 import org.apache.pulsar.common.configuration.PulsarConfigurationLoader;
 import org.slf4j.Logger;
@@ -80,7 +75,8 @@ public class GatewayServiceStarter {
       final GatewayConfiguration config =
           PulsarConfigurationLoader.create(configFile, GatewayConfiguration.class);
 
-      AuthenticationService authenticationService = new AuthenticationService(convertFrom(config));
+      AuthenticationService authenticationService =
+          new AuthenticationService(ConfigurationUtils.convertFrom(config));
 
       // create gateway service
       GatewayService gatewayService = new GatewayService(config, authenticationService);
@@ -102,27 +98,6 @@ public class GatewayServiceStarter {
       log.error("Failed to start pulsar RabbitMQ gateway service. error msg " + e.getMessage(), e);
       throw new PulsarServerException(e);
     }
-  }
-
-  public static ServiceConfiguration convertFrom(GatewayConfiguration config) {
-    ServiceConfiguration authConfiguration = PulsarConfigurationLoader.convertFrom(config);
-    if (config.isAuthenticationEnabled()) {
-      if (config.getAuthenticationMechanisms().contains("PLAIN")) {
-        checkArgument(
-            !isEmpty(config.getProperties().getProperty("tokenPublicKey"))
-                || !isEmpty(config.getProperties().getProperty("tokenSecretKey")),
-            "SASL PLAIN is only supported with JWT as password at the moment");
-        authConfiguration
-            .getAuthenticationProviders()
-            .add(AuthenticationProviderToken.class.getName());
-      }
-      if (config.getAuthenticationMechanisms().contains("EXTERNAL")) {
-        authConfiguration
-            .getAuthenticationProviders()
-            .add(AuthenticationProviderTls.class.getName());
-      }
-    }
-    return authConfiguration;
   }
 
   public static void main(String[] args) throws Exception {

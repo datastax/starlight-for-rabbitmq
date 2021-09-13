@@ -639,7 +639,7 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
       setProtocolVersion(pv);
 
       String mechanisms =
-          String.join(" ", gatewayService.getConfig().getAuthenticationMechanisms());
+          String.join(" ", gatewayService.getConfig().getAmqpAuthenticationMechanisms());
 
       String locales = "en_US";
 

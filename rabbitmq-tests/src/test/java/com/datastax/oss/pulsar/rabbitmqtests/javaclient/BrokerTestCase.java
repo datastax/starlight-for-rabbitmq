@@ -128,7 +128,8 @@ public class BrokerTestCase {
     config.setBrokerServiceURL(cluster.getAddress());
     config.setBrokerWebServiceURL(cluster.getAddress());
     config.setAmqpServicePort(Optional.of(PortManager.nextFreePort()));
-    config.setZookeeperServers(cluster.getService().getConfig().getZookeeperServers());
+    config.setConfigurationStoreServers(
+        cluster.getService().getConfig().getConfigurationStoreServers());
     gatewayService = new GatewayService(config, null);
     gatewayService.start();
   }

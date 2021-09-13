@@ -72,7 +72,8 @@ public class RabbitmqInteropIT {
     config.setBrokerWebServiceURL(cluster.getAddress());
     int port = PortManager.nextFreePort();
     config.setAmqpServicePort(Optional.of(port));
-    config.setZookeeperServers(cluster.getService().getConfig().getZookeeperServers());
+    config.setConfigurationStoreServers(
+        cluster.getService().getConfig().getConfigurationStoreServers());
     gatewayService = new GatewayService(config, null);
     gatewayService.start();
 

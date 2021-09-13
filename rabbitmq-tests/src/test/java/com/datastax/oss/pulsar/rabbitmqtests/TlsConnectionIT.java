@@ -17,9 +17,9 @@ package com.datastax.oss.pulsar.rabbitmqtests;
 
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import com.datastax.oss.pulsar.rabbitmqgw.ConfigurationUtils;
 import com.datastax.oss.pulsar.rabbitmqgw.GatewayConfiguration;
 import com.datastax.oss.pulsar.rabbitmqgw.GatewayService;
-import com.datastax.oss.pulsar.rabbitmqgw.GatewayServiceStarter;
 import com.datastax.oss.pulsar.rabbitmqtests.utils.PulsarCluster;
 import com.rabbitmq.client.ConnectionFactory;
 import com.rabbitmq.client.DefaultSaslConfig;
@@ -98,7 +98,9 @@ public class TlsConnectionIT {
     config.setBrokerServiceURL(cluster.getAddress());
     config.setBrokerWebServiceURL(cluster.getAddress());
     config.setAmqpServicePortTls(Optional.of(port));
-    config.setZookeeperServers(cluster.getService().getConfig().getZookeeperServers());
+    config.setAmqpServicePort(Optional.empty());
+    config.setConfigurationStoreServers(
+        cluster.getService().getConfig().getConfigurationStoreServers());
 
     config.setTlsKeyStoreType(KEYSTORE_TYPE);
     config.setTlsKeyStore(BROKER_KEYSTORE_FILE_PATH);
@@ -115,7 +117,7 @@ public class TlsConnectionIT {
 
     gatewayService =
         new GatewayService(
-            config, new AuthenticationService(GatewayServiceStarter.convertFrom(config)));
+            config, new AuthenticationService(ConfigurationUtils.convertFrom(config)));
 
     factory = new ConnectionFactory();
     factory.setPort(port);
@@ -181,10 +183,10 @@ public class TlsConnectionIT {
   @Test
   void testTlsAuthenticationSuccess() throws Exception {
     config.setAuthenticationEnabled(true);
-    config.setAuthenticationMechanisms(Collections.singleton("EXTERNAL"));
+    config.setAmqpAuthenticationMechanisms(Collections.singleton("EXTERNAL"));
     gatewayService =
         new GatewayService(
-            config, new AuthenticationService(GatewayServiceStarter.convertFrom(config)));
+            config, new AuthenticationService(ConfigurationUtils.convertFrom(config)));
     gatewayService.start();
 
     SSLContext sslCtx =
@@ -200,10 +202,10 @@ public class TlsConnectionIT {
   void testTlsAuthenticationFailure() throws Exception {
     config.setTlsRequireTrustedClientCertOnConnect(false);
     config.setAuthenticationEnabled(true);
-    config.setAuthenticationMechanisms(Collections.singleton("EXTERNAL"));
+    config.setAmqpAuthenticationMechanisms(Collections.singleton("EXTERNAL"));
     gatewayService =
         new GatewayService(
-            config, new AuthenticationService(GatewayServiceStarter.convertFrom(config)));
+            config, new AuthenticationService(ConfigurationUtils.convertFrom(config)));
     gatewayService.start();
 
     SSLContext sslCtx =

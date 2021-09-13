@@ -19,9 +19,9 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
+import com.datastax.oss.pulsar.rabbitmqgw.ConfigurationUtils;
 import com.datastax.oss.pulsar.rabbitmqgw.GatewayConfiguration;
 import com.datastax.oss.pulsar.rabbitmqgw.GatewayService;
-import com.datastax.oss.pulsar.rabbitmqgw.GatewayServiceStarter;
 import com.datastax.oss.pulsar.rabbitmqtests.utils.PulsarCluster;
 import com.google.common.collect.Sets;
 import java.nio.file.Path;
@@ -106,8 +106,8 @@ public class BrokerClientTlsAuthenticationIT {
     gatewayConfiguration.setBrokerWebServiceURL("https://localhost:" + webServicePortTls);
 
     gatewayConfiguration.setAmqpServicePort(Optional.of(PortManager.nextFreePort()));
-    gatewayConfiguration.setZookeeperServers(
-        cluster.getService().getConfig().getZookeeperServers());
+    gatewayConfiguration.setConfigurationStoreServers(
+        cluster.getService().getConfig().getConfigurationStoreServers());
     gatewayConfiguration.setTlsEnabledWithBroker(true);
     gatewayConfiguration.setTlsHostnameVerificationEnabled(true);
     gatewayConfiguration.setBrokerClientTrustCertsFilePath(TLS_BROKER_CERT_FILE_PATH);
@@ -122,7 +122,7 @@ public class BrokerClientTlsAuthenticationIT {
     gatewayService =
         new GatewayService(
             gatewayConfiguration,
-            new AuthenticationService(GatewayServiceStarter.convertFrom(gatewayConfiguration)));
+            new AuthenticationService(ConfigurationUtils.convertFrom(gatewayConfiguration)));
     gatewayService.start();
 
     gatewayService.getPulsarAdmin().clusters().getClusters();
@@ -137,7 +137,7 @@ public class BrokerClientTlsAuthenticationIT {
     gatewayService =
         new GatewayService(
             gatewayConfiguration,
-            new AuthenticationService(GatewayServiceStarter.convertFrom(gatewayConfiguration)));
+            new AuthenticationService(ConfigurationUtils.convertFrom(gatewayConfiguration)));
     gatewayService.start();
 
     gatewayService.getPulsarAdmin().clusters().getClusters();
@@ -151,7 +151,7 @@ public class BrokerClientTlsAuthenticationIT {
     gatewayService =
         new GatewayService(
             gatewayConfiguration,
-            new AuthenticationService(GatewayServiceStarter.convertFrom(gatewayConfiguration)));
+            new AuthenticationService(ConfigurationUtils.convertFrom(gatewayConfiguration)));
     gatewayService.start();
 
     assertThrows(
@@ -172,7 +172,7 @@ public class BrokerClientTlsAuthenticationIT {
     gatewayService =
         new GatewayService(
             gatewayConfiguration,
-            new AuthenticationService(GatewayServiceStarter.convertFrom(gatewayConfiguration)));
+            new AuthenticationService(ConfigurationUtils.convertFrom(gatewayConfiguration)));
     gatewayService.start();
 
     assertThrows(

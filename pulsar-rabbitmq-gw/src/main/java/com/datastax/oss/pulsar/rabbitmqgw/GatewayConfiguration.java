@@ -40,7 +40,8 @@ public class GatewayConfiguration extends ProxyConfiguration {
     doc =
         "Authentication mechanism name list (a comma-separated list of mecanisms. Eg: PLAIN,EXTERNAL)"
   )
-  private Set<String> authenticationMechanisms = Sets.newTreeSet(Collections.singleton("PLAIN"));
+  private Set<String> amqpAuthenticationMechanisms =
+      Sets.newTreeSet(Collections.singleton("PLAIN"));
 
   @FieldContext(
     category = CATEGORY_AMQP,
