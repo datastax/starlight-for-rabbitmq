@@ -57,6 +57,7 @@ public class PulsarConsumer {
         .subscriptionName(subscriptionName)
         .subscriptionType(SubscriptionType.Shared)
         .negativeAckRedeliveryDelay(0, TimeUnit.MILLISECONDS)
+        .enableBatchIndexAcknowledgment(true)
         .subscribeAsync()
         .thenAccept(
             consumer -> {

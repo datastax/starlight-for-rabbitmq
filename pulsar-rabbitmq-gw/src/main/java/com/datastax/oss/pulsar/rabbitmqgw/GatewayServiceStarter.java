@@ -73,7 +73,7 @@ public class GatewayServiceStarter {
 
       // load config file
       final GatewayConfiguration config =
-          PulsarConfigurationLoader.create(configFile, GatewayConfiguration.class);
+          ConfigurationUtils.create(configFile, GatewayConfiguration.class);
 
       AuthenticationService authenticationService =
           new AuthenticationService(ConfigurationUtils.convertFrom(config));
