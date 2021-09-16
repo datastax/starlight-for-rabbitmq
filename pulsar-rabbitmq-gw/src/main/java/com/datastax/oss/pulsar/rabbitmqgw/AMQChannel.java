@@ -1244,7 +1244,7 @@ public class AMQChannel implements ServerChannelMethodProcessor {
               + "] MessageContent["
               + " data: "
               + hex(
-                  data, _connection.getGatewayService().getConfig().getAmqpDebugBinaryDataLength())
+                  data, getConfiguration().getAmqpDebugBinaryDataLength())
               + " ] ");
     }
 
@@ -1270,7 +1270,7 @@ public class AMQChannel implements ServerChannelMethodProcessor {
     }
 
     if (hasCurrentMessage()) {
-      int maxMessageSize = _connection.getGatewayService().getConfig().getAmqpMaxMessageSize();
+      int maxMessageSize = getConfiguration().getAmqpMaxMessageSize();
       if (bodySize > maxMessageSize) {
         properties.dispose();
         closeChannel(
@@ -1740,7 +1740,7 @@ public class AMQChannel implements ServerChannelMethodProcessor {
   }
 
   private Versioned<ContextMetadata> getContextMetadata() {
-    return _connection.getGatewayService().getContextMetadata();
+    return getGatewayService().getContextMetadata();
   }
 
   private ExchangeMetadata getExchange(ContextMetadata context, String name) {
@@ -1772,7 +1772,7 @@ public class AMQChannel implements ServerChannelMethodProcessor {
   }
 
   private Queue getQueue(String name) {
-    return _connection.getGatewayService().getQueues().get(_connection.getNamespace()).get(name);
+    return getGatewayService().getQueues().get(_connection.getNamespace()).get(name);
   }
 
   private QueueMetadata getQueue(ContextMetadata context, String queueName) {
@@ -1823,11 +1823,10 @@ public class AMQChannel implements ServerChannelMethodProcessor {
 
   private Producer<byte[]> createProducer(String topicName) {
     try {
-      return _connection
-          .getGatewayService()
+      return getGatewayService()
           .getPulsarClient()
           .newProducer()
-          .enableBatching(false)
+          .enableBatching(getConfiguration().isAmqpBatchingEnabled())
           .topic(topicName)
           .create();
     } catch (PulsarClientException e) {
@@ -1840,10 +1839,18 @@ public class AMQChannel implements ServerChannelMethodProcessor {
   }
 
   public Versioned<ContextMetadata> newContextMetadata() {
-    return _connection.getGatewayService().newContextMetadata(getContextMetadata());
+    return getGatewayService().newContextMetadata(getContextMetadata());
   }
 
   private CompletionStage<ContextMetadata> saveContext(Versioned<ContextMetadata> newContext) {
-    return _connection.getGatewayService().saveContext(newContext);
+    return getGatewayService().saveContext(newContext);
+  }
+
+  private GatewayConfiguration getConfiguration() {
+    return getGatewayService().getConfig();
+  }
+
+  private GatewayService getGatewayService() {
+    return _connection.getGatewayService();
   }
 }

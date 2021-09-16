@@ -38,7 +38,7 @@ public class GatewayConfiguration extends ProxyConfiguration {
   @FieldContext(
     category = CATEGORY_AMQP,
     doc =
-        "Authentication mechanism name list (a comma-separated list of mecanisms. Eg: PLAIN,EXTERNAL)"
+        "Authentication mechanism name list for AMQP (a comma-separated list of mecanisms. Eg: PLAIN,EXTERNAL)"
   )
   private Set<String> amqpAuthenticationMechanisms =
       Sets.newTreeSet(Collections.singleton("PLAIN"));
@@ -52,7 +52,7 @@ public class GatewayConfiguration extends ProxyConfiguration {
 
   @FieldContext(
     category = CATEGORY_AMQP,
-    doc = "The maximum number of sessions which can exist concurrently on a connection."
+    doc = "The maximum number of sessions which can exist concurrently on an AMQP connection."
   )
   private int amqpSessionCountLimit = 256;
 
@@ -60,7 +60,7 @@ public class GatewayConfiguration extends ProxyConfiguration {
     category = CATEGORY_AMQP,
     doc =
         "The default period with which Broker and client will exchange"
-            + " heartbeat messages (in seconds). Clients may negotiate a different heartbeat"
+            + " heartbeat messages (in seconds) when using AMQP. Clients may negotiate a different heartbeat"
             + " frequency or disable it altogether."
   )
   private int amqpHeartbeatDelay = 0;
@@ -69,25 +69,32 @@ public class GatewayConfiguration extends ProxyConfiguration {
     category = CATEGORY_AMQP,
     doc =
         "Factor to determine the maximum length of that may elapse between heartbeats being"
-            + " received from the peer before a connection is deemed to have been broken."
+            + " received from the peer before an AMQP0.9 connection is deemed to have been broken."
   )
   private int amqpHeartbeatTimeoutFactor = 2;
 
-  @FieldContext(category = CATEGORY_AMQP, doc = "Network buffer size.")
+  @FieldContext(category = CATEGORY_AMQP, doc = "AMQP Network buffer size.")
   // TODO: Network buffer size must be bigger than Netty's receive buffer. Also configure Netty with
   //  this.
   private int amqpNetworkBufferSize = 2 * 1024 * 1024;
 
-  @FieldContext(category = CATEGORY_AMQP, doc = "Max message size.")
+  @FieldContext(category = CATEGORY_AMQP, doc = "AMQP Max message size.")
   private int amqpMaxMessageSize = 100 * 1024 * 1024;
 
-  @FieldContext(category = CATEGORY_AMQP, doc = "Length of binary data sent to debug log.")
+  @FieldContext(category = CATEGORY_AMQP, doc = "AMQP Length of binary data sent to debug log.")
   private int amqpDebugBinaryDataLength = 80;
 
   @FieldContext(
     category = CATEGORY_AMQP,
     doc =
-        "Timeout in ms after which the connection closes even if a ConnectionCloseOk frame is not received"
+        "Timeout in ms after which the AMQP connection closes even if a ConnectionCloseOk frame is not received"
   )
   private int amqpConnectionCloseTimeout = 2000;
+
+  @FieldContext(
+      category = CATEGORY_AMQP,
+      doc =
+          "Whether batching messages is enabled in AMQP"
+  )
+  private boolean amqpBatchingEnabled = true;
 }

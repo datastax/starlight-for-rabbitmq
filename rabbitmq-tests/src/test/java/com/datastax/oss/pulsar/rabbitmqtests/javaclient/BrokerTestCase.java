@@ -130,6 +130,8 @@ public class BrokerTestCase {
     config.setAmqpServicePort(Optional.of(PortManager.nextFreePort()));
     config.setConfigurationStoreServers(
         cluster.getService().getConfig().getConfigurationStoreServers());
+    // Deactivate batching since some tests rely on individual negative acknowledgement redelivery
+    config.setAmqpBatchingEnabled(false);
     gatewayService = new GatewayService(config, null);
     gatewayService.start();
   }
