@@ -95,6 +95,7 @@ public class AbstractBaseTest {
     when(consumerBuilder.topic(anyString())).thenReturn(consumerBuilder);
     when(consumerBuilder.subscriptionName(anyString())).thenReturn(consumerBuilder);
     when(consumerBuilder.subscriptionType(any(SubscriptionType.class))).thenReturn(consumerBuilder);
+    when(consumerBuilder.enableBatchIndexAcknowledgment(anyBoolean())).thenReturn(consumerBuilder);
     when(consumerBuilder.negativeAckRedeliveryDelay(anyLong(), any(TimeUnit.class)))
         .thenReturn(consumerBuilder);
     when(consumerBuilder.receiverQueueSize(anyInt())).thenReturn(consumerBuilder);
