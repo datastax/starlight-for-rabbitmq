@@ -1243,8 +1243,7 @@ public class AMQChannel implements ServerChannelMethodProcessor {
               + _channelId
               + "] MessageContent["
               + " data: "
-              + hex(
-                  data, getConfiguration().getAmqpDebugBinaryDataLength())
+              + hex(data, getConfiguration().getAmqpDebugBinaryDataLength())
               + " ] ");
     }
 

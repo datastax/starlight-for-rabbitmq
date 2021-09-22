@@ -91,10 +91,6 @@ public class GatewayConfiguration extends ProxyConfiguration {
   )
   private int amqpConnectionCloseTimeout = 2000;
 
-  @FieldContext(
-      category = CATEGORY_AMQP,
-      doc =
-          "Whether batching messages is enabled in AMQP"
-  )
+  @FieldContext(category = CATEGORY_AMQP, doc = "Whether batching messages is enabled in AMQP")
   private boolean amqpBatchingEnabled = true;
 }

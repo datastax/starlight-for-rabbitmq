@@ -20,7 +20,7 @@
   <Match>
     <Class name="com.datastax.oss.pulsar.rabbitmqgw.GatewayServiceStarter"/>
     <Method name="&lt;init&gt;"/>
-    <Bug pattern="DM_EXIT"/>
+    <Bug pattern="DM_EXIT,NP_NULL_PARAM_DEREF_NONVIRTUAL"/>
   </Match>
   <Match>
     <!-- Disable warnings about mutable objects and the use of public fields.
