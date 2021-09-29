@@ -75,7 +75,7 @@ public class NarLoadingIT {
     factory.setPort(portOnBroker);
     Connection connection = factory.newConnection();
     connection.close();
-:
+
     factory = new ConnectionFactory();
     factory.setPort(portOnProxy);
     connection = factory.newConnection();
