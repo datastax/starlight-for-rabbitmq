@@ -23,11 +23,11 @@ import java.net.InetSocketAddress;
 import java.util.Map;
 import lombok.SneakyThrows;
 import org.apache.pulsar.broker.authentication.AuthenticationService;
-import org.apache.pulsar.proxy.protocol.ProtocolHandler;
+import org.apache.pulsar.proxy.extensions.ProxyExtension;
 import org.apache.pulsar.proxy.server.ProxyConfiguration;
 import org.apache.pulsar.proxy.server.ProxyService;
 
-public class GatewayProxyProtocolHandler implements ProtocolHandler {
+public class GatewayProxyProtocolHandler implements ProxyExtension {
 
   public static final String PROTOCOL_NAME = "rabbitmq";
 
@@ -35,7 +35,7 @@ public class GatewayProxyProtocolHandler implements ProtocolHandler {
   GatewayService service;
 
   @Override
-  public String protocolName() {
+  public String extensionName() {
     return PROTOCOL_NAME;
   }
 

@@ -1,3 +1,0 @@
-name: rabbitmq
-description: RabbitMQ Proxy Protocol Handler
-handlerClass: com.datastax.oss.pulsar.rabbitmqgw.GatewayProxyProtocolHandler

@@ -53,8 +53,8 @@ public class NarLoadingIT {
     cluster.start();
 
     ProxyConfiguration proxyConfiguration = new ProxyConfiguration();
-    proxyConfiguration.setProxyProtocolHandlerDirectory(protocolHandlerDir);
-    proxyConfiguration.setProxyMessagingProtocols(Sets.newHashSet("rabbitmq"));
+    proxyConfiguration.setProxyExtensionsDirectory(protocolHandlerDir);
+    proxyConfiguration.setProxyExtensions(Sets.newHashSet("rabbitmq"));
 
     int portOnProxy = PortManager.nextFreePort();
     proxyConfiguration.getProperties().put("amqpServicePort", String.valueOf(portOnProxy));
