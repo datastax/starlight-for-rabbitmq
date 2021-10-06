@@ -95,12 +95,15 @@ public class AbstractBaseTest {
     when(consumerBuilder.topic(anyString())).thenReturn(consumerBuilder);
     when(consumerBuilder.subscriptionName(anyString())).thenReturn(consumerBuilder);
     when(consumerBuilder.subscriptionType(any(SubscriptionType.class))).thenReturn(consumerBuilder);
+    when(consumerBuilder.receiverQueueSize(anyInt())).thenReturn(consumerBuilder);
+    when(consumerBuilder.isAckReceiptEnabled(anyBoolean())).thenReturn(consumerBuilder);
     when(consumerBuilder.enableBatchIndexAcknowledgment(anyBoolean())).thenReturn(consumerBuilder);
     when(consumerBuilder.negativeAckRedeliveryDelay(anyLong(), any(TimeUnit.class)))
         .thenReturn(consumerBuilder);
     when(consumerBuilder.receiverQueueSize(anyInt())).thenReturn(consumerBuilder);
     when(consumerBuilder.subscribeAsync()).thenReturn(CompletableFuture.completedFuture(consumer));
 
+    when(consumer.receive(anyInt(), any(TimeUnit.class))).thenReturn(null);
     when(consumer.receiveAsync()).thenReturn(new CompletableFuture<>());
     when(consumer.getLastMessageIdAsync())
         .thenReturn(CompletableFuture.completedFuture(MessageId.latest));

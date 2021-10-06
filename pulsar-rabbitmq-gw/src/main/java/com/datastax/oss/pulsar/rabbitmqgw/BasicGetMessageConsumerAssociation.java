@@ -16,14 +16,18 @@
 package com.datastax.oss.pulsar.rabbitmqgw;
 
 import java.util.concurrent.CompletableFuture;
+import org.apache.pulsar.client.api.Consumer;
 import org.apache.pulsar.client.api.MessageId;
 
-public abstract class MessageConsumerAssociation {
+public class BasicGetMessageConsumerAssociation extends MessageConsumerAssociation {
   private final MessageId messageId;
+  private final Consumer<byte[]> consumer;
   private final int size;
 
-  MessageConsumerAssociation(MessageId messageId, int size) {
+  BasicGetMessageConsumerAssociation(MessageId messageId, Consumer<byte[]> consumer, int size) {
+    super(messageId, size);
     this.messageId = messageId;
+    this.consumer = consumer;
     this.size = size;
   }
 
@@ -35,9 +39,15 @@ public abstract class MessageConsumerAssociation {
     return size;
   }
 
-  public abstract boolean isUsesCredit();
+  public boolean isUsesCredit() {
+    return false;
+  }
 
-  public abstract CompletableFuture<Void> ack();
+  public CompletableFuture<Void> ack() {
+    return consumer.acknowledgeAsync(messageId).thenCompose(it -> consumer.closeAsync());
+  }
 
-  public abstract void requeue();
+  public void requeue() {
+    consumer.closeAsync();
+  }
 }

@@ -60,7 +60,11 @@ abstract class AbstractRejectTest extends BrokerTestCase {
   protected long checkDelivery(Envelope e, byte[] m, byte[] msg, boolean redelivered) {
     assertNotNull(e);
     assertTrue(Arrays.equals(m, msg));
-    assertEquals(e.isRedeliver(), redelivered);
+
+    // Pulsar-RabbitMQ edit: redelivery count doesn't work well with BasicGet
+    // as closing the consumer will not increment the redelivery counter
+    // assertEquals(e.isRedeliver(), redelivered);
+
     return e.getDeliveryTag();
   }
 }

@@ -29,7 +29,7 @@ public class PulsarConsumer {
 
   private final String topic;
   private final GatewayService gatewayService;
-  private final Queue queue;
+  private final AMQConsumer amqConsumer;
   private volatile Consumer<byte[]> pulsarConsumer;
 
   private final String subscriptionName;
@@ -40,11 +40,12 @@ public class PulsarConsumer {
 
   private final AtomicBoolean closing;
 
-  PulsarConsumer(String topic, String subscriptionName, GatewayService service, Queue queue) {
+  PulsarConsumer(
+      String topic, String subscriptionName, GatewayService service, AMQConsumer amqConsumer) {
     this.topic = topic;
     this.subscriptionName = subscriptionName;
     this.gatewayService = service;
-    this.queue = queue;
+    this.amqConsumer = amqConsumer;
     this.eventLoop = service.getWorkerGroup().next();
     this.closing = new AtomicBoolean(false);
   }
@@ -114,7 +115,7 @@ public class PulsarConsumer {
   }
 
   public CompletableFuture<Void> receiveAndDeliverMessages() {
-    return receiveMessageAsync().thenAcceptAsync(queue::deliverMessage, this.eventLoop);
+    return receiveMessageAsync().thenAcceptAsync(amqConsumer::deliverMessage, this.eventLoop);
   }
 
   private CompletableFuture<Void> resumeConsumption() {
@@ -125,7 +126,7 @@ public class PulsarConsumer {
   public void close() {
     closing.set(true);
     if (pulsarConsumer != null) {
-      pulsarConsumer.closeAsync().thenRun(() -> pulsarConsumer = null);
+      pulsarConsumer.closeAsync();
     }
   }
 

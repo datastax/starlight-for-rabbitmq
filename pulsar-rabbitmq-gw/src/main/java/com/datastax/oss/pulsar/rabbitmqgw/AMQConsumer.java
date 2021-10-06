@@ -16,8 +16,11 @@
 package com.datastax.oss.pulsar.rabbitmqgw;
 
 import java.nio.ByteBuffer;
+import java.util.Map;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import org.apache.pulsar.client.api.Message;
@@ -26,18 +29,24 @@ import org.apache.qpid.server.protocol.v0_8.transport.ContentBody;
 
 public class AMQConsumer {
 
+
+
   enum State {
     OPEN,
-    CLOSED
+    CLOSED;
   }
-
   private final AMQChannel channel;
+
   private final AMQShortString tag;
   private final Queue queue;
   private final boolean noAck;
   private final AtomicReference<State> _state = new AtomicReference<>(State.OPEN);
   private CompletableFuture<PulsarConsumer.PulsarConsumerMessage> messageCompletableFuture;
   private final AtomicBoolean blocked = new AtomicBoolean(false);
+  private final java.util.Queue<PulsarConsumer.PulsarConsumerMessage> pendingBindings =
+      new ConcurrentLinkedQueue<>();
+
+  private final Map<String, PulsarConsumer> subscriptions = new ConcurrentHashMap<>();
 
   public AMQConsumer(AMQChannel channel, AMQShortString tag, Queue queue, boolean noAck) {
     this.channel = channel;
@@ -46,9 +55,43 @@ public class AMQConsumer {
     this.noAck = noAck;
   }
 
+  public PulsarConsumer.PulsarConsumerMessage getReadyBinding() {
+    synchronized (this) {
+      return pendingBindings.poll();
+    }
+  }
+
+  public void deliverMessageIfAvailable() {
+    PulsarConsumer.PulsarConsumerMessage consumerMessage = getReadyBinding();
+    if (consumerMessage != null) {
+      deliverMessage(consumerMessage);
+    }
+  }
+
+  public void deliverMessage(PulsarConsumer.PulsarConsumerMessage consumerMessage) {
+    synchronized (this) {
+      if (consumerMessage != null) {
+        Message<byte[]> message = consumerMessage.getMessage();
+        boolean allocated = false;
+        if (messageCompletableFuture != null && !messageCompletableFuture.isDone()) {
+          allocated = useCreditForMessage(message.size());
+          if (allocated) {
+            messageCompletableFuture.complete(consumerMessage);
+            consumerMessage.getConsumer().receiveAndDeliverMessages();
+          } else {
+            block();
+          }
+        }
+        if (!allocated) {
+          pendingBindings.add(consumerMessage);
+        }
+      }
+    }
+  }
+
   public void consume() {
     if (!blocked.get()) {
-      messageCompletableFuture = queue.receiveAsync(this);
+      messageCompletableFuture = new CompletableFuture<>();
       messageCompletableFuture
           .thenAccept(
               messageResponse -> {
@@ -72,16 +115,15 @@ public class AMQConsumer {
                     if (noAck) {
                       messageResponse.getConsumer().ackMessage(message.getMessageId());
                     } else {
-                      channel.addUnacknowledgedMessage(
-                          message.getMessageId(),
-                          this,
-                          deliveryTag,
-                          true,
-                          messageResponse.getConsumer(),
-                          contentBody.getSize());
+                      MessageConsumerAssociation messageConsumerAssociation =
+                          new BasicConsumeMessageConsumerAssociation(
+                              message.getMessageId(),
+                              messageResponse.getConsumer(),
+                              contentBody.getSize());
+                      channel.addUnacknowledgedMessage(deliveryTag, messageConsumerAssociation);
                     }
                   } else {
-                    queue.deliverMessage(messageResponse);
+                    deliverMessage(messageResponse);
                     channel
                         .getCreditManager()
                         .restoreCredit(1, messageResponse.getMessage().size());
@@ -91,6 +133,8 @@ public class AMQConsumer {
                 }
               })
           .thenRunAsync(this::consume);
+
+      deliverMessageIfAvailable();
     }
   }
 
@@ -106,6 +150,7 @@ public class AMQConsumer {
     if (_state.compareAndSet(State.OPEN, State.CLOSED)) {
       block();
       queue.unregisterConsumer(this);
+      subscriptions.values().forEach(PulsarConsumer::close);
       return true;
     } else {
       return false;
@@ -128,5 +173,9 @@ public class AMQConsumer {
 
   public boolean unsubscribe() {
     return channel.unsubscribeConsumer(tag);
+  }
+
+  public Map<String, PulsarConsumer> getSubscriptions() {
+    return subscriptions;
   }
 }

@@ -145,11 +145,7 @@ public class RabbitmqInteropIT {
     channel.queueDeclare(queue, true, false, false, new HashMap<>());
     producer.send(TEST_MESSAGE);
 
-    GetResponse getResponse = null;
-    for (int i = 0; i < 100 && getResponse == null; i++) {
-      getResponse = channel.basicGet(queue, false);
-      Thread.sleep(10);
-    }
+    GetResponse getResponse = channel.basicGet(queue, false);
     assertNotNull(getResponse);
     assertEquals("amq.default", getResponse.getEnvelope().getExchange());
     assertEquals(queue, getResponse.getEnvelope().getRoutingKey());

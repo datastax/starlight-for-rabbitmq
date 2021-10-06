@@ -24,6 +24,7 @@ import com.rabbitmq.client.AMQP;
 import com.rabbitmq.client.Channel;
 import java.util.Collections;
 import java.util.UUID;
+import org.junit.Ignore;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
@@ -73,7 +74,10 @@ public class Reject extends AbstractRejectTest {
     String consumerTag = secondaryChannel.basicConsume(q, false, c);
     channel.basicReject(tag2, true);
     long tag3 = checkDelivery(c.nextDelivery(), m2, true);
-    secondaryChannel.basicCancel(consumerTag);
+
+    // Pulsar-RabbitMQ edit: contrary to AMQP spec, canceling the consumer requeues the unacked messages.
+    //secondaryChannel.basicCancel(consumerTag);
+
     secondaryChannel.basicReject(tag3, false);
     assertNull(TestUtils.basicGet(channel, q, false));
     channel.basicAck(tag1, false);

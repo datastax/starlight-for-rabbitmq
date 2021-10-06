@@ -18,11 +18,13 @@ package com.datastax.oss.pulsar.rabbitmqgw;
 import static com.datastax.oss.pulsar.rabbitmqgw.AbstractExchange.getTopicName;
 import static org.apache.qpid.server.transport.util.Functions.hex;
 
+import com.datastax.oss.pulsar.rabbitmqgw.metadata.BindingMetadata;
 import com.datastax.oss.pulsar.rabbitmqgw.metadata.BindingSetMetadata;
 import com.datastax.oss.pulsar.rabbitmqgw.metadata.ContextMetadata;
 import com.datastax.oss.pulsar.rabbitmqgw.metadata.ExchangeMetadata;
 import com.datastax.oss.pulsar.rabbitmqgw.metadata.QueueMetadata;
 import com.datastax.oss.pulsar.rabbitmqgw.metadata.VirtualHostMetadata;
+import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -31,6 +33,7 @@ import java.util.Base64;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -38,15 +41,21 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import net.jodah.failsafe.Failsafe;
 import net.jodah.failsafe.RetryPolicy;
+import org.apache.commons.lang3.tuple.Pair;
 import org.apache.curator.x.async.modeled.versioned.Versioned;
+import org.apache.pulsar.client.api.Consumer;
 import org.apache.pulsar.client.api.Message;
 import org.apache.pulsar.client.api.MessageId;
 import org.apache.pulsar.client.api.Producer;
 import org.apache.pulsar.client.api.PulsarClientException;
+import org.apache.pulsar.client.api.SubscriptionType;
 import org.apache.pulsar.client.api.TypedMessageBuilder;
 import org.apache.pulsar.common.naming.TopicName;
 import org.apache.qpid.server.bytebuffer.QpidByteBuffer;
@@ -789,6 +798,8 @@ public class AMQChannel implements ServerChannelMethodProcessor {
                   Versioned<ContextMetadata> newContext = newContextMetadata();
                   VirtualHostMetadata vHostMetadata = getVHostMetadata(newContext.model());
 
+                  // Set last message of the subscription to earliest so it is removed by the
+                  // subscription cleaner
                   vHostMetadata
                       .getSubscriptions()
                       .get(queueName)
@@ -1120,6 +1131,55 @@ public class AMQChannel implements ServerChannelMethodProcessor {
     setPublishFrame(info);
   }
 
+  private Pair<Consumer<byte[]>, Message<byte[]>> getMessageFromConsumers(
+      Iterable<Pair<Consumer<byte[]>, MessageId>> subscriptions) {
+    Iterator<Pair<Consumer<byte[]>, MessageId>> subscriptionIterator = subscriptions.iterator();
+    while (subscriptionIterator.hasNext()) {
+      Pair<Consumer<byte[]>, MessageId> subscription = subscriptionIterator.next();
+      try {
+        Consumer<byte[]> consumer = subscription.getLeft();
+        consumer.pause();
+        Message<byte[]> receive = consumer.receive(0, TimeUnit.SECONDS);
+        if (receive != null) {
+          if (subscription.getRight() != null
+              && receive.getMessageId().compareTo(subscription.getRight()) > 0) {
+            consumer.closeAsync();
+            subscriptionIterator.remove();
+          } else {
+
+            return Pair.of(consumer, receive);
+          }
+        } else {
+          consumer.resume();
+        }
+      } catch (PulsarClientException e) {
+        LOGGER.debug("Exception while receiving from consumer", e);
+      }
+    }
+    return null;
+  }
+
+  private void getMessageFromConsumers(
+      Iterable<Pair<Consumer<byte[]>, MessageId>> consumers,
+      int numberOfRetries,
+      ScheduledExecutorService scheduledExecutorService,
+      CompletableFuture<Pair<Consumer<byte[]>, Message<byte[]>>> messageCompletableFuture) {
+    Pair<Consumer<byte[]>, Message<byte[]>> message = getMessageFromConsumers(consumers);
+    if (message == null && numberOfRetries > 0) {
+      scheduledExecutorService.schedule(
+          () ->
+              getMessageFromConsumers(
+                  consumers,
+                  numberOfRetries - 1,
+                  scheduledExecutorService,
+                  messageCompletableFuture),
+          10,
+          TimeUnit.MILLISECONDS);
+    } else {
+      messageCompletableFuture.complete(message);
+    }
+  }
+
   @Override
   public void receiveBasicGet(AMQShortString queueNameStr, boolean noAck) {
     if (LOGGER.isDebugEnabled()) {
@@ -1159,38 +1219,91 @@ public class AMQChannel implements ServerChannelMethodProcessor {
                   + "' as it already has an existing exclusive consumer",
               _channelId);
         } else {
-          PulsarConsumer.PulsarConsumerMessage messageResponse = queue.receive();
-          if (messageResponse != null) {
-            Message<byte[]> message = messageResponse.getMessage();
-            PulsarConsumer pulsarConsumer = messageResponse.getConsumer();
-            long deliveryTag = getNextDeliveryTag();
-            ContentBody contentBody = new ContentBody(ByteBuffer.wrap(message.getData()));
-            _connection
-                .getProtocolOutputConverter()
-                .writeGetOk(
-                    MessageUtils.getMessagePublishInfo(message),
-                    contentBody,
-                    MessageUtils.getContentHeaderBody(message),
-                    message.getRedeliveryCount() > 0,
-                    _channelId,
-                    deliveryTag,
-                    queue.getQueueDepthMessages());
-            if (noAck) {
-              pulsarConsumer.ackMessage(message.getMessageId());
-            } else {
-              addUnacknowledgedMessage(
-                  message.getMessageId(),
-                  null,
-                  deliveryTag,
-                  false,
-                  pulsarConsumer,
-                  contentBody.getSize());
-            }
-          } else {
-            MethodRegistry methodRegistry = _connection.getMethodRegistry();
-            BasicGetEmptyBody responseBody = methodRegistry.createBasicGetEmptyBody(null);
-            _connection.writeFrame(responseBody.generateFrame(_channelId));
-          }
+          VirtualHostMetadata vHostMetadata = getVHostMetadata(getContextMetadata().model());
+          Map<String, BindingMetadata> subscriptions =
+              vHostMetadata.getSubscriptions().get(queueName);
+          ConcurrentLinkedQueue<Pair<Consumer<byte[]>, MessageId>> consumers =
+              new ConcurrentLinkedQueue<>();
+          CompletableFuture<Pair<Consumer<byte[]>, Message<byte[]>>> messageCompletableFuture =
+              new CompletableFuture<>();
+          subscriptions.forEach(
+              (subscription, bindingMetadata) -> {
+                if (!Arrays.equals(EARLIEST_MESSAGE_ID, bindingMetadata.getLastMessageId())) {
+                  getGatewayService()
+                      .getPulsarClient()
+                      .newConsumer()
+                      .topic(bindingMetadata.getTopic())
+                      .receiverQueueSize(1)
+                      .isAckReceiptEnabled(true)
+                      .subscriptionName(subscription)
+                      .subscriptionType(SubscriptionType.Shared)
+                      .negativeAckRedeliveryDelay(0, TimeUnit.MILLISECONDS)
+                      .enableBatchIndexAcknowledgment(true)
+                      .subscribeAsync()
+                      .thenAccept(
+                          consumer -> {
+                            if (!messageCompletableFuture.isDone()) {
+                              try {
+                                MessageId lastMessageId =
+                                    bindingMetadata.getLastMessageId() == null
+                                        ? null
+                                        : MessageId.fromByteArray(
+                                            bindingMetadata.getLastMessageId());
+                                consumers.add(Pair.of(consumer, lastMessageId));
+                              } catch (IOException e) {
+                                LOGGER.error(
+                                    "Error while deserializing binding's lastMessageId", e);
+                                consumer.closeAsync();
+                              }
+                            } else {
+                              consumer.closeAsync();
+                            }
+                          });
+                }
+              });
+
+          getMessageFromConsumers(
+              consumers, 100, getGatewayService().getWorkerGroup(), messageCompletableFuture);
+
+          messageCompletableFuture.thenAccept(
+              consumerMessage -> {
+                if (consumerMessage != null) {
+                  Message<byte[]> message = consumerMessage.getRight();
+                  Consumer<byte[]> consumer = consumerMessage.getLeft();
+                  consumers.removeIf(
+                      subscription ->
+                          subscription
+                              .getLeft()
+                              .getSubscription()
+                              .equals(consumer.getSubscription()));
+                  long deliveryTag = getNextDeliveryTag();
+                  ContentBody contentBody = new ContentBody(ByteBuffer.wrap(message.getData()));
+                  if (!noAck) {
+                    BasicGetMessageConsumerAssociation messageConsumerAssociation =
+                        new BasicGetMessageConsumerAssociation(
+                            message.getMessageId(), consumer, contentBody.getSize());
+                    addUnacknowledgedMessage(deliveryTag, messageConsumerAssociation);
+                  }
+                  _connection
+                      .getProtocolOutputConverter()
+                      .writeGetOk(
+                          MessageUtils.getMessagePublishInfo(message),
+                          contentBody,
+                          MessageUtils.getContentHeaderBody(message),
+                          message.getRedeliveryCount() > 0,
+                          _channelId,
+                          deliveryTag,
+                          queue.getQueueDepthMessages());
+                  if (noAck) {
+                    consumer.acknowledgeAsync(message.getMessageId()).thenRun(consumer::closeAsync);
+                  }
+                } else {
+                  MethodRegistry methodRegistry = _connection.getMethodRegistry();
+                  BasicGetEmptyBody responseBody = methodRegistry.createBasicGetEmptyBody(null);
+                  _connection.writeFrame(responseBody.generateFrame(_channelId));
+                }
+                consumers.forEach(subscription -> subscription.getLeft().closeAsync());
+              });
         }
       }
     }
@@ -1682,19 +1795,17 @@ public class AMQChannel implements ServerChannelMethodProcessor {
 
   /** Add a message to the channel-based list of unacknowledged messages */
   public void addUnacknowledgedMessage(
-      MessageId messageId,
-      AMQConsumer consumer,
-      long deliveryTag,
-      boolean usesCredit,
-      PulsarConsumer pulsarConsumer,
-      int size) {
+      long deliveryTag, MessageConsumerAssociation messageConsumerAssociation) {
     if (LOGGER.isDebugEnabled()) {
       LOGGER.debug(
-          "Adding unacked message(" + messageId + " DT:" + deliveryTag + ") for " + pulsarConsumer);
+          "Adding unacked message("
+              + messageConsumerAssociation.getMessageId()
+              + " DT:"
+              + deliveryTag
+              + ")");
     }
 
-    _unacknowledgedMessageMap.add(
-        deliveryTag, messageId, consumer, usesCredit, pulsarConsumer, size);
+    _unacknowledgedMessageMap.add(deliveryTag, messageConsumerAssociation);
   }
 
   /**

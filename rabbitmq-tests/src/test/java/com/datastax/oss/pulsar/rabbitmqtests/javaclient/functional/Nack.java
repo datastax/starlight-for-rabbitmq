@@ -81,7 +81,9 @@ public class Nack extends AbstractRejectTest {
 
     QueueingConsumer.Delivery nextDelivery = c.nextDelivery();
     long tag3 = checkDelivery(nextDelivery, m2, true);
-    secondaryChannel.basicCancel(consumerTag);
+
+    // Pulsar-RabbitMQ edit: canceling a consumer requeues messages
+    //secondaryChannel.basicCancel(consumerTag);
 
     // no requeue
     secondaryChannel.basicNack(tag3, false, false);
@@ -127,7 +129,8 @@ public class Nack extends AbstractRejectTest {
 
     long tag3 = checkDeliveries(c, m1, m3, m4);
 
-    secondaryChannel.basicCancel(consumerTag);
+    // Pulsar-RabbitMQ edit: canceling a consumer requeues messages
+    // secondaryChannel.basicCancel(consumerTag);
 
     // no requeue
     secondaryChannel.basicNack(tag3, true, false);
