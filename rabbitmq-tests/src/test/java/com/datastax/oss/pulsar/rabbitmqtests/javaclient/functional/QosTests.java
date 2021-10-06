@@ -177,7 +177,8 @@ public class QosTests extends BrokerTestCase {
   }
 
   @Test
-  @Ignore("This test doesn't pass because some messages are pre-fetched and pending in the consumers receiver queues")
+  @Ignore(
+      "This test doesn't pass because some messages are pre-fetched and pending in the consumers receiver queues")
   public void permutations() throws IOException {
     closeChannel();
     for (int limit : Arrays.asList(1, 2)) {

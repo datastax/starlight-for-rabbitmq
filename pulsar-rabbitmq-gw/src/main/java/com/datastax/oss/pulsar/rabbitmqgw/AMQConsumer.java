@@ -29,12 +29,11 @@ import org.apache.qpid.server.protocol.v0_8.transport.ContentBody;
 
 public class AMQConsumer {
 
-
-
   enum State {
     OPEN,
     CLOSED;
   }
+
   private final AMQChannel channel;
 
   private final AMQShortString tag;

@@ -1066,6 +1066,7 @@ public class AMQChannel implements ServerChannelMethodProcessor {
           }
           AMQConsumer consumer = new AMQConsumer(this, consumerTag1, queue, noAck);
           queue.addConsumer(consumer, exclusive);
+          getGatewayService().updateContext(getContextMetadata().model());
           _tag2SubscriptionTargetMap.put(consumerTag1, consumer);
         }
       }
@@ -1270,12 +1271,6 @@ public class AMQChannel implements ServerChannelMethodProcessor {
                 if (consumerMessage != null) {
                   Message<byte[]> message = consumerMessage.getRight();
                   Consumer<byte[]> consumer = consumerMessage.getLeft();
-                  consumers.removeIf(
-                      subscription ->
-                          subscription
-                              .getLeft()
-                              .getSubscription()
-                              .equals(consumer.getSubscription()));
                   long deliveryTag = getNextDeliveryTag();
                   ContentBody contentBody = new ContentBody(ByteBuffer.wrap(message.getData()));
                   if (!noAck) {
@@ -1302,7 +1297,15 @@ public class AMQChannel implements ServerChannelMethodProcessor {
                   BasicGetEmptyBody responseBody = methodRegistry.createBasicGetEmptyBody(null);
                   _connection.writeFrame(responseBody.generateFrame(_channelId));
                 }
-                consumers.forEach(subscription -> subscription.getLeft().closeAsync());
+                consumers
+                    .stream()
+                    .filter(
+                        consumerMessageIdPair ->
+                            consumerMessage == null
+                                || !consumerMessage
+                                    .getLeft()
+                                    .equals(consumerMessageIdPair.getLeft()))
+                    .forEach(subscription -> subscription.getLeft().closeAsync());
               });
         }
       }

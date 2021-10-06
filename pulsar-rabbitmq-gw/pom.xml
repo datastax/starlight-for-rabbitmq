@@ -141,9 +141,14 @@
             <configuration>
               <attach>true</attach>
               <finalName>${project.artifactId}-${project.version}</finalName>
-              <descriptors>
-                <descriptor>src/assemble/bin.xml</descriptor>
-              </descriptors>
+              <descriptorRefs>
+                <descriptorRef>jar-with-dependencies</descriptorRef>
+              </descriptorRefs>
+              <archive>
+                <manifest>
+                  <mainClass>com.datastax.oss.pulsar.rabbitmqgw.GatewayServiceStarter</mainClass>
+                </manifest>
+              </archive>
             </configuration>
           </execution>
         </executions>

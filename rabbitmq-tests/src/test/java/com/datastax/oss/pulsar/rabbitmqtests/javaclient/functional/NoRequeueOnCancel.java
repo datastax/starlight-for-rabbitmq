@@ -25,8 +25,6 @@ import com.rabbitmq.client.*;
 import java.io.IOException;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
-import org.junit.Ignore;
-import org.junit.Test;
 
 public class NoRequeueOnCancel extends BrokerTestCase {
   protected final String Q = "NoRequeueOnCancel";
@@ -40,7 +38,7 @@ public class NoRequeueOnCancel extends BrokerTestCase {
   }
 
   // Contrary to AMQP spec, canceling the consumer requeues the unacked messages
-  //@Test
+  // @Test
   public void noRequeueOnCancel() throws IOException, InterruptedException {
     channel.basicPublish("", Q, null, "1".getBytes());
 
