@@ -43,19 +43,19 @@
       <artifactId>commons-lang3</artifactId>
     </dependency>
     <dependency>
-      <groupId>org.apache.pulsar</groupId>
+      <groupId>${pulsar.groupId}</groupId>
       <artifactId>pulsar-client-original</artifactId>
     </dependency>
     <dependency>
-      <groupId>org.apache.pulsar</groupId>
+      <groupId>${pulsar.groupId}</groupId>
       <artifactId>pulsar-client-admin-original</artifactId>
     </dependency>
     <dependency>
-      <groupId>org.apache.pulsar</groupId>
+      <groupId>${pulsar.groupId}</groupId>
       <artifactId>pulsar-broker-common</artifactId>
     </dependency>
     <dependency>
-      <groupId>org.apache.pulsar</groupId>
+      <groupId>${pulsar.groupId}</groupId>
       <artifactId>pulsar-broker</artifactId>
       <exclusions>
         <exclusion>
@@ -65,7 +65,7 @@
       </exclusions>
     </dependency>
     <dependency>
-      <groupId>org.apache.pulsar</groupId>
+      <groupId>${pulsar.groupId}</groupId>
       <artifactId>pulsar-proxy</artifactId>
       <exclusions>
         <exclusion>

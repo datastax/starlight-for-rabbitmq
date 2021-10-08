@@ -37,7 +37,7 @@
       <scope>test</scope>
     </dependency>
     <dependency>
-      <groupId>org.apache.pulsar</groupId>
+      <groupId>${pulsar.groupId}</groupId>
       <artifactId>pulsar-broker</artifactId>
       <scope>test</scope>
     </dependency>
