@@ -488,4 +488,10 @@ limitations under the License.]]></inlineHeader>
       <url>https://repo.sjc.dsinternal.org/artifactory/datastax-snapshots-local/</url>
     </snapshotRepository>
   </distributionManagement>
+  <repositories>
+    <repository>
+      <id>datastax-public-releases-local</id>
+      <url>https://repo.datastax.com/artifactory/datastax-public-releases-local</url>
+    </repository>
+  </repositories>
 </project>
