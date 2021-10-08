@@ -54,86 +54,64 @@ public class AMQConsumer {
     this.noAck = noAck;
   }
 
-  public PulsarConsumer.PulsarConsumerMessage getReadyBinding() {
-    synchronized (this) {
-      return pendingBindings.poll();
-    }
-  }
-
-  public void deliverMessageIfAvailable() {
-    PulsarConsumer.PulsarConsumerMessage consumerMessage = getReadyBinding();
+  public synchronized void deliverMessage(PulsarConsumer.PulsarConsumerMessage consumerMessage) {
     if (consumerMessage != null) {
-      deliverMessage(consumerMessage);
-    }
-  }
-
-  public void deliverMessage(PulsarConsumer.PulsarConsumerMessage consumerMessage) {
-    synchronized (this) {
-      if (consumerMessage != null) {
-        Message<byte[]> message = consumerMessage.getMessage();
-        boolean allocated = false;
-        if (messageCompletableFuture != null && !messageCompletableFuture.isDone()) {
-          allocated = useCreditForMessage(message.size());
-          if (allocated) {
-            messageCompletableFuture.complete(consumerMessage);
-            consumerMessage.getConsumer().receiveAndDeliverMessages();
-          } else {
-            block();
-          }
+      Message<byte[]> message = consumerMessage.getMessage();
+      boolean allocated = false;
+      if (messageCompletableFuture != null && !messageCompletableFuture.isDone()) {
+        allocated = useCreditForMessage(message.size());
+        if (allocated) {
+          messageCompletableFuture.complete(consumerMessage);
+          consumerMessage.getConsumer().receiveAndDeliverMessages();
+        } else {
+          block();
         }
-        if (!allocated) {
-          pendingBindings.add(consumerMessage);
-        }
+      }
+      if (!allocated) {
+        pendingBindings.add(consumerMessage);
       }
     }
   }
 
-  public void consume() {
+  public synchronized void consume() {
     if (!blocked.get()) {
       messageCompletableFuture = new CompletableFuture<>();
-      messageCompletableFuture
-          .thenAccept(
-              messageResponse -> {
-                synchronized (this) {
-                  if (!blocked.get()) {
-                    Message<byte[]> message = messageResponse.getMessage();
-                    long deliveryTag = channel.getNextDeliveryTag();
-                    ContentBody contentBody = new ContentBody(ByteBuffer.wrap(message.getData()));
-                    channel
-                        .getConnection()
-                        .getProtocolOutputConverter()
-                        .writeDeliver(
-                            MessageUtils.getMessagePublishInfo(message),
-                            contentBody,
-                            MessageUtils.getContentHeaderBody(message),
-                            message.getRedeliveryCount() > 0,
-                            channel.getChannelId(),
-                            deliveryTag,
-                            tag);
+      messageCompletableFuture.thenAccept(this::handleMessage).thenRunAsync(this::consume);
 
-                    if (noAck) {
-                      messageResponse.getConsumer().ackMessage(message.getMessageId());
-                    } else {
-                      MessageConsumerAssociation messageConsumerAssociation =
-                          new BasicConsumeMessageConsumerAssociation(
-                              message.getMessageId(),
-                              messageResponse.getConsumer(),
-                              contentBody.getSize());
-                      channel.addUnacknowledgedMessage(deliveryTag, messageConsumerAssociation);
-                    }
-                  } else {
-                    deliverMessage(messageResponse);
-                    channel
-                        .getCreditManager()
-                        .restoreCredit(1, messageResponse.getMessage().size());
-                    unblock();
-                    throw new CancellationException();
-                  }
-                }
-              })
-          .thenRunAsync(this::consume);
+      deliverMessage(pendingBindings.poll());
+    }
+  }
 
-      deliverMessageIfAvailable();
+  private synchronized void handleMessage(PulsarConsumer.PulsarConsumerMessage messageResponse) {
+    if (!blocked.get()) {
+      Message<byte[]> message = messageResponse.getMessage();
+      long deliveryTag = channel.getNextDeliveryTag();
+      ContentBody contentBody = new ContentBody(ByteBuffer.wrap(message.getData()));
+      channel
+          .getConnection()
+          .getProtocolOutputConverter()
+          .writeDeliver(
+              MessageUtils.getMessagePublishInfo(message),
+              contentBody,
+              MessageUtils.getContentHeaderBody(message),
+              message.getRedeliveryCount() > 0,
+              channel.getChannelId(),
+              deliveryTag,
+              tag);
+
+      if (noAck) {
+        messageResponse.getConsumer().ackMessage(message.getMessageId());
+      } else {
+        MessageConsumerAssociation messageConsumerAssociation =
+            new BasicConsumeMessageConsumerAssociation(
+                message.getMessageId(), messageResponse.getConsumer(), contentBody.getSize());
+        channel.addUnacknowledgedMessage(deliveryTag, messageConsumerAssociation);
+      }
+    } else {
+      deliverMessage(messageResponse);
+      channel.getCreditManager().restoreCredit(1, messageResponse.getMessage().size());
+      unblock();
+      throw new CancellationException();
     }
   }
 
@@ -168,10 +146,6 @@ public class AMQConsumer {
       blocked.set(false);
       consume();
     }
-  }
-
-  public boolean unsubscribe() {
-    return channel.unsubscribeConsumer(tag);
   }
 
   public Map<String, PulsarConsumer> getSubscriptions() {
