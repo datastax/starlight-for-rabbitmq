@@ -32,6 +32,7 @@ import com.rabbitmq.client.GetResponse;
 import com.rabbitmq.client.ShutdownSignalException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Optional;
@@ -71,7 +72,7 @@ public class RabbitmqInteropIT {
     config.setBrokerServiceURL(cluster.getAddress());
     config.setBrokerWebServiceURL(cluster.getAddress());
     int port = PortManager.nextFreePort();
-    config.setAmqpServicePort(Optional.of(port));
+    config.setAmqpListeners(Collections.singleton("amqp://127.0.0.1:" + port));
     config.setConfigurationStoreServers(
         cluster.getService().getConfig().getConfigurationStoreServers());
     gatewayService = new GatewayService(config, null);

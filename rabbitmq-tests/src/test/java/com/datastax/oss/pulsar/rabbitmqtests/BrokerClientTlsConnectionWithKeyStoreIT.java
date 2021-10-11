@@ -25,6 +25,7 @@ import com.datastax.oss.pulsar.rabbitmqgw.GatewayService;
 import com.datastax.oss.pulsar.rabbitmqtests.utils.PulsarCluster;
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.Collections;
 import java.util.Optional;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -98,7 +99,7 @@ public class BrokerClientTlsConnectionWithKeyStoreIT {
     gatewayConfiguration.setBrokerServiceURL("pulsar+ssl://localhost:" + brokerServicePortTls);
     gatewayConfiguration.setBrokerWebServiceURL("https://localhost:" + webServicePortTls);
 
-    gatewayConfiguration.setAmqpServicePort(Optional.of(PortManager.nextFreePort()));
+    gatewayConfiguration.setAmqpListeners(Collections.singleton("amqp://127.0.0.1:" + PortManager.nextFreePort()));
     gatewayConfiguration.setConfigurationStoreServers(
         cluster.getService().getConfig().getConfigurationStoreServers());
     gatewayConfiguration.setTlsEnabledWithBroker(true);

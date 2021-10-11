@@ -53,14 +53,7 @@ public class GatewayProtocolHandler implements ProtocolHandler {
 
   @Override
   public String getProtocolDataToAdvertise() {
-    Set<String> addresses = new HashSet<>();
-    config
-        .getAmqpServicePort()
-        .map(port -> addresses.add(String.format("amqp://%s:%d", bindAddress, port)));
-    config
-        .getAmqpServicePortTls()
-        .map(port -> addresses.add(String.format("amqps://%s:%d", bindAddress, port)));
-    return String.join(", ", addresses);
+    return String.join(",", config.getAmqpListeners());
   }
 
   @SneakyThrows
