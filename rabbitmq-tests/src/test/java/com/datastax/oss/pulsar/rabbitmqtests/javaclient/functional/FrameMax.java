@@ -49,7 +49,7 @@ public class FrameMax extends BrokerTestCase {
 
   public FrameMax() {
     connectionFactory = new MyConnectionFactory();
-    connectionFactory.setPort(gatewayService.getConfig().getAmqpServicePort().get());
+    connectionFactory.setPort(port);
     connectionFactory.setRequestedFrameMax(FRAME_MAX);
   }
 
@@ -102,7 +102,7 @@ public class FrameMax extends BrokerTestCase {
     closeChannel();
     closeConnection();
     ConnectionFactory cf = new GenerousConnectionFactory();
-    cf.setPort(gatewayService.getConfig().getAmqpServicePort().get());
+    cf.setPort(port);
     cf.setRequestedFrameMax(8192);
     connection = cf.newConnection();
     openChannel();

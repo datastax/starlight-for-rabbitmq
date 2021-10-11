@@ -97,8 +97,7 @@ public class TlsConnectionIT {
     config = new GatewayConfiguration();
     config.setBrokerServiceURL(cluster.getAddress());
     config.setBrokerWebServiceURL(cluster.getAddress());
-    config.setAmqpServicePortTls(Optional.of(port));
-    config.setAmqpServicePort(Optional.empty());
+    config.setAmqpListeners(Collections.singleton("amqps://127.0.0.1:" + port));
     config.setConfigurationStoreServers(
         cluster.getService().getConfig().getConfigurationStoreServers());
 

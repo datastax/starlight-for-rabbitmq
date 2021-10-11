@@ -96,7 +96,7 @@ public class UnexpectedFrames extends BrokerTestCase {
   public UnexpectedFrames() {
     super();
     connectionFactory = new ConfusedConnectionFactory();
-    connectionFactory.setPort(gatewayService.getConfig().getAmqpServicePort().get());
+    connectionFactory.setPort(port);
   }
 
   @Test

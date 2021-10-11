@@ -30,6 +30,7 @@ import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.SignatureAlgorithm;
 import java.nio.file.Path;
 import java.util.Base64;
+import java.util.Collections;
 import java.util.Optional;
 import javax.crypto.SecretKey;
 import org.apache.bookkeeper.util.PortManager;
@@ -60,7 +61,7 @@ public class TokenAuthenticationIT {
     config.setBrokerServiceURL(cluster.getAddress());
     config.setBrokerWebServiceURL(cluster.getAddress());
     int port = PortManager.nextFreePort();
-    config.setAmqpServicePort(Optional.of(port));
+    config.setAmqpListeners(Collections.singleton("amqp://127.0.0.1:" + port));
     config.setConfigurationStoreServers(
         cluster.getService().getConfig().getConfigurationStoreServers());
 

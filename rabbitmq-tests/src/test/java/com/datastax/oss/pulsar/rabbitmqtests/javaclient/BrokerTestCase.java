@@ -25,6 +25,7 @@ import com.rabbitmq.client.*;
 import com.rabbitmq.client.impl.nio.NioParams;
 import java.io.IOException;
 import java.security.NoSuchAlgorithmException;
+import java.util.Collections;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -32,6 +33,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeoutException;
 import javax.net.ssl.SSLContext;
 import org.apache.bookkeeper.util.PortManager;
+import org.asynchttpclient.uri.Uri;
 import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Before;
@@ -77,7 +79,7 @@ public class BrokerTestCase {
       connectionFactory.setNioParams(nioParams());
     }
     connectionFactory.setAutomaticRecoveryEnabled(isAutomaticRecoveryEnabled());
-    connectionFactory.setPort(gatewayService.getConfig().getAmqpServicePort().get());
+    connectionFactory.setPort(port);
     return connectionFactory;
   }
 
@@ -117,6 +119,7 @@ public class BrokerTestCase {
 
   private static PulsarCluster cluster;
   protected static GatewayService gatewayService;
+  protected static int port;
 
   @ClassRule public static TemporaryFolder tempDir = new TemporaryFolder();
 
@@ -127,7 +130,8 @@ public class BrokerTestCase {
     GatewayConfiguration config = new GatewayConfiguration();
     config.setBrokerServiceURL(cluster.getAddress());
     config.setBrokerWebServiceURL(cluster.getAddress());
-    config.setAmqpServicePort(Optional.of(PortManager.nextFreePort()));
+    port = PortManager.nextFreePort();
+    config.setAmqpListeners(Collections.singleton("amqp://127.0.0.1:" + port));
     config.setConfigurationStoreServers(
         cluster.getService().getConfig().getConfigurationStoreServers());
     // Deactivate batching since some tests rely on individual negative acknowledgement redelivery

@@ -29,19 +29,21 @@ import org.apache.pulsar.proxy.server.ProxyConfiguration;
 public class GatewayConfiguration extends ProxyConfiguration {
   private static final String CATEGORY_AMQP = "AMQP";
 
-  @FieldContext(category = CATEGORY_AMQP, doc = "The port for serving AMQP")
-  private Optional<Integer> amqpServicePort = Optional.of(5672);
-
-  @FieldContext(category = CATEGORY_AMQP, doc = "The port for serving tls secured AMQP")
-  private Optional<Integer> amqpServicePortTls = Optional.empty();
+  @FieldContext(
+      category = CATEGORY_AMQP,
+      required = true,
+      doc = "Used to specify multiple advertised listeners for the gateway."
+          + " The value must format as amqp[s]://<host>:<port>,"
+          + "multiple listeners should separate with commas."
+  )
+  private Set<String> amqpListeners = Collections.singleton("amqp://127.0.0.1:5672");
 
   @FieldContext(
     category = CATEGORY_AMQP,
     doc =
         "Authentication mechanism name list for AMQP (a comma-separated list of mecanisms. Eg: PLAIN,EXTERNAL)"
   )
-  private Set<String> amqpAuthenticationMechanisms =
-      Sets.newTreeSet(Collections.singleton("PLAIN"));
+  private Set<String> amqpAuthenticationMechanisms = Collections.singleton("PLAIN");
 
   @FieldContext(
     category = CATEGORY_AMQP,

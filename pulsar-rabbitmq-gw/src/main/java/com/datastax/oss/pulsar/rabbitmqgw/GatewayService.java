@@ -34,6 +34,7 @@ import io.netty.util.concurrent.DefaultThreadFactory;
 import java.io.Closeable;
 import java.io.IOException;
 import java.net.InetSocketAddress;
+import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -167,20 +168,23 @@ public class GatewayService implements Closeable {
         ServiceConfigurationUtils.getDefaultOrConfiguredAddress(config.getBindAddress());
     ImmutableMap.Builder<InetSocketAddress, ChannelInitializer<SocketChannel>> builder =
         ImmutableMap.builder();
-    config
-        .getAmqpServicePort()
-        .map(
-            port ->
-                builder.put(
-                    new InetSocketAddress(bindAddress, port),
-                    new ServiceChannelInitializer(this, config, false)));
-    config
-        .getAmqpServicePortTls()
-        .map(
-            port ->
-                builder.put(
-                    new InetSocketAddress(bindAddress, port),
-                    new ServiceChannelInitializer(this, config, true)));
+
+    config.getAmqpListeners().forEach(
+        listener -> {
+          URI uri = URI.create(listener);
+          if (uri.getScheme().equals("amqp")) {
+            builder.put(
+                new InetSocketAddress(bindAddress, uri.getPort()),
+                new ServiceChannelInitializer(this, config, false));
+          } else if (uri.getScheme().equals("amqps")) {
+            builder.put(
+                new InetSocketAddress(bindAddress, uri.getPort()),
+                new ServiceChannelInitializer(this, config, true));
+          } else {
+            LOG.warn("Malformed listener string for Pulsar RabbitMQ will be ignored: " + listener);
+          }
+        }
+    );
     return builder.build();
   }
 
