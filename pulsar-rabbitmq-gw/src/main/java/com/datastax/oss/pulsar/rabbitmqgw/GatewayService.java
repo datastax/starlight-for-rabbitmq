@@ -357,31 +357,8 @@ public class GatewayService implements Closeable {
 
                                 for (AMQConsumer consumer : queue.getConsumers()) {
                                   PulsarConsumer pulsarConsumer =
-                                      consumer
-                                          .getSubscriptions()
-                                          .computeIfAbsent(
-                                              subscriptionName,
-                                              subscription -> {
-                                                PulsarConsumer pc =
-                                                    new PulsarConsumer(
-                                                        bindingMetadata.getTopic(),
-                                                        subscription,
-                                                        this,
-                                                        consumer);
-                                                pc.subscribe()
-                                                    .thenRun(pc::receiveAndDeliverMessages)
-                                                    .exceptionally(
-                                                        t -> {
-                                                          PulsarConsumer removed =
-                                                              consumer
-                                                                  .getSubscriptions()
-                                                                  .remove(subscriptionName);
-                                                          removed.close();
-                                                          return null;
-                                                        });
-                                                return pc;
-                                              });
-
+                                      consumer.startSubscription(
+                                          subscriptionName, bindingMetadata.getTopic(), this);
                                   if (bindingMetadata.getLastMessageId() != null) {
                                     try {
                                       MessageId messageId =

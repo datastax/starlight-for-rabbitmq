@@ -151,4 +151,22 @@ public class AMQConsumer {
   public Map<String, PulsarConsumer> getSubscriptions() {
     return subscriptions;
   }
+
+  public PulsarConsumer startSubscription(
+      String subscriptionName, String topic, GatewayService gatewayService) {
+    return subscriptions.computeIfAbsent(
+        subscriptionName,
+        subscription -> {
+          PulsarConsumer pc = new PulsarConsumer(topic, subscription, gatewayService, this);
+          pc.subscribe()
+              .thenRun(pc::receiveAndDeliverMessages)
+              .exceptionally(
+                  t -> {
+                    PulsarConsumer removed = subscriptions.remove(subscription);
+                    removed.close();
+                    return null;
+                  });
+          return pc;
+        });
+  }
 }
