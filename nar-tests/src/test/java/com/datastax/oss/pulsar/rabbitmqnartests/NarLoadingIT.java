@@ -47,7 +47,9 @@ public class NarLoadingIT {
 
     BookKeeperCluster bookKeeperCluster =
         new BookKeeperCluster(tempDir, PortManager.nextFreePort());
-    pulsarConfig.getProperties().put("zookeeperServers", bookKeeperCluster.getZooKeeperAddress());
+    pulsarConfig
+        .getProperties()
+        .put("configurationStoreServers", bookKeeperCluster.getZooKeeperAddress());
 
     PulsarCluster cluster = new PulsarCluster(pulsarConfig, bookKeeperCluster);
     cluster.start();
@@ -60,7 +62,7 @@ public class NarLoadingIT {
     proxyConfiguration.getProperties().put("amqpServicePort", String.valueOf(portOnProxy));
     proxyConfiguration
         .getProperties()
-        .put("zookeeperServers", cluster.getService().getConfig().getZookeeperServers());
+        .put("configurationStoreServers", cluster.getService().getConfig().getZookeeperServers());
     proxyConfiguration
         .getProperties()
         .put("brokerServiceURL", cluster.getService().getBrokerServiceUrl());

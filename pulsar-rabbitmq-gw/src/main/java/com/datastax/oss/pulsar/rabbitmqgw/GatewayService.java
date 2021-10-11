@@ -354,21 +354,11 @@ public class GatewayService implements Closeable {
                               (subscriptionName, bindingMetadata) -> {
                                 Queue queue =
                                     vhostQueues.computeIfAbsent(queueName, q -> new Queue());
-                                PulsarConsumer pulsarConsumer =
-                                    queue.getSubscriptions().get(subscriptionName);
-                                if (pulsarConsumer == null) {
-                                  pulsarConsumer =
-                                      new PulsarConsumer(
-                                          bindingMetadata.getTopic(),
-                                          subscriptionName,
-                                          this,
-                                          queue);
-                                  // TODO: handle subscription errors
-                                  pulsarConsumer
-                                      .subscribe()
-                                      .thenRun(pulsarConsumer::receiveAndDeliverMessages);
-                                  queue.getSubscriptions().put(subscriptionName, pulsarConsumer);
-                                } else {
+
+                                for (AMQConsumer consumer : queue.getConsumers()) {
+                                  PulsarConsumer pulsarConsumer =
+                                      consumer.startSubscription(
+                                          subscriptionName, bindingMetadata.getTopic(), this);
                                   if (bindingMetadata.getLastMessageId() != null) {
                                     try {
                                       MessageId messageId =

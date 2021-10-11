@@ -17,7 +17,9 @@ package com.datastax.oss.pulsar.rabbitmqtests.javaclient.functional;
 
 import java.io.IOException;
 import java.util.concurrent.TimeoutException;
+import org.junit.Ignore;
 
+@Ignore("Flaky tests. To investigate")
 public class RequeueOnConnectionClose extends RequeueOnClose {
 
   protected void open() throws IOException, TimeoutException {

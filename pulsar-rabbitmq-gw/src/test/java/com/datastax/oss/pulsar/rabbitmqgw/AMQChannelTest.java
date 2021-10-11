@@ -23,6 +23,8 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Matchers.any;
+import static org.mockito.Matchers.anyInt;
 import static org.mockito.Matchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
@@ -36,6 +38,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 import org.apache.commons.codec.binary.Base64;
 import org.apache.pulsar.client.api.MessageId;
 import org.apache.pulsar.client.api.PulsarClientException;
@@ -702,15 +705,9 @@ public class AMQChannelTest extends AbstractBaseTest {
 
     MessageImpl message2 = createMessageMock();
 
-    when(consumer.receiveAsync())
-        .thenReturn(
-            CompletableFuture.completedFuture(message),
-            CompletableFuture.completedFuture(message2),
-            new CompletableFuture<>());
+    when(consumer.receive(anyInt(), any(TimeUnit.class))).thenReturn(message, message2, null);
 
     sendQueueDeclare();
-
-    Thread.sleep(100);
 
     ProtocolOutputConverter.CompositeAMQBodyBlock compositeAMQBodyBlock = sendBasicGet();
 
@@ -739,11 +736,15 @@ public class AMQChannelTest extends AbstractBaseTest {
   }
 
   @Test
-  void testReceiveBasicGetEmpty() {
+  void testReceiveBasicGetEmpty() throws Exception {
     openChannel();
     sendQueueDeclare();
 
-    AMQFrame frame = sendBasicGet();
+    sendBasicGet();
+
+    Thread.sleep(1000);
+
+    AMQFrame frame = channel.readOutbound();
 
     assertNotNull(frame);
     assertEquals(CHANNEL_ID, frame.getChannel());
@@ -769,9 +770,9 @@ public class AMQChannelTest extends AbstractBaseTest {
   }
 
   @Test
-  void testReceiveBasicGetDefaultQueue() {
+  void testReceiveBasicGetDefaultQueue() throws Exception {
     MessageImpl message = createMessageMock();
-    when(consumer.receiveAsync()).thenReturn(CompletableFuture.completedFuture(message));
+    when(consumer.receive(anyInt(), any(TimeUnit.class))).thenReturn(message);
 
     openChannel();
     sendQueueDeclare();

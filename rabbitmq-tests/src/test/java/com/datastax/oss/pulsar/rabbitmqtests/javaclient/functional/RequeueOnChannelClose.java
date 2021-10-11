@@ -16,7 +16,9 @@
 package com.datastax.oss.pulsar.rabbitmqtests.javaclient.functional;
 
 import java.io.IOException;
+import org.junit.Ignore;
 
+@Ignore("Flaky tests. To investigate")
 public class RequeueOnChannelClose extends RequeueOnClose {
 
   protected void open() throws IOException {

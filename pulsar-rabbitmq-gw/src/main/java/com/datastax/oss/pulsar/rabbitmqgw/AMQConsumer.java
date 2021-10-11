@@ -16,8 +16,11 @@
 package com.datastax.oss.pulsar.rabbitmqgw;
 
 import java.nio.ByteBuffer;
+import java.util.Map;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import org.apache.pulsar.client.api.Message;
@@ -28,16 +31,21 @@ public class AMQConsumer {
 
   enum State {
     OPEN,
-    CLOSED
+    CLOSED;
   }
 
   private final AMQChannel channel;
+
   private final AMQShortString tag;
   private final Queue queue;
   private final boolean noAck;
   private final AtomicReference<State> _state = new AtomicReference<>(State.OPEN);
   private CompletableFuture<PulsarConsumer.PulsarConsumerMessage> messageCompletableFuture;
   private final AtomicBoolean blocked = new AtomicBoolean(false);
+  private final java.util.Queue<PulsarConsumer.PulsarConsumerMessage> pendingBindings =
+      new ConcurrentLinkedQueue<>();
+
+  private final Map<String, PulsarConsumer> subscriptions = new ConcurrentHashMap<>();
 
   public AMQConsumer(AMQChannel channel, AMQShortString tag, Queue queue, boolean noAck) {
     this.channel = channel;
@@ -46,51 +54,64 @@ public class AMQConsumer {
     this.noAck = noAck;
   }
 
-  public void consume() {
-    if (!blocked.get()) {
-      messageCompletableFuture = queue.receiveAsync(this);
-      messageCompletableFuture
-          .thenAccept(
-              messageResponse -> {
-                synchronized (this) {
-                  if (!blocked.get()) {
-                    Message<byte[]> message = messageResponse.getMessage();
-                    long deliveryTag = channel.getNextDeliveryTag();
-                    ContentBody contentBody = new ContentBody(ByteBuffer.wrap(message.getData()));
-                    channel
-                        .getConnection()
-                        .getProtocolOutputConverter()
-                        .writeDeliver(
-                            MessageUtils.getMessagePublishInfo(message),
-                            contentBody,
-                            MessageUtils.getContentHeaderBody(message),
-                            message.getRedeliveryCount() > 0,
-                            channel.getChannelId(),
-                            deliveryTag,
-                            tag);
+  public synchronized void deliverMessage(PulsarConsumer.PulsarConsumerMessage consumerMessage) {
+    if (consumerMessage != null) {
+      Message<byte[]> message = consumerMessage.getMessage();
+      boolean allocated = false;
+      if (messageCompletableFuture != null && !messageCompletableFuture.isDone()) {
+        allocated = useCreditForMessage(message.size());
+        if (allocated) {
+          messageCompletableFuture.complete(consumerMessage);
+          consumerMessage.getConsumer().receiveAndDeliverMessages();
+        } else {
+          block();
+        }
+      }
+      if (!allocated) {
+        pendingBindings.add(consumerMessage);
+      }
+    }
+  }
 
-                    if (noAck) {
-                      messageResponse.getConsumer().ackMessage(message.getMessageId());
-                    } else {
-                      channel.addUnacknowledgedMessage(
-                          message.getMessageId(),
-                          this,
-                          deliveryTag,
-                          true,
-                          messageResponse.getConsumer(),
-                          contentBody.getSize());
-                    }
-                  } else {
-                    queue.deliverMessage(messageResponse);
-                    channel
-                        .getCreditManager()
-                        .restoreCredit(1, messageResponse.getMessage().size());
-                    unblock();
-                    throw new CancellationException();
-                  }
-                }
-              })
-          .thenRunAsync(this::consume);
+  public synchronized void consume() {
+    if (!blocked.get()) {
+      messageCompletableFuture = new CompletableFuture<>();
+      messageCompletableFuture.thenAccept(this::handleMessage).thenRunAsync(this::consume);
+
+      deliverMessage(pendingBindings.poll());
+    }
+  }
+
+  private synchronized void handleMessage(PulsarConsumer.PulsarConsumerMessage messageResponse) {
+    if (!blocked.get()) {
+      Message<byte[]> message = messageResponse.getMessage();
+      long deliveryTag = channel.getNextDeliveryTag();
+      ContentBody contentBody = new ContentBody(ByteBuffer.wrap(message.getData()));
+      channel
+          .getConnection()
+          .getProtocolOutputConverter()
+          .writeDeliver(
+              MessageUtils.getMessagePublishInfo(message),
+              contentBody,
+              MessageUtils.getContentHeaderBody(message),
+              message.getRedeliveryCount() > 0,
+              channel.getChannelId(),
+              deliveryTag,
+              tag);
+
+      if (noAck) {
+        messageResponse.getConsumer().ackMessage(message.getMessageId());
+      } else {
+        MessageConsumerAssociation messageConsumerAssociation =
+            new BasicConsumeMessageConsumerAssociation(
+                message.getMessageId(), messageResponse.getConsumer(), contentBody.getSize());
+        channel.addUnacknowledgedMessage(deliveryTag, messageConsumerAssociation);
+      }
+    } else {
+      deliverMessage(messageResponse);
+      channel.getCreditManager().restoreCredit(1, messageResponse.getMessage().size());
+      unblock();
+      throw new CancellationException();
     }
   }
 
@@ -106,6 +127,7 @@ public class AMQConsumer {
     if (_state.compareAndSet(State.OPEN, State.CLOSED)) {
       block();
       queue.unregisterConsumer(this);
+      subscriptions.values().forEach(PulsarConsumer::close);
       return true;
     } else {
       return false;
@@ -126,7 +148,25 @@ public class AMQConsumer {
     }
   }
 
-  public boolean unsubscribe() {
-    return channel.unsubscribeConsumer(tag);
+  public Map<String, PulsarConsumer> getSubscriptions() {
+    return subscriptions;
+  }
+
+  public PulsarConsumer startSubscription(
+      String subscriptionName, String topic, GatewayService gatewayService) {
+    return subscriptions.computeIfAbsent(
+        subscriptionName,
+        subscription -> {
+          PulsarConsumer pc = new PulsarConsumer(topic, subscription, gatewayService, this);
+          pc.subscribe()
+              .thenRun(pc::receiveAndDeliverMessages)
+              .exceptionally(
+                  t -> {
+                    PulsarConsumer removed = subscriptions.remove(subscription);
+                    removed.close();
+                    return null;
+                  });
+          return pc;
+        });
   }
 }
