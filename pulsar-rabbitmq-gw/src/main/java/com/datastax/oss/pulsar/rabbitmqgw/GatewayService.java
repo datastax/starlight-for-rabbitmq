@@ -40,6 +40,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import org.apache.curator.RetryPolicy;
 import org.apache.curator.framework.CuratorFramework;
@@ -71,6 +73,7 @@ public class GatewayService implements Closeable {
   private final String brokerServiceUrl;
   private final String brokerWebServiceUrl;
   private final AuthenticationService authenticationService;
+  private final ScheduledExecutorService executor;
   private PulsarClient pulsarClient;
   private PulsarAdmin pulsarAdmin;
 
@@ -120,6 +123,9 @@ public class GatewayService implements Closeable {
 
     this.acceptorGroup = EventLoopUtil.newEventLoopGroup(1, true, acceptorThreadFactory);
     this.workerGroup = EventLoopUtil.newEventLoopGroup(numThreads, true, workersThreadFactory);
+    this.executor =
+        Executors.newScheduledThreadPool(
+            numThreads, new DefaultThreadFactory("pulsar-rabbitmq-executor"));
   }
 
   public void start() throws Exception {
@@ -131,7 +137,7 @@ public class GatewayService implements Closeable {
     pulsarAdmin = createAdminInstance();
     AsyncCuratorFramework curator = createCuratorInstance();
     metadataModel = ModeledFramework.wrap(curator, METADATA_MODEL_SPEC);
-    workerGroup.scheduleWithFixedDelay(this::loadContext, 0, 100, TimeUnit.MILLISECONDS);
+    executor.scheduleWithFixedDelay(this::loadContext, 0, 100, TimeUnit.MILLISECONDS);
     subscriptionCleaner = new SubscriptionCleaner(this, curator.unwrap());
     subscriptionCleaner.start();
 
@@ -169,27 +175,25 @@ public class GatewayService implements Closeable {
     ImmutableMap.Builder<InetSocketAddress, ChannelInitializer<SocketChannel>> builder =
         ImmutableMap.builder();
 
-    config.getAmqpListeners().forEach(
-        listener -> {
-          URI uri = URI.create(listener);
-          if (uri.getScheme().equals("amqp")) {
-            builder.put(
-                new InetSocketAddress(bindAddress, uri.getPort()),
-                new ServiceChannelInitializer(this, config, false));
-          } else if (uri.getScheme().equals("amqps")) {
-            builder.put(
-                new InetSocketAddress(bindAddress, uri.getPort()),
-                new ServiceChannelInitializer(this, config, true));
-          } else {
-            LOG.warn("Malformed listener string for Pulsar RabbitMQ will be ignored: " + listener);
-          }
-        }
-    );
+    config
+        .getAmqpListeners()
+        .forEach(
+            listener -> {
+              URI uri = URI.create(listener);
+              if (uri.getScheme().equals("amqp")) {
+                builder.put(
+                    new InetSocketAddress(bindAddress, uri.getPort()),
+                    new ServiceChannelInitializer(this, config, false));
+              } else if (uri.getScheme().equals("amqps")) {
+                builder.put(
+                    new InetSocketAddress(bindAddress, uri.getPort()),
+                    new ServiceChannelInitializer(this, config, true));
+              } else {
+                LOG.warn(
+                    "Malformed listener string for Pulsar RabbitMQ will be ignored: " + listener);
+              }
+            });
     return builder.build();
-  }
-
-  public EventLoopGroup getWorkerGroup() {
-    return workerGroup;
   }
 
   public PulsarClient getPulsarClient() {
@@ -290,6 +294,7 @@ public class GatewayService implements Closeable {
 
     acceptorGroup.shutdownGracefully();
     workerGroup.shutdownGracefully();
+    executor.shutdown();
   }
 
   public GatewayConfiguration getConfig() {
@@ -379,5 +384,9 @@ public class GatewayService implements Closeable {
 
   public AuthenticationService getAuthenticationService() {
     return authenticationService;
+  }
+
+  public ScheduledExecutorService getExecutor() {
+    return executor;
   }
 }

@@ -31,7 +31,6 @@ import io.jsonwebtoken.SignatureAlgorithm;
 import java.nio.file.Path;
 import java.util.Base64;
 import java.util.Collections;
-import java.util.Optional;
 import javax.crypto.SecretKey;
 import org.apache.bookkeeper.util.PortManager;
 import org.apache.pulsar.broker.authentication.AuthenticationService;

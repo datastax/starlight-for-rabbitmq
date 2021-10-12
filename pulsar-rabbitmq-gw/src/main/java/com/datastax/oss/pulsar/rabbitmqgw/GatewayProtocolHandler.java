@@ -18,12 +18,9 @@ package com.datastax.oss.pulsar.rabbitmqgw;
 import io.netty.channel.ChannelInitializer;
 import io.netty.channel.socket.SocketChannel;
 import java.net.InetSocketAddress;
-import java.util.HashSet;
 import java.util.Map;
-import java.util.Set;
 import lombok.SneakyThrows;
 import org.apache.pulsar.broker.ServiceConfiguration;
-import org.apache.pulsar.broker.ServiceConfigurationUtils;
 import org.apache.pulsar.broker.protocol.ProtocolHandler;
 import org.apache.pulsar.broker.service.BrokerService;
 
@@ -32,7 +29,6 @@ public class GatewayProtocolHandler implements ProtocolHandler {
 
   private GatewayConfiguration config;
   private GatewayService service;
-  private String bindAddress;
 
   @Override
   public String protocolName() {
@@ -48,7 +44,6 @@ public class GatewayProtocolHandler implements ProtocolHandler {
   @Override
   public void initialize(ServiceConfiguration conf) {
     config = ConfigurationUtils.create(conf.getProperties(), GatewayConfiguration.class);
-    bindAddress = ServiceConfigurationUtils.getDefaultOrConfiguredAddress(config.getBindAddress());
   }
 
   @Override
@@ -59,7 +54,6 @@ public class GatewayProtocolHandler implements ProtocolHandler {
   @SneakyThrows
   @Override
   public void start(BrokerService brokerService) {
-    bindAddress = brokerService.getPulsar().getBindAddress();
     service =
         new GatewayService(
             config,

@@ -740,11 +740,7 @@ public class AMQChannelTest extends AbstractBaseTest {
     openChannel();
     sendQueueDeclare();
 
-    sendBasicGet();
-
-    Thread.sleep(1000);
-
-    AMQFrame frame = channel.readOutbound();
+    AMQFrame frame = sendBasicGet();
 
     assertNotNull(frame);
     assertEquals(CHANNEL_ID, frame.getChannel());
@@ -1432,9 +1428,13 @@ public class AMQChannelTest extends AbstractBaseTest {
   }
 
   private void assertReceivesMessages(int numberOfMessages) throws InterruptedException {
-    Thread.sleep(100);
     for (int i = 0; i < numberOfMessages; i++) {
-      assertTrue(channel.readOutbound() instanceof ProtocolOutputConverter.CompositeAMQBodyBlock);
+      Object readOutbound = null;
+      for (int j = 0; j < 500 && readOutbound == null; j++) {
+        readOutbound = channel.readOutbound();
+        Thread.sleep(10);
+      }
+      assertTrue(readOutbound instanceof ProtocolOutputConverter.CompositeAMQBodyBlock);
     }
     assertNull(channel.readOutbound());
   }

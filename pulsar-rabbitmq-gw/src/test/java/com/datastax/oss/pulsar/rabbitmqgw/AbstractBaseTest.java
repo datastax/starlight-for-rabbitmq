@@ -71,14 +71,16 @@ import org.mockito.stubbing.Answer;
 public class AbstractBaseTest {
   public static final int CHANNEL_ID = 42;
   protected final GatewayConfiguration config = new GatewayConfiguration();
-  protected final GatewayService gatewayService = spy(new GatewayService(config, null));
-  protected final GatewayConnection connection = new GatewayConnection(gatewayService);
+  protected GatewayService gatewayService;
+  protected GatewayConnection connection;
   protected EmbeddedChannel channel;
   protected ProducerBase producer = mock(ProducerBase.class);
   protected ConsumerBase consumer = mock(ConsumerBase.class);
 
   @BeforeEach
   void setup() throws Exception {
+    gatewayService = spy(new GatewayService(config, null));
+    connection = new GatewayConnection(gatewayService);
     channel = new EmbeddedChannel(connection, new AMQDataBlockEncoder());
 
     PulsarClient pulsarClient = mock(PulsarClient.class);
@@ -150,7 +152,7 @@ public class AbstractBaseTest {
 
     T read = null;
     long now = System.currentTimeMillis();
-    while (System.currentTimeMillis() - now < 1000 && read == null) {
+    while (System.currentTimeMillis() - now < 5000 && read == null) {
       read = channel.readOutbound();
       try {
         Thread.sleep(10);

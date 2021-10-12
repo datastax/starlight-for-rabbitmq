@@ -43,7 +43,7 @@ public class NarLoadingIT {
     pulsarConfig.setMessagingProtocols(Sets.newHashSet("rabbitmq"));
 
     int portOnBroker = PortManager.nextFreePort();
-    pulsarConfig.getProperties().put("amqpServicePort", String.valueOf(portOnBroker));
+    pulsarConfig.getProperties().put("amqpListeners", "amqp://127.0.0.1:" + portOnBroker);
 
     BookKeeperCluster bookKeeperCluster =
         new BookKeeperCluster(tempDir, PortManager.nextFreePort());
@@ -59,7 +59,7 @@ public class NarLoadingIT {
     proxyConfiguration.setProxyExtensions(Sets.newHashSet("rabbitmq"));
 
     int portOnProxy = PortManager.nextFreePort();
-    proxyConfiguration.getProperties().put("amqpServicePort", String.valueOf(portOnProxy));
+    proxyConfiguration.getProperties().put("amqpListeners", "amqp://127.0.0.1:" + portOnProxy);
     proxyConfiguration
         .getProperties()
         .put("configurationStoreServers", cluster.getService().getConfig().getZookeeperServers());

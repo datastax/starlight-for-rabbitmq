@@ -15,8 +15,8 @@
  */
 package com.datastax.oss.pulsar.rabbitmqgw;
 
-import io.netty.channel.EventLoop;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.apache.pulsar.client.api.Consumer;
@@ -36,7 +36,7 @@ public class PulsarConsumer {
 
   private volatile MessageId lastMessageId;
 
-  private final EventLoop eventLoop;
+  private final ScheduledExecutorService executorService;
 
   private final AtomicBoolean closing;
 
@@ -46,7 +46,7 @@ public class PulsarConsumer {
     this.subscriptionName = subscriptionName;
     this.gatewayService = service;
     this.amqConsumer = amqConsumer;
-    this.eventLoop = service.getWorkerGroup().next();
+    this.executorService = service.getExecutor();
     this.closing = new AtomicBoolean(false);
   }
 
@@ -100,7 +100,8 @@ public class PulsarConsumer {
 
                   // Receive messages again after some time to check if we get unacked messages
                   // Note: unacked messages are sent in priority by the broker
-                  this.eventLoop.schedule(this::resumeConsumption, 100, TimeUnit.MILLISECONDS);
+                  this.executorService.schedule(
+                      this::resumeConsumption, 100, TimeUnit.MILLISECONDS);
                   return null;
                 } else {
                   pulsarConsumer.resume();
@@ -115,7 +116,7 @@ public class PulsarConsumer {
   }
 
   public CompletableFuture<Void> receiveAndDeliverMessages() {
-    return receiveMessageAsync().thenAcceptAsync(amqConsumer::deliverMessage, this.eventLoop);
+    return receiveMessageAsync().thenAcceptAsync(amqConsumer::deliverMessage, this.executorService);
   }
 
   private CompletableFuture<Void> resumeConsumption() {
