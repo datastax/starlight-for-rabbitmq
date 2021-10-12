@@ -76,7 +76,9 @@ public class AMQConsumer {
   public synchronized void consume() {
     if (!blocked.get()) {
       messageCompletableFuture = new CompletableFuture<>();
-      messageCompletableFuture.thenAccept(this::handleMessage).thenRunAsync(this::consume);
+      messageCompletableFuture
+          .thenAccept(this::handleMessage)
+          .thenRunAsync(this::consume, channel.getConnection().getGatewayService().getExecutor());
 
       deliverMessage(pendingBindings.poll());
     }
@@ -146,10 +148,6 @@ public class AMQConsumer {
       blocked.set(false);
       consume();
     }
-  }
-
-  public Map<String, PulsarConsumer> getSubscriptions() {
-    return subscriptions;
   }
 
   public PulsarConsumer startSubscription(

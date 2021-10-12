@@ -15,9 +15,7 @@
  */
 package com.datastax.oss.pulsar.rabbitmqgw;
 
-import com.google.common.collect.Sets;
 import java.util.Collections;
-import java.util.Optional;
 import java.util.Set;
 import lombok.Getter;
 import lombok.Setter;
@@ -30,11 +28,12 @@ public class GatewayConfiguration extends ProxyConfiguration {
   private static final String CATEGORY_AMQP = "AMQP";
 
   @FieldContext(
-      category = CATEGORY_AMQP,
-      required = true,
-      doc = "Used to specify multiple advertised listeners for the gateway."
-          + " The value must format as amqp[s]://<host>:<port>,"
-          + "multiple listeners should separate with commas."
+    category = CATEGORY_AMQP,
+    required = true,
+    doc =
+        "Used to specify multiple advertised listeners for the gateway."
+            + " The value must format as amqp[s]://<host>:<port>,"
+            + "multiple listeners should separate with commas."
   )
   private Set<String> amqpListeners = Collections.singleton("amqp://127.0.0.1:5672");
 

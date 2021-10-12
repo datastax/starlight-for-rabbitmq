@@ -27,7 +27,6 @@ import com.rabbitmq.client.PossibleAuthenticationFailureException;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Collections;
-import java.util.Optional;
 import javax.net.ssl.SSLContext;
 import org.apache.bookkeeper.util.PortManager;
 import org.apache.pulsar.broker.PulsarServerException;

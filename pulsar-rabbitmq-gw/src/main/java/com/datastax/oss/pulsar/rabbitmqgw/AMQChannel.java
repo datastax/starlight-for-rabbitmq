@@ -1059,15 +1059,15 @@ public class AMQChannel implements ServerChannelMethodProcessor {
                   + "' exclusively as it already has a consumer",
               _channelId);
         } else {
+          AMQConsumer consumer = new AMQConsumer(this, consumerTag1, queue, noAck);
+          _tag2SubscriptionTargetMap.put(consumerTag1, consumer);
           if (!nowait) {
             MethodRegistry methodRegistry = _connection.getMethodRegistry();
             AMQMethodBody responseBody = methodRegistry.createBasicConsumeOkBody(consumerTag1);
             _connection.writeFrame(responseBody.generateFrame(_channelId));
           }
-          AMQConsumer consumer = new AMQConsumer(this, consumerTag1, queue, noAck);
           queue.addConsumer(consumer, exclusive);
           getGatewayService().updateContext(getContextMetadata().model());
-          _tag2SubscriptionTargetMap.put(consumerTag1, consumer);
         }
       }
     }
@@ -1264,7 +1264,7 @@ public class AMQChannel implements ServerChannelMethodProcessor {
               });
 
           getMessageFromConsumers(
-              consumers, 100, getGatewayService().getWorkerGroup(), messageCompletableFuture);
+              consumers, 100, getGatewayService().getExecutor(), messageCompletableFuture);
 
           messageCompletableFuture.thenAccept(
               consumerMessage -> {
