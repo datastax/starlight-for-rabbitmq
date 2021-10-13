@@ -13,5 +13,29 @@ jobs:
         with:
           java-version: '11'
           distribution: 'adopt'
-      - name: Build with Maven
-        run: mvn --batch-mode --update-snapshots verify
+
+      - name: Cache local Maven repository
+        uses: actions/cache@v2
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            ${{ runner.os }}-maven-
+
+      - name: License check
+        run: mvn -B license:check
+
+      - name: Build with Maven skipTests
+        run: mvn -B clean install -DskipTests
+
+      #- name: Style check
+      #  run: mvn -B checkstyle:check
+
+      - name: Spotbugs check
+        run: mvn -B spotbugs:check
+
+      - name: pulsar-rabbitmq-gw tests
+        run: mvn -B test -DfailIfNoTests=false -pl pulsar-rabbitmq-gw
+
+      - name: RabbitMQ Java client tests
+        run: mvn -B integration-test -DfailIfNoTests=false -Dcurator-log-only-first-connection-issue-as-error-level=true -pl rabbitmq-tests

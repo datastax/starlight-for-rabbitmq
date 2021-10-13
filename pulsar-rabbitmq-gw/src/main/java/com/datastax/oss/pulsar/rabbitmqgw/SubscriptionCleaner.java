@@ -113,7 +113,7 @@ public class SubscriptionCleaner extends LeaderSelectorListenerAdapter implement
         }
       }
     } catch (InterruptedException e) {
-      LOGGER.error("Subscription cleaner was interrupted", e);
+      LOGGER.warn("Subscription cleaner was interrupted", e);
       Thread.currentThread().interrupt();
     } catch (TimeoutException e) {
       LOGGER.error("Timed out while saving configuration", e);
