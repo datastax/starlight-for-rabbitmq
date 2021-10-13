@@ -91,6 +91,8 @@ public class GatewayService implements Closeable {
 
   private final Map<String, Map<String, Queue>> queues = new ConcurrentHashMap<>();
 
+  private CuratorFramework curator;
+
   public static final ModelSpec<ContextMetadata> METADATA_MODEL_SPEC =
       ModelSpec.builder(
               ZPath.parseWithIds("/config"), JacksonModelSerializer.build(ContextMetadata.class))
@@ -135,10 +137,10 @@ public class GatewayService implements Closeable {
   public void start(boolean startChannels) throws Exception {
     pulsarClient = createClientInstance();
     pulsarAdmin = createAdminInstance();
-    AsyncCuratorFramework curator = createCuratorInstance();
-    metadataModel = ModeledFramework.wrap(curator, METADATA_MODEL_SPEC);
+    curator = createCuratorInstance();
+    metadataModel = ModeledFramework.wrap(AsyncCuratorFramework.wrap(curator), METADATA_MODEL_SPEC);
     executor.scheduleWithFixedDelay(this::loadContext, 0, 100, TimeUnit.MILLISECONDS);
-    subscriptionCleaner = new SubscriptionCleaner(this, curator.unwrap());
+    subscriptionCleaner = new SubscriptionCleaner(this, curator);
     subscriptionCleaner.start();
 
     if (startChannels) {
@@ -271,7 +273,7 @@ public class GatewayService implements Closeable {
     return adminBuilder.build();
   }
 
-  private AsyncCuratorFramework createCuratorInstance() {
+  private CuratorFramework createCuratorInstance() {
     RetryPolicy retryPolicy = new ExponentialBackoffRetry(1000, 3);
     CuratorFramework client =
         CuratorFrameworkFactory.builder()
@@ -282,7 +284,7 @@ public class GatewayService implements Closeable {
             .namespace("pulsar-rabbitmq-gw")
             .build();
     client.start();
-    return AsyncCuratorFramework.wrap(client);
+    return client;
   }
 
   public void close() throws IOException {
@@ -291,6 +293,7 @@ public class GatewayService implements Closeable {
     if (subscriptionCleaner != null) {
       subscriptionCleaner.close();
     }
+    curator.close();
 
     acceptorGroup.shutdownGracefully();
     workerGroup.shutdownGracefully();
