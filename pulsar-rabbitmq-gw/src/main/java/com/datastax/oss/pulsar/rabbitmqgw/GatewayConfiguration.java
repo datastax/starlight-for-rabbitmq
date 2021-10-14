@@ -33,7 +33,7 @@ public class GatewayConfiguration extends ProxyConfiguration {
     doc =
         "Used to specify multiple advertised listeners for the gateway."
             + " The value must format as amqp[s]://<host>:<port>,"
-            + "multiple listeners should separate with commas."
+            + "multiple listeners should be separated with commas."
   )
   private Set<String> amqpListeners = Collections.singleton("amqp://127.0.0.1:5672");
 
