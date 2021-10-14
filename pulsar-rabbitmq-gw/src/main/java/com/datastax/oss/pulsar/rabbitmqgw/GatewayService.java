@@ -172,8 +172,6 @@ public class GatewayService implements Closeable {
   }
 
   public Map<InetSocketAddress, ChannelInitializer<SocketChannel>> newChannelInitializers() {
-    String bindAddress =
-        ServiceConfigurationUtils.getDefaultOrConfiguredAddress(config.getBindAddress());
     ImmutableMap.Builder<InetSocketAddress, ChannelInitializer<SocketChannel>> builder =
         ImmutableMap.builder();
 
@@ -184,11 +182,11 @@ public class GatewayService implements Closeable {
               URI uri = URI.create(listener);
               if (uri.getScheme().equals("amqp")) {
                 builder.put(
-                    new InetSocketAddress(bindAddress, uri.getPort()),
+                    new InetSocketAddress(uri.getHost(), uri.getPort()),
                     new ServiceChannelInitializer(this, config, false));
               } else if (uri.getScheme().equals("amqps")) {
                 builder.put(
-                    new InetSocketAddress(bindAddress, uri.getPort()),
+                    new InetSocketAddress(uri.getHost(), uri.getPort()),
                     new ServiceChannelInitializer(this, config, true));
               } else {
                 LOG.warn(
