@@ -16,23 +16,28 @@
 package com.datastax.oss.pulsar.rabbitmqgw;
 
 import static com.datastax.oss.pulsar.rabbitmqgw.ConfigurationUtils.convertFrom;
+import static org.apache.commons.lang3.StringUtils.isBlank;
 
 import io.netty.channel.ChannelInitializer;
 import io.netty.channel.socket.SocketChannel;
 import java.net.InetSocketAddress;
+import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 import lombok.SneakyThrows;
+import org.apache.pulsar.broker.PulsarServerException;
 import org.apache.pulsar.broker.authentication.AuthenticationService;
+import org.apache.pulsar.policies.data.loadbalancer.ServiceLookupData;
 import org.apache.pulsar.proxy.extensions.ProxyExtension;
 import org.apache.pulsar.proxy.server.ProxyConfiguration;
 import org.apache.pulsar.proxy.server.ProxyService;
 
 public class GatewayProxyProtocolHandler implements ProxyExtension {
 
-  public static final String PROTOCOL_NAME = "rabbitmq";
+  private static final String PROTOCOL_NAME = "rabbitmq";
 
-  GatewayConfiguration config;
-  GatewayService service;
+  private GatewayConfiguration config;
+  private GatewayService service;
 
   @Override
   public String extensionName() {
@@ -53,7 +58,26 @@ public class GatewayProxyProtocolHandler implements ProxyExtension {
   @SneakyThrows
   @Override
   public void start(ProxyService proxyService) {
-    service = new GatewayService(config, new AuthenticationService(convertFrom(config)));
+    if (isBlank(config.getBrokerServiceURL())) {
+      List<? extends ServiceLookupData> availableBrokers =
+          proxyService.getDiscoveryProvider().getAvailableBrokers();
+      if (availableBrokers.size() == 0) {
+        throw new PulsarServerException("No active broker is available");
+      }
+      ServiceLookupData lookupData = availableBrokers.get(0);
+      service =
+          new GatewayService(
+              config,
+              new AuthenticationService(convertFrom(config)),
+              config.isTlsEnabledWithBroker()
+                  ? lookupData.getPulsarServiceUrlTls()
+                  : lookupData.getPulsarServiceUrl(),
+              config.isTlsEnabledWithBroker()
+                  ? lookupData.getWebServiceUrlTls()
+                  : lookupData.getWebServiceUrl());
+    } else {
+      service = new GatewayService(config, new AuthenticationService(convertFrom(config)));
+    }
     service.start(false);
   }
 
