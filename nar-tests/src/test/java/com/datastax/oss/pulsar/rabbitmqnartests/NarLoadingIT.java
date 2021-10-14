@@ -34,7 +34,16 @@ public class NarLoadingIT {
   @TempDir public static Path tempDir;
 
   @Test
-  public void loadsNar() throws Exception {
+  public void loadsNarWithZkDiscovery() throws Exception {
+    loadProtocolHandlerAndProxyExtension(true);
+  }
+
+  @Test
+  public void loadsNarWithBrokerServiceUrl() throws Exception {
+    loadProtocolHandlerAndProxyExtension(false);
+  }
+
+  private void loadProtocolHandlerAndProxyExtension(boolean zkDiscovery) throws Exception {
     Path handlerPath = Paths.get("target/test-protocol-handler.nar").toAbsolutePath();
     String protocolHandlerDir = handlerPath.toFile().getParent();
 
@@ -57,18 +66,23 @@ public class NarLoadingIT {
     ProxyConfiguration proxyConfiguration = new ProxyConfiguration();
     proxyConfiguration.setProxyExtensionsDirectory(protocolHandlerDir);
     proxyConfiguration.setProxyExtensions(Sets.newHashSet("rabbitmq"));
+    if (zkDiscovery) {
+      proxyConfiguration.setZookeeperServers(bookKeeperCluster.getZooKeeperAddress());
+      proxyConfiguration.setConfigurationStoreServers(bookKeeperCluster.getZooKeeperAddress());
+    } else {
+      proxyConfiguration
+          .getProperties()
+          .put("brokerServiceURL", cluster.getService().getBrokerServiceUrl());
+      proxyConfiguration
+          .getProperties()
+          .put("brokerWebServiceURL", cluster.getService().getWebServiceAddress());
+    }
 
     int portOnProxy = PortManager.nextFreePort();
     proxyConfiguration.getProperties().put("amqpListeners", "amqp://127.0.0.1:" + portOnProxy);
     proxyConfiguration
         .getProperties()
         .put("configurationStoreServers", cluster.getService().getConfig().getZookeeperServers());
-    proxyConfiguration
-        .getProperties()
-        .put("brokerServiceURL", cluster.getService().getBrokerServiceUrl());
-    proxyConfiguration
-        .getProperties()
-        .put("brokerWebServiceURL", cluster.getService().getWebServiceAddress());
 
     ProxyService pulsarProxy = new ProxyService(proxyConfiguration, null);
     pulsarProxy.start();
