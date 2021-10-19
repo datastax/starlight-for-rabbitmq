@@ -53,7 +53,6 @@ import org.apache.curator.x.async.modeled.ModelSpec;
 import org.apache.curator.x.async.modeled.ModeledFramework;
 import org.apache.curator.x.async.modeled.ZPath;
 import org.apache.curator.x.async.modeled.versioned.Versioned;
-import org.apache.pulsar.broker.ServiceConfigurationUtils;
 import org.apache.pulsar.broker.authentication.AuthenticationService;
 import org.apache.pulsar.client.admin.PulsarAdmin;
 import org.apache.pulsar.client.admin.PulsarAdminBuilder;
@@ -77,8 +76,8 @@ public class GatewayService implements Closeable {
   private PulsarClient pulsarClient;
   private PulsarAdmin pulsarAdmin;
 
-  private final EventLoopGroup acceptorGroup;
-  private final EventLoopGroup workerGroup;
+  private EventLoopGroup acceptorGroup;
+  private EventLoopGroup workerGroup;
 
   private final List<Channel> listenChannels = new ArrayList<>();
 
@@ -122,9 +121,6 @@ public class GatewayService implements Closeable {
     this.brokerServiceUrl = brokerServiceUrl;
     this.brokerWebServiceUrl = brokerWebServiceUrl;
     this.authenticationService = authenticationService;
-
-    this.acceptorGroup = EventLoopUtil.newEventLoopGroup(1, true, acceptorThreadFactory);
-    this.workerGroup = EventLoopUtil.newEventLoopGroup(numThreads, true, workersThreadFactory);
     this.executor =
         Executors.newScheduledThreadPool(
             numThreads, new DefaultThreadFactory("pulsar-rabbitmq-executor"));
@@ -144,6 +140,8 @@ public class GatewayService implements Closeable {
     subscriptionCleaner.start();
 
     if (startChannels) {
+      acceptorGroup = EventLoopUtil.newEventLoopGroup(1, true, acceptorThreadFactory);
+      workerGroup = EventLoopUtil.newEventLoopGroup(numThreads, true, workersThreadFactory);
       for (Map.Entry<InetSocketAddress, ChannelInitializer<SocketChannel>> entry :
           newChannelInitializers().entrySet()) {
         InetSocketAddress address = entry.getKey();
@@ -293,8 +291,12 @@ public class GatewayService implements Closeable {
     }
     curator.close();
 
-    acceptorGroup.shutdownGracefully();
-    workerGroup.shutdownGracefully();
+    if (acceptorGroup != null) {
+      acceptorGroup.shutdownGracefully();
+    }
+    if (workerGroup != null) {
+      workerGroup.shutdownGracefully();
+    }
     executor.shutdown();
   }
 
