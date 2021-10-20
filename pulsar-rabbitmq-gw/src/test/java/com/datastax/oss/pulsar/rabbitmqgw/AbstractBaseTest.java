@@ -65,6 +65,7 @@ import org.apache.qpid.server.protocol.v0_8.transport.ConnectionStartOkBody;
 import org.apache.qpid.server.protocol.v0_8.transport.ConnectionTuneOkBody;
 import org.apache.qpid.server.protocol.v0_8.transport.ProtocolInitiation;
 import org.apache.qpid.server.transport.ByteBufferSender;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.mockito.stubbing.Answer;
 
@@ -134,6 +135,12 @@ public class AbstractBaseTest {
               gatewayService.updateContext(contextMetadata.model()));
         };
     doAnswer(answer).when(gatewayService).saveContext(any());
+  }
+
+  @AfterEach
+  void cleanup() throws Exception {
+    gatewayService.close();
+    channel.close().await(5, TimeUnit.SECONDS);
   }
 
   protected void sendData(AMQDataBlock data) {

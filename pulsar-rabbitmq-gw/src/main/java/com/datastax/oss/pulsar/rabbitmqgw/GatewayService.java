@@ -289,7 +289,9 @@ public class GatewayService implements Closeable {
     if (subscriptionCleaner != null) {
       subscriptionCleaner.close();
     }
-    curator.close();
+    if (curator != null) {
+      curator.close();
+    }
 
     if (acceptorGroup != null) {
       acceptorGroup.shutdownGracefully();
@@ -297,7 +299,9 @@ public class GatewayService implements Closeable {
     if (workerGroup != null) {
       workerGroup.shutdownGracefully();
     }
-    executor.shutdown();
+    if (executor != null) {
+      executor.shutdown();
+    }
   }
 
   public GatewayConfiguration getConfig() {
