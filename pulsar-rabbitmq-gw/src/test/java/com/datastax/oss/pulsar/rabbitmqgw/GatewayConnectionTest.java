@@ -25,6 +25,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.nio.charset.StandardCharsets;
 import org.apache.qpid.server.protocol.ErrorCodes;
 import org.apache.qpid.server.protocol.ProtocolVersion;
+import org.apache.qpid.server.protocol.v0_8.FieldTable;
 import org.apache.qpid.server.protocol.v0_8.transport.AMQBody;
 import org.apache.qpid.server.protocol.v0_8.transport.AMQFrame;
 import org.apache.qpid.server.protocol.v0_8.transport.ChannelOpenOkBody;
@@ -51,7 +52,10 @@ class GatewayConnectionTest extends AbstractBaseTest {
     ConnectionStartBody connectionStartBody = (ConnectionStartBody) body;
     assertEquals(0, connectionStartBody.getVersionMajor());
     assertEquals(9, connectionStartBody.getVersionMinor());
-    assertEquals(0, connectionStartBody.getServerProperties().size());
+    assertTrue(connectionStartBody.getServerProperties().get("capabilities") instanceof FieldTable);
+    FieldTable capabilities = (FieldTable)connectionStartBody.getServerProperties().get("capabilities");
+    assertEquals(true, capabilities.get("basic.nack"));
+    assertEquals(true, capabilities.get("publisher_confirms"));
     assertEquals("PLAIN", new String(connectionStartBody.getMechanisms(), StandardCharsets.UTF_8));
     assertEquals("en_US", new String(connectionStartBody.getLocales(), StandardCharsets.UTF_8));
   }
