@@ -740,8 +740,13 @@ public class AMQChannelTest extends AbstractBaseTest {
     openChannel();
     sendQueueDeclare();
 
-    AMQFrame frame = sendBasicGet();
+    BasicGetBody basicGetBody =
+        new BasicGetBody(0, AMQShortString.createAMQShortString(TEST_QUEUE), true);
+    sendData(basicGetBody.generateFrame(CHANNEL_ID));
 
+    Thread.sleep(2000);
+
+    AMQFrame frame = channel.readOutbound();
     assertNotNull(frame);
     assertEquals(CHANNEL_ID, frame.getChannel());
     assertTrue(frame.getBodyFrame() instanceof BasicGetEmptyBody);
