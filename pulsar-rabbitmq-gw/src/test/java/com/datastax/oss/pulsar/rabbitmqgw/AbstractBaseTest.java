@@ -159,7 +159,7 @@ public class AbstractBaseTest {
 
     T read = null;
     long now = System.currentTimeMillis();
-    while (System.currentTimeMillis() - now < 5000 && read == null) {
+    while (System.currentTimeMillis() - now < 1000 && read == null) {
       read = channel.readOutbound();
       try {
         Thread.sleep(10);
