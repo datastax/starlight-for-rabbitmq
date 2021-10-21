@@ -1452,7 +1452,7 @@ public class AMQChannelTest extends AbstractBaseTest {
     MessageImpl message = mock(MessageImpl.class);
     when(message.getData()).thenReturn(content.getBytes(StandardCharsets.UTF_8));
     when(message.size()).thenReturn(content.getBytes(StandardCharsets.UTF_8).length);
-    when(message.getTopicName()).thenReturn(TEST_EXCHANGE + "$$" + TEST_QUEUE);
+    when(message.getTopicName()).thenReturn(TEST_EXCHANGE + ".__" + TEST_QUEUE);
     when(message.getRedeliveryCount()).thenReturn(0);
     when(message.getMessageId()).thenReturn(MessageId.latest);
     return message;

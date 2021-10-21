@@ -32,7 +32,6 @@ import io.netty.handler.timeout.IdleStateHandler;
 import java.lang.reflect.Proxy;
 import java.net.SocketAddress;
 import java.nio.charset.StandardCharsets;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -46,6 +45,7 @@ import org.apache.curator.x.async.modeled.versioned.Versioned;
 import org.apache.pulsar.broker.authentication.AuthenticationDataCommand;
 import org.apache.pulsar.broker.authentication.AuthenticationProvider;
 import org.apache.pulsar.broker.authentication.AuthenticationService;
+import org.apache.pulsar.common.naming.NamespaceName;
 import org.apache.qpid.server.QpidException;
 import org.apache.qpid.server.bytebuffer.QpidByteBuffer;
 import org.apache.qpid.server.exchange.ExchangeDefaults;
@@ -435,13 +435,28 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
     assertState(ConnectionState.AWAIT_OPEN);
 
     String virtualHostStr = AMQShortString.toString(virtualHostName);
-    if ((virtualHostStr != null) && virtualHostStr.charAt(0) == '/') {
-      virtualHostStr = virtualHostStr.substring(1);
+    String tenant = "public";
+    if ((virtualHostStr != null)) {
+      if (virtualHostStr.charAt(0) == '/') {
+        virtualHostStr = virtualHostStr.substring(1);
+      }
+      int index = virtualHostStr.indexOf("/");
+      if (index != -1 && index != virtualHostStr.length() - 1) {
+        tenant = virtualHostStr.substring(0, index);
+        virtualHostStr = virtualHostStr.substring(index + 1);
+      }
     }
 
-    // TODO: can vhosts have / in their name ? in that case they could be mapped to tenant+namespace
-    // TODO: remove redundant namespace (or vhost) field
-    this.namespace = "public/" + (StringUtils.isEmpty(virtualHostStr) ? "default" : virtualHostStr);
+    try {
+      this.namespace =
+          NamespaceName.get(
+                  tenant, StringUtils.isEmpty(virtualHostStr) ? "default" : virtualHostStr)
+              .toString();
+    } catch (IllegalArgumentException e) {
+      LOGGER.warn("Invalid virtual host :" + virtualHostName, e);
+      sendConnectionClose(ErrorCodes.INVALID_PATH, e.getMessage(), 0);
+      return;
+    }
     Versioned<ContextMetadata> versionedContext = getGatewayService().getContextMetadata();
     if (!versionedContext.model().getVhosts().containsKey(namespace)) {
       Versioned<ContextMetadata> newContext =

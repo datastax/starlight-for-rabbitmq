@@ -37,7 +37,7 @@ public final class MessageUtils {
 
   public static MessagePublishInfo getMessagePublishInfo(Message<byte[]> message) {
     String localName = TopicName.get(message.getTopicName()).getLocalName();
-    String[] split = localName.split("\\$\\$", 2);
+    String[] split = localName.split(".__", 2);
     String routingKey = "";
     String exchange = split[0];
     if (split.length > 1) {
