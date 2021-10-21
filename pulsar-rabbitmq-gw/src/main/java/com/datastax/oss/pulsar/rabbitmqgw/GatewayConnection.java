@@ -33,6 +33,7 @@ import java.lang.reflect.Proxy;
 import java.net.SocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
@@ -643,12 +644,12 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
 
       String locales = "en_US";
 
-      Map<String, Object> props = Collections.emptyMap();
-      // TODO: add connection properties ?
-      /*for(ConnectionPropertyEnricher enricher : getPort().getConnectionPropertyEnrichers())
-      {
-          props = enricher.addConnectionProperties(this, props);
-      }*/
+      // TODO: add recommended connection properties
+      Map<String, Object> props = new HashMap<>();
+      Map<String, Object> capabilities = new HashMap<>();
+      capabilities.put("basic.nack", true);
+      capabilities.put("publisher_confirms", true);
+      props.put("capabilities", capabilities);
 
       FieldTable serverProperties = FieldTable.convertToFieldTable(props);
 
