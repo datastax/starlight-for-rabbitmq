@@ -173,7 +173,7 @@ public class AbstractBaseTest {
     sendProtocolHeader();
     sendConnectionStartOk();
     sendConnectionTuneOk();
-    sendConnectionOpen();
+    sendConnectionOpen("/");
   }
 
   protected AMQFrame sendProtocolHeader() {
@@ -202,10 +202,6 @@ public class AbstractBaseTest {
     ConnectionTuneOkBody connectionTuneOkBody =
         new ConnectionTuneOkBody(channelMax, frameMax, heartbeat);
     return exchangeDataNoWait(connectionTuneOkBody.generateFrame(1));
-  }
-
-  protected AMQFrame sendConnectionOpen() {
-    return sendConnectionOpen("");
   }
 
   protected AMQFrame sendConnectionOpen(String vhost) {

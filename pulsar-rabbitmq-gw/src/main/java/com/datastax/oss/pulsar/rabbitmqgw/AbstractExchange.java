@@ -92,7 +92,7 @@ public abstract class AbstractExchange {
   public static TopicName getTopicName(String vHost, String exchangeName, String routingKey) {
     StringBuilder topic = new StringBuilder(isBlank(exchangeName) ? "amq.default" : exchangeName);
     if (isNotBlank(routingKey)) {
-      topic.append("$$").append(routingKey);
+      topic.append(".__").append(routingKey);
     }
     return TopicName.get("persistent", NamespaceName.get(vHost), topic.toString());
   }

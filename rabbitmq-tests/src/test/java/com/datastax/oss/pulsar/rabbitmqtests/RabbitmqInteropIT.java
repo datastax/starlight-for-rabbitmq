@@ -139,7 +139,7 @@ public class RabbitmqInteropIT {
 
     PulsarClient pulsarClient = PulsarClient.builder().serviceUrl(cluster.getAddress()).build();
     Producer<String> producer =
-        pulsarClient.newProducer(Schema.STRING).topic("amq.default$$" + queue).create();
+        pulsarClient.newProducer(Schema.STRING).topic("amq.default.__" + queue).create();
 
     channel.queueDeclare(queue, true, false, false, new HashMap<>());
     producer.send(TEST_MESSAGE);
