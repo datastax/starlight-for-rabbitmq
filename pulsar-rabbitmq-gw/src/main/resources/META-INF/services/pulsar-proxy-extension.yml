@@ -1,3 +1,0 @@
-name: rabbitmq
-description: RabbitMQ Proxy Extension
-extensionClass: com.datastax.oss.pulsar.rabbitmqgw.GatewayProxyProtocolHandler
