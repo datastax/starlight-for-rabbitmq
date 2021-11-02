@@ -27,7 +27,7 @@ import org.apache.pulsar.broker.authentication.AuthenticationService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/** Starts an instance of the Pulsar RabbitMQ GatewayService */
+/** Starts an instance of Starlight for RabbitMQ */
 public class GatewayServiceStarter {
 
   @Parameter(
@@ -94,7 +94,7 @@ public class GatewayServiceStarter {
       gatewayService.start(true);
 
     } catch (Exception e) {
-      log.error("Failed to start pulsar RabbitMQ gateway service. error msg " + e.getMessage(), e);
+      log.error("Failed to start Starlight for RabbitMQ. error msg " + e.getMessage(), e);
       throw new PulsarServerException(e);
     }
   }

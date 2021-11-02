@@ -29,8 +29,8 @@ To build from code, complete the following steps:
 1. Clone the project from GitHub.
 
 ```bash
-git clone https://github.com/datastax/pulsar-rabbitmq-gw.git
-cd pulsar-rabbitmq-gw
+git clone https://github.com/datastax/starlight-for-rabbitmq.git
+cd starlight-for-rabbitmq
 ```
 
 2. Build the project.

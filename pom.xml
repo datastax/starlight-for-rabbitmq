@@ -24,7 +24,7 @@
   <version>1.0.0-SNAPSHOT</version>
   <name>DataStax Starlight for RabbitMQ (R) parent</name>
   <description>Proxy to seamlessly connect RabbitMQ clients to Apache Pulsar</description>
-  <url>https://github.com/datastax/pulsar-rabbitmq-gw</url>
+  <url>https://github.com/datastax/starlight-for-rabbitmq</url>
   <inceptionYear>2021</inceptionYear>
   <organization>
     <name>DataStax</name>
@@ -426,9 +426,9 @@ limitations under the License.]]></inlineHeader>
     </license>
   </licenses>
   <scm>
-    <connection>scm:git:git@github.com:datastax/pulsar-rabbitmq-gw.git</connection>
-    <developerConnection>scm:git:git@github.com:datastax/pulsar-rabbitmq-gw.git</developerConnection>
-    <url>https://github.com/datastax/pulsar-rabbitmq-gw</url>
+    <connection>scm:git:git@github.com:datastax/starlight-for-rabbitmq.git</connection>
+    <developerConnection>scm:git:git@github.com:datastax/starlight-for-rabbitmq.git</developerConnection>
+    <url>https://github.com/datastax/starlight-for-rabbitmq</url>
     <tag>HEAD</tag>
   </scm>
   <developers>
