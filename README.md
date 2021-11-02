@@ -60,7 +60,7 @@ You can find the nar file in the following directory.
    java -jar ./starlight-rabbitmq/target/starlight-rabbitmq-${version}-jar-with-dependencies.jar -c conf/starlight-rabbitmq.conf
    ```
 
-#### Running Starlight for RabbitMQ as a protocol handler
+### Running Starlight for RabbitMQ as a protocol handler
 
 Starlight for RabbitMQ can be embedded directly into the Pulsar brokers by loading it as a protocol handler.
 
