@@ -18,7 +18,7 @@
 -->
 <FindBugsFilter>
   <Match>
-    <Class name="com.datastax.oss.pulsar.rabbitmqgw.GatewayServiceStarter"/>
+    <Class name="com.datastax.oss.starlight.rabbitmq.GatewayServiceStarter"/>
     <Method name="&lt;init&gt;"/>
     <Bug pattern="DM_EXIT,NP_NULL_PARAM_DEREF_NONVIRTUAL"/>
   </Match>

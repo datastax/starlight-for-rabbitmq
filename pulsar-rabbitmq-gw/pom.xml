@@ -151,7 +151,7 @@
               </descriptorRefs>
               <archive>
                 <manifest>
-                  <mainClass>com.datastax.oss.pulsar.rabbitmqgw.GatewayServiceStarter</mainClass>
+                  <mainClass>com.datastax.oss.starlight.rabbitmq.GatewayServiceStarter</mainClass>
                 </manifest>
               </archive>
             </configuration>
