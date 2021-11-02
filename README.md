@@ -57,7 +57,7 @@ You can find the nar file in the following directory.
    ```
 2. Run as a Java application and provide the configuration file path in the `-c/--config` option:
    ```bash
-   java -jar ./starlight-rabbitmq/target/starlight-rabbitmq-${version}-jar-with-dependencies.jar -c conf/gateway.conf
+   java -jar ./starlight-rabbitmq/target/starlight-rabbitmq-${version}-jar-with-dependencies.jar -c conf/starlight-rabbitmq.conf
    ```
 
 #### Running Starlight for RabbitMQ as a protocol handler
@@ -143,10 +143,10 @@ finally:
 |amqpConnectionCloseTimeout|Timeout in ms after which the AMQP connection closes even if a ConnectionCloseOk frame is not received|2000
 |amqpBatchingEnabled|Whether batching messages is enabled in AMQP|true
 
-### Gateway authentication configuration
+### Authentication configuration
 |Name|Description|Default|
 |---|---|---|
-|authenticationEnabled| Whether authentication is enabled for the gateway  |false|
+|authenticationEnabled| Whether authentication is enabled for the proxy  |false|
 |amqpAuthenticationMechanisms|Authentication mechanism name list for AMQP (a comma-separated list of mecanisms. Eg: PLAIN,EXTERNAL)|PLAIN
 |tokenSecretKey| Configure the secret key to be used to validate auth tokens. The key can be specified like: `tokenSecretKey=data:;base64,xxxxxxxxx` or `tokenSecretKey=file:///my/secret.key`.  Note: key file must be DER-encoded.||
 |tokenPublicKey| Configure the public key to be used to validate auth tokens. The key can be specified like: `tokenPublicKey=data:;base64,xxxxxxxxx` or `tokenPublicKey=file:///my/secret.key`. Note: key file must be DER-encoded.||
@@ -164,12 +164,12 @@ finally:
 |amqpBrokerClientAuthenticationParameters|If set, the RabbitMQ service will use these parameters to authenticate on Pulsar's brokers. If not set, the brokerClientAuthenticationParameters setting will be used. This setting allows to have different credentials for the Pulsar proxy and for the RabbitMQ service|
 |tlsEnabledWithBroker|  Whether TLS is enabled when communicating with Pulsar brokers. |false|
 |brokerClientTrustCertsFilePath|  The path to trusted certificates used by the Pulsar proxy to authenticate with Pulsar brokers ||
-|brokerClientTlsEnabledWithKeyStore| Whether the gateway use KeyStore type to authenticate with Pulsar brokers ||
-|brokerClientTlsTrustStoreType| TLS TrustStore type configuration for gateway: JKS, PKCS12  used by the gateway to authenticate with Pulsar brokers ||
+|brokerClientTlsEnabledWithKeyStore| Whether the proxy use KeyStore type to authenticate with Pulsar brokers ||
+|brokerClientTlsTrustStoreType| TLS TrustStore type configuration for proxy: JKS, PKCS12  used by the proxy to authenticate with Pulsar brokers ||
 |brokerClientTlsTrustStore| TLS TrustStore path for proxy,  used by the Pulsar proxy to authenticate with Pulsar brokers ||
 |brokerClientTlsTrustStorePassword| TLS TrustStore password for proxy,  used by the Pulsar proxy to authenticate with Pulsar brokers ||
 
-### Gateway TLS configuration
+### TLS configuration
 |Name|Description|Default|
 |---|---|---|
 |tlsCertRefreshCheckDurationSec| TLS certificate refresh duration in seconds. If the value is set 0, check TLS certificate every new connection. | 300 |
@@ -182,13 +182,13 @@ finally:
 |tlsProtocols|Specify the tls protocols the broker will use to negotiate during TLS Handshake. Multiple values can be specified, separated by commas. Example:- ```TLSv1.3```, ```TLSv1.2``` ||
 |tlsCiphers|Specify the tls cipher the broker will use to negotiate during TLS Handshake. Multiple values can be specified, separated by commas. Example:- ```TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256```||
 |tlsRequireTrustedClientCertOnConnect| Whether client certificates are required for TLS. Connections are rejected if the client certificate isn't trusted ||
-|tlsEnabledWithKeyStore| Enable TLS with KeyStore type configuration for gateway ||
+|tlsEnabledWithKeyStore| Enable TLS with KeyStore type configuration for proxy ||
 |tlsProvider| TLS Provider ||
-|tlsKeyStoreType| TLS KeyStore type configuration for gateway: JKS, PKCS12 ||
-|tlsKeyStore| TLS KeyStore path for gateway ||
-|tlsKeyStorePassword| TLS KeyStore password for gateway ||
+|tlsKeyStoreType| TLS KeyStore type configuration for proxy: JKS, PKCS12 ||
+|tlsKeyStore| TLS KeyStore path for proxy ||
+|tlsKeyStorePassword| TLS KeyStore password for proxy ||
 |tlsTrustStoreType| TLS TrustStore type configuration for proxy: JKS, PKCS12 ||
-|tlsTrustStore| TLS TrustStore path for gateway ||
+|tlsTrustStore| TLS TrustStore path for proxy ||
 |tlsTrustStorePassword| TLS TrustStore password for proxy ||
 
 ## Under the hood
@@ -213,7 +213,7 @@ When all messages from the binding have been acknowledged, then the correspondin
 
 ### Consistent metadata store
 
-The Pulsar RabbitMQ gateway uses Apache Zookeeper to store the AMQP entities metadata consistently.
+Starlight for RabbitMQ uses Apache Zookeeper to store the AMQP entities metadata consistently.
 The existing ZooKeeper configuration store can be reused for this, and Starlight for RabbitMQ will employ the /starlight-rabbitmq prefix to write its entries into ZooKeeper.
 
 ### Security and authentication

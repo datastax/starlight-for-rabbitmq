@@ -65,7 +65,7 @@ import org.apache.pulsar.common.util.netty.EventLoopUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/** Pulsar RabbitMQ gateway service */
+/** Starlight for RabbitMQ service */
 public class GatewayService implements Closeable {
 
   private final GatewayConfiguration config;
@@ -161,9 +161,9 @@ public class GatewayService implements Closeable {
         try {
           Channel listenChannel = bootstrap.bind(address).sync().channel();
           listenChannels.add(listenChannel);
-          LOG.info("Started Pulsar RabbitMQ Gateway at {}", listenChannel.localAddress());
+          LOG.info("Started Starlight for RabbitMQ at {}", listenChannel.localAddress());
         } catch (Exception e) {
-          throw new IOException("Failed to bind Pulsar RabbitMQ on address " + address, e);
+          throw new IOException("Failed to bind Starlight for RabbitMQ on address " + address, e);
         }
       }
     }

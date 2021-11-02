@@ -25,7 +25,7 @@
   <modelVersion>4.0.0</modelVersion>
   <artifactId>starlight-rabbitmq</artifactId>
   <packaging>jar</packaging>
-  <name>DataStax Starlight for RabbitMQ (R) </name>
+  <name>DataStax Starlight for RabbitMQ (R)</name>
   <properties>
     <build.dir>${project.build.directory}</build.dir>
   </properties>

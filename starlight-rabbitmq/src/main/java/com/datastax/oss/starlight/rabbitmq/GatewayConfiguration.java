@@ -31,7 +31,7 @@ public class GatewayConfiguration extends ProxyConfiguration {
     category = CATEGORY_AMQP,
     required = true,
     doc =
-        "Used to specify multiple advertised listeners for the gateway."
+        "Used to specify multiple advertised listeners for the proxy."
             + " The value must format as amqp[s]://<host>:<port>,"
             + "multiple listeners should be separated with commas."
   )
