@@ -1,8 +1,8 @@
-# Pulsar RabbitMQ gateway
+# Starlight for RabbitMQ
 
-The Pulsar RabbitMQ gateway acts as a bridge between your RabbitMQ application and Apache Pulsar.
+Starlight for RabbitMQ acts as a proxy between your RabbitMQ application and Apache Pulsar.
 It implements the AMQP 0.9.1 protocol used by RabbitMQ clients and translates AMQP frames and concepts to Pulsar ones.
-The gateway can be run as a standalone jar, a Pulsar 
+The proxy can be run as a standalone jar, a Pulsar
 [Pluggable Protocol Handler](https://github.com/apache/pulsar/wiki/PIP-41%3A-Pluggable-Protocol-Handler) 
  or a Pulsar [Proxy extension](https://github.com/apache/pulsar/wiki/PIP-99%3A-Pulsar-Proxy-Extensions).
 
@@ -15,14 +15,15 @@ This is currently not implemented but on the roadmap:
 * Transient messages (all messages are persisted)
 * Authorization support
 
-RabbitMQ and Pulsar work in a pretty different way. The Pulsar RabbitMQ gateway was designed to make the most benefit 
-from Pulsar's scalability. This results in some differences of behavior:
+RabbitMQ and Pulsar work in a pretty different way.
+Starlight for RabbitMQ was designed to make the most benefit from Pulsar's scalability.
+This results in some differences of behavior:
 * Canceling an AMQP consumer will requeue the messages that were received through it since it also closes
 the associated Pulsar consumers.
 
 ## Get started
 
-### Download and Build the Pulsar RabbitMQ gateway
+### Download and build Starlight for RabbitMQ
 
 To build from code, complete the following steps:
 1. Clone the project from GitHub.
@@ -46,7 +47,7 @@ You can find the nar file in the following directory.
 ./pulsar-rabbitmq-gw/target/pulsar-rabbitmq-gw-${version}.nar
 ```
 
-### Running Pulsar RabbitMQ as a standalone executable jar
+### Running Starlight for RabbitMQ as a standalone executable jar
 
 1. Set the URLs of the Pulsar brokers and the ZooKeeper configuration store in a configuration file. Eg:
    ```properties
@@ -59,11 +60,11 @@ You can find the nar file in the following directory.
    java -jar ./pulsar-rabbitmq-gw/target/pulsar-rabbitmq-gw-${version}-jar-with-dependencies.jar -c conf/gateway.conf
    ```
 
-#### Running Pulsar RabbitMQ as a protocol handler
+#### Running Starlight for RabbitMQ as a protocol handler
 
-The Pulsar RabbitMQ gateway can be embedded directly into the Pulsar brokers by loading it as a protocol handler.
+Starlight for RabbitMQ can be embedded directly into the Pulsar brokers by loading it as a protocol handler.
 
-1. Set the configuration of the Pulsar RabbitMQ gateway protocol handler in the broker configuration file (generally `broker.conf` or `standalone.conf`).
+1. Set the configuration of the Starlight for RabbitMQ protocol handler in the broker configuration file (generally `broker.conf` or `standalone.conf`).
    Example where the NAR file was copied into the `./protocols` directory:
     ```properties
    messagingProtocols=rabbitmq
@@ -79,11 +80,11 @@ The Pulsar RabbitMQ gateway can be embedded directly into the Pulsar brokers by 
 
 3. Start the Pulsar broker
 
-### Running Pulsar RabbitMQ as a proxy extension
+### Running Starlight for RabbitMQ as a Pulsar Proxy extension
 
-The Pulsar RabbitMQ gateway can be embedded into the Pulsar proxy by loading it as a proxy extension.
+Starlight for RabbitMQ can be embedded into the Pulsar Proxy by loading it as a proxy extension.
 
-1. Set the configuration of the Pulsar RabbitMQ gateway protocol handler in the broker configuration file (generally `broker.conf` or `standalone.conf`).
+1. Set the configuration of the Starlight for RabbitMQ protocol handler in the broker configuration file (generally `broker.conf` or `standalone.conf`).
    Example where the NAR file was copied into the `./protocols` directory:
     ```properties
    proxyExtensions=rabbitmq
@@ -97,14 +98,14 @@ The Pulsar RabbitMQ gateway can be embedded into the Pulsar proxy by loading it 
    advertisedAddress=127.0.0.1
    ```
 
-3. Start the Pulsar proxy
+3. Start the Pulsar Proxy
 
 ### Checking that it works
 
 You can use a RabbitMQ/AMQP-0.9.1 client or a tool such as [RabbitMQ PerfTest](https://rabbitmq.github.io/rabbitmq-perf-test/stable/htmlsingle/)
 to check that everything works correctly.
 
-For instance the following Python script creates a queue, publishes a message, reads the message and deletes the queue
+For instance the following Python script creates a queue, publishes a message that will be routed to this queue, reads the message from the queue and deletes the queue
 ```python
 #!/usr/bin/env python
 import pika
@@ -132,7 +133,7 @@ finally:
 |Name|Description|Default|
 |---|---|---|
 |configurationStoreServers|Zookeeper configuration store connection string (as a comma-separated list)|
-|amqpListeners|Used to specify multiple advertised listeners for the gateway. The value must format as `amqp[s]://<host>:<port>`, multiple listeners should be separated with commas.|amqp://127.0.0.1:5672
+|amqpListeners|Used to specify multiple advertised listeners for the proxy. The value must format as `amqp[s]://<host>:<port>`, multiple listeners should be separated with commas.|amqp://127.0.0.1:5672
 |amqpSessionCountLimit|The maximum number of sessions which can exist concurrently on an AMQP connection.|256
 |amqpHeartbeatDelay|The default period with which Broker and client will exchange heartbeat messages (in seconds) when using AMQP. Clients may negotiate a different heartbeat frequency or disable it altogether.|0
 |amqpHeartbeatTimeoutFactor|Factor to determine the maximum length of that may elapse between heartbeats being received from the peer before an AMQP0.9 connection is deemed to have been broken.|2
@@ -192,16 +193,16 @@ finally:
 
 ## Under the hood
 
-AMQP 0.9.1 (the protocol RabbitMQ uses) employs the concepts of `Exchanges`, `Queues` and `Bindings` to provide basic routing capabilities inside the message broker.
+AMQP 0.9.1 (the protocol used by RabbitMQ) employs the concepts of `Exchanges`, `Queues` and `Bindings` to provide basic routing capabilities inside the message broker.
 These concepts are mapped to Pulsar topics and features.
-One important architectural decision is that the Pulsar RabbitMQ gateway doesn’t interact directly with the managed ledger as in other RabbitMQ integrations for Pulsar.
+One important architectural decision is that Starlight for RabbitMQ doesn’t interact directly with the managed ledger as in other RabbitMQ integrations for Pulsar.
 Interacting with the ledger has the advantage of being performant, but the disadvantage is that the broker which interacts with the ledger must have ownership of the topic.
 Since in AMQP 0.9.1 there is a many-to-many relationship between `Exchanges` and `Queues` for a given `Virtual host`, all `Exchanges` and `Queues` and related topics would have to be owned by the same broker.
 There are techniques to do this using Topic bundles, but the result is that a full AMQP `Virtual host` `can be handled by only one broker at a time. This is an issue for scalability.
-So instead, the Pulsar RabbitMQ gateway acts as a proxy and uses the Pulsar binary protocol to communicate with the brokers.
-This way it can leverage Pulsar features like load balancing of the topics on the brokers, batching of messages, partitioning of topics, and load balancing of the data on the consumers.
+So instead, Starlight for RabbitMQ acts as a proxy and uses the Pulsar binary protocol to communicate with the brokers.
+This way it can leverage Pulsar features such as load balancing of the topics on the brokers, batching of messages, partitioning of topics, and load balancing of the data on the consumers.
 
-On the publish side, an AMQP exchange is mapped to a topic. Depending on the type of exchange, the publish routing key may also be included in the topic name.
+On the publishing side, an AMQP exchange is mapped to a topic. Depending on the type of exchange, the publishing routing key may also be included in the topic name.
 
 On the consumer side, Pulsar shared subscriptions are used to represent the AMQP `Bindings` from an `Exchange` to a `Queue`.
 When creating an AMQP Queue consumer, the proxy creates Pulsar consumers for all the `Bindings` of the `Queue`.
@@ -213,16 +214,16 @@ When all messages from the binding have been acknowledged, then the correspondin
 ### Consistent metadata store
 
 The Pulsar RabbitMQ gateway uses Apache Zookeeper to store the AMQP entities metadata consistently.
-The existing ZooKeeper configuration store can be reused for this, and The Pulsar RabbitMQ gateway will employ the /pulsar-rabbitmq-gw prefix to write its entries in ZooKeeper.
+The existing ZooKeeper configuration store can be reused for this, and Starlight for RabbitMQ will employ the /pulsar-rabbitmq-gw prefix to write its entries into ZooKeeper.
 
 ### Security and authentication
 
-The Pulsar RabbitMQ gateway supports connections using TLS/mTLS to ensure privacy and security of the communication.
+Starlight for RabbitMQ supports connections using TLS/mTLS to ensure privacy and security of the communication.
 It also supports the PLAIN and EXTERNAL mechanisms used by RabbitMQ.
-Internally, it uses the same AuthenticationService as Apache Pulsar and map these mechanisms to existing Pulsar authentication modes.
+Internally, it uses the same `AuthenticationService` as Apache Pulsar and maps the AMQP mechanisms to existing Pulsar authentication modes.
 At the moment there is no support for authorization so an authenticated user has full access to all `Virtual hosts`.
-The Pulsar RabbitMQ gateway can connect to brokers that have TLS and/or authentication, and/or authorization enabled.
-To perform its operations, the Pulsar RabbitMQ gateway proxy currently needs to use an “admin role”.
+Starlight for RabbitMQ can connect to brokers that have TLS and/or authentication, and/or authorization enabled.
+To perform its operations, Starlight for RabbitMQ currently needs to use an “admin role”.
 Future versions will relay the principal authenticated to the proxy and use a “proxy role” so operations on the broker will have permissions from the originating application.
 
 #### PLAIN authentication mechanism
@@ -236,15 +237,15 @@ This is the equivalent of the [rabbitmq-auth-mechanism-ssl plugin](https://githu
 
 ### Clustering
 
-Multiple gateways can be launched at the same time for scalability and high availability needs.
-The gateways are stateless and can be started and stopped at will.
-They share their configuration in Zookeeper so you can create/delete/bind/unbind exchanges and queues on any gateway, and the configuration will be synchronized on the other gateways.
-Publishing messages can be done on any gateway.
+Multiple Starlight for RabbitMQ proxies can be launched at the same time for scalability and high availability needs.
+The proxies are stateless and can be started and stopped at will.
+They share their configuration in Zookeeper so you can create/delete/bind/unbind exchanges and queues on any proxy, and the configuration will be synchronized on the other proxies.
+Publishing messages can be done on any proxy.
 On the receiving side, messages will be dispatched evenly to all connected AMQP consumers since the Pulsar subscriptions are shared ones.
 
 ### Multi-tenancy
 
-Pulsar RabbitMQ offers support for multi-tenancy by mapping an AMQP `Virtual host` to a Pulsar `tenant` and `namespace`.
+Starlight for RabbitMQ offers support for multi-tenancy by mapping an AMQP `Virtual host` to a Pulsar `tenant` and `namespace`.
 The mapping is done as follows:
 * AMQP vhost `/` is mapped to Pulsar namespace `public/default`
 * AMQP vhost `/<tenant>` or `<tenant>` is mapped to Pulsar namespace `public/<tenant>`
