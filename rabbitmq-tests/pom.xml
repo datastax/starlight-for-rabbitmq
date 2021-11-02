@@ -18,21 +18,21 @@
 -->
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
   <parent>
-    <artifactId>pulsar-rabbitmq-gw-parent</artifactId>
+    <artifactId>starlight-rabbitmq-parent</artifactId>
     <groupId>com.datastax.oss</groupId>
     <version>1.0.0-SNAPSHOT</version>
   </parent>
   <modelVersion>4.0.0</modelVersion>
   <artifactId>rabbitmq-tests</artifactId>
   <packaging>jar</packaging>
-  <name>Pulsar RabbitMQ integration tests with RabbitMQ client</name>
+  <name>Starlight for RabbitMQ integration tests with RabbitMQ client</name>
   <properties>
     <build.dir>${project.build.directory}</build.dir>
   </properties>
   <dependencies>
     <dependency>
       <groupId>com.datastax.oss</groupId>
-      <artifactId>pulsar-rabbitmq-gw</artifactId>
+      <artifactId>starlight-rabbitmq</artifactId>
       <version>${project.version}</version>
       <scope>test</scope>
     </dependency>

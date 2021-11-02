@@ -40,11 +40,11 @@ mvn clean install -DskipTests
 
 You can find the executable jar file in the following directory.
 ```bash
-./pulsar-rabbitmq-gw/target/pulsar-rabbitmq-gw-${version}-jar-with-dependencies.jar
+./starlight-rabbitmq/target/starlight-rabbitmq-${version}-jar-with-dependencies.jar
 ```
 You can find the nar file in the following directory.
 ```bash
-./pulsar-rabbitmq-gw/target/pulsar-rabbitmq-gw-${version}.nar
+./starlight-rabbitmq/target/starlight-rabbitmq-${version}.nar
 ```
 
 ### Running Starlight for RabbitMQ as a standalone executable jar
@@ -57,7 +57,7 @@ You can find the nar file in the following directory.
    ```
 2. Run as a Java application and provide the configuration file path in the `-c/--config` option:
    ```bash
-   java -jar ./pulsar-rabbitmq-gw/target/pulsar-rabbitmq-gw-${version}-jar-with-dependencies.jar -c conf/gateway.conf
+   java -jar ./starlight-rabbitmq/target/starlight-rabbitmq-${version}-jar-with-dependencies.jar -c conf/gateway.conf
    ```
 
 #### Running Starlight for RabbitMQ as a protocol handler
@@ -214,7 +214,7 @@ When all messages from the binding have been acknowledged, then the correspondin
 ### Consistent metadata store
 
 The Pulsar RabbitMQ gateway uses Apache Zookeeper to store the AMQP entities metadata consistently.
-The existing ZooKeeper configuration store can be reused for this, and Starlight for RabbitMQ will employ the /pulsar-rabbitmq-gw prefix to write its entries into ZooKeeper.
+The existing ZooKeeper configuration store can be reused for this, and Starlight for RabbitMQ will employ the /starlight-rabbitmq prefix to write its entries into ZooKeeper.
 
 ### Security and authentication
 

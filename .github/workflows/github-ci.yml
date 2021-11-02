@@ -34,8 +34,8 @@ jobs:
       - name: Spotbugs check
         run: mvn -B spotbugs:check
 
-      - name: pulsar-rabbitmq-gw tests
-        run: mvn -B test -DfailIfNoTests=false -pl pulsar-rabbitmq-gw
+      - name: Unit tests
+        run: mvn -B test -DfailIfNoTests=false -pl starlight-rabbitmq
 
       - name: RabbitMQ Java client tests
         run: mvn -B integration-test -DfailIfNoTests=false -Dcurator-log-only-first-connection-issue-as-error-level=true -pl rabbitmq-tests

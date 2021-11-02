@@ -19,11 +19,11 @@
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
   <modelVersion>4.0.0</modelVersion>
   <groupId>com.datastax.oss</groupId>
-  <artifactId>pulsar-rabbitmq-gw-parent</artifactId>
+  <artifactId>starlight-rabbitmq-parent</artifactId>
   <packaging>pom</packaging>
   <version>1.0.0-SNAPSHOT</version>
-  <name>DataStax RabbitMQ (R) gateway for Apache Pulsar (R)</name>
-  <description>Gateway to seamlessly connect RabbitMQ clients to Apache Pulsar</description>
+  <name>DataStax Starlight for RabbitMQ (R) parent</name>
+  <description>Proxy to seamlessly connect RabbitMQ clients to Apache Pulsar</description>
   <url>https://github.com/datastax/pulsar-rabbitmq-gw</url>
   <inceptionYear>2021</inceptionYear>
   <organization>
@@ -31,7 +31,7 @@
     <url>http://www.datastax.com</url>
   </organization>
   <modules>
-    <module>pulsar-rabbitmq-gw</module>
+    <module>starlight-rabbitmq</module>
     <module>rabbitmq-tests</module>
     <module>nar-tests</module>
   </modules>

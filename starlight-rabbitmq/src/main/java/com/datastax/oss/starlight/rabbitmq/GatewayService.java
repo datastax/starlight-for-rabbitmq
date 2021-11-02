@@ -277,7 +277,7 @@ public class GatewayService implements Closeable {
             .sessionTimeoutMs(5000)
             .connectionTimeoutMs(5000)
             .retryPolicy(retryPolicy)
-            .namespace("pulsar-rabbitmq-gw")
+            .namespace("starlight-rabbitmq")
             .build();
     client.start();
     return client;
