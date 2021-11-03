@@ -17,7 +17,7 @@ jobs:
           java-version: '11'
           distribution: 'adopt'
       - name: Build with Maven
-        run: mvn -B package -DskipTests
+        run: mvn -B package -DskipTests -Dassembly.skipAssembly=true
       - uses: ncipollo/release-action@v1
         with:
           artifacts: "starlight-rabbitmq/**/*.nar"
