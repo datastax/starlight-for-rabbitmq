@@ -117,34 +117,41 @@ public class BrokerTestCase {
 
   private static PulsarCluster cluster;
   protected static GatewayService gatewayService;
-  protected static int port;
+  protected static int port = Integer.parseInt(System.getProperty("externalPulsar.port", "5672"));
+  protected static String host = System.getProperty("externalPulsar.host", "pulsar");
+  private static boolean EXTERNAL_PULSAR = Boolean.parseBoolean(System.getProperty("externalPulsar.enabled", "true"));
 
   @ClassRule public static TemporaryFolder tempDir = new TemporaryFolder();
 
   @BeforeClass
   public static void before() throws Exception {
-    cluster = new PulsarCluster(tempDir.getRoot().toPath());
-    cluster.start();
-    GatewayConfiguration config = new GatewayConfiguration();
-    config.setBrokerServiceURL(cluster.getAddress());
-    config.setBrokerWebServiceURL(cluster.getAddress());
-    port = PortManager.nextFreePort();
-    config.setAmqpListeners(Collections.singleton("amqp://127.0.0.1:" + port));
-    config.setConfigurationStoreServers(
-        cluster.getService().getConfig().getConfigurationStoreServers());
-    // Deactivate batching since some tests rely on individual negative acknowledgement redelivery
-    config.setAmqpBatchingEnabled(false);
-    gatewayService = new GatewayService(config, null);
-    gatewayService.start();
+    if (!EXTERNAL_PULSAR) {
+      cluster = new PulsarCluster(tempDir.getRoot().toPath());
+      cluster.start();
+      GatewayConfiguration config = new GatewayConfiguration();
+      config.setBrokerServiceURL(cluster.getAddress());
+      config.setBrokerWebServiceURL(cluster.getAddress());
+      port = PortManager.nextFreePort();
+      host = "127.0.0.1";
+      config.setAmqpListeners(Collections.singleton("amqp://127.0.0.1:" + port));
+      config.setConfigurationStoreServers(
+          cluster.getService().getConfig().getConfigurationStoreServers());
+      // Deactivate batching since some tests rely on individual negative acknowledgement redelivery
+      config.setAmqpBatchingEnabled(false);
+      gatewayService = new GatewayService(config, null);
+      gatewayService.start();
+    }
   }
 
   @AfterClass
   public static void after() throws Exception {
-    if (cluster != null) {
-      cluster.close();
-    }
-    if (gatewayService != null) {
-      gatewayService.close();
+    if (!EXTERNAL_PULSAR) {
+      if (cluster != null) {
+        cluster.close();
+      }
+      if (gatewayService != null) {
+        gatewayService.close();
+      }
     }
   }
 
