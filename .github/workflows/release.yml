@@ -20,5 +20,5 @@ jobs:
         run: mvn -B package -DskipTests -Dassembly.skipAssembly=true
       - uses: ncipollo/release-action@v1
         with:
-          artifacts: "starlight-rabbitmq/**/*.nar"
+          artifacts: "starlight-rabbitmq/**/*.nar,starlight-rabbitmq/**/*-jar-with-dependencies.jar"
           token: ${{ secrets.GITHUB_TOKEN }}
