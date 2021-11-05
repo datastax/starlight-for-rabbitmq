@@ -34,7 +34,10 @@ import java.net.SocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import javax.naming.AuthenticationException;
@@ -46,6 +49,7 @@ import org.apache.pulsar.broker.authentication.AuthenticationDataCommand;
 import org.apache.pulsar.broker.authentication.AuthenticationProvider;
 import org.apache.pulsar.broker.authentication.AuthenticationService;
 import org.apache.pulsar.common.naming.NamespaceName;
+import org.apache.pulsar.common.policies.data.AuthAction;
 import org.apache.qpid.server.QpidException;
 import org.apache.qpid.server.bytebuffer.QpidByteBuffer;
 import org.apache.qpid.server.exchange.ExchangeDefaults;
@@ -98,6 +102,9 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
   private ChannelHandlerContext ctx;
   private SocketAddress remoteAddress;
   private String namespace;
+  private String role;
+  private boolean isTenantAdmin = false;
+  private Set<AuthAction> authActions = new ConcurrentSkipListSet<>();
 
   // Variables copied from Qpid's AMQPConnection_0_8Impl
   private ServerDecoder _decoder;
@@ -258,7 +265,7 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
     }
 
     if (gatewayService.getConfig().isAuthenticationEnabled()) {
-      String principal = null;
+      role = null;
       AuthenticationService authenticationService = gatewayService.getAuthenticationService();
       try {
         if ("PLAIN".equals(mechanism.toString())) {
@@ -269,10 +276,10 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
               String token = new String(response, 2, response.length - 2, StandardCharsets.UTF_8);
               AuthenticationDataCommand authData =
                   new AuthenticationDataCommand(token, remoteAddress, null);
-              principal = authenticationService.authenticate(authData, "token");
+              role = authenticationService.authenticate(authData, "token");
             }
           }
-          if (principal == null) {
+          if (role == null) {
             throw new AuthenticationException(
                 "SASL PLAIN is only supported with JWT as password at the moment");
           }
@@ -285,7 +292,7 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
           }
           AuthenticationDataCommand authData =
               new AuthenticationDataCommand(null, remoteAddress, sslSession);
-          authenticationService.authenticate(authData, "tls");
+          role = authenticationService.authenticate(authData, "tls");
         } else {
           throw new AuthenticationException("Unsupported authentication mechanism");
         }
@@ -448,15 +455,50 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
     }
 
     try {
-      this.namespace =
+      NamespaceName namespaceName =
           NamespaceName.get(
-                  tenant, StringUtils.isEmpty(virtualHostStr) ? "default" : virtualHostStr)
-              .toString();
+              tenant, StringUtils.isEmpty(virtualHostStr) ? "default" : virtualHostStr);
+      this.namespace = namespaceName.toString();
+
+      if (getGatewayService().getConfig().isAuthorizationEnabled()) {
+        CompletableFuture<Boolean> isTenantAdmin =
+            getGatewayService()
+                .getPulsarAdmin()
+                .tenants()
+                .getTenantInfoAsync(namespaceName.getTenant())
+                .thenApply(tenantInfo -> tenantInfo.getAdminRoles().contains(role));
+
+        CompletableFuture<Map<String, Set<AuthAction>>> namespacePermissions =
+            getGatewayService().getPulsarAdmin().namespaces().getPermissionsAsync(namespace);
+
+        namespacePermissions
+            .thenAcceptBoth(
+                isTenantAdmin,
+                (__, isAdmin) -> {
+                  if (!isAdmin) {
+                    sendConnectionClose(ErrorCodes.ACCESS_REFUSED, "Authorization failed", 0);
+                  } else {
+                    connectionOpen(virtualHostName);
+                  }
+                })
+            .exceptionally(
+                t -> {
+                  LOGGER.warn("Failed to get tenant or namespace", t);
+                  sendConnectionClose(ErrorCodes.ACCESS_REFUSED, "Authorization failed", 0);
+                  return null;
+                });
+      } else {
+        connectionOpen(virtualHostName);
+      }
+
+      // For now, just checking that the namespace exists
     } catch (IllegalArgumentException e) {
       LOGGER.warn("Invalid virtual host :" + virtualHostName, e);
       sendConnectionClose(ErrorCodes.INVALID_PATH, e.getMessage(), 0);
-      return;
     }
+  }
+
+  private void connectionOpen(AMQShortString virtualHostName) {
     Versioned<ContextMetadata> versionedContext = getGatewayService().getContextMetadata();
     if (!versionedContext.model().getVhosts().containsKey(namespace)) {
       Versioned<ContextMetadata> newContext =
@@ -507,7 +549,6 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
                 return null;
               });
     } else {
-      // TODO: check and create the Pulsar namespace with the admin client if not exists ?
       MethodRegistry methodRegistry = getMethodRegistry();
       AMQMethodBody responseBody = methodRegistry.createConnectionOpenOkBody(virtualHostName);
       writeFrame(responseBody.generateFrame(0));
