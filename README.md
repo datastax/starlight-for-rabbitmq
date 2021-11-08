@@ -84,14 +84,14 @@ Starlight for RabbitMQ can be embedded directly into the Pulsar brokers by loadi
 
 Starlight for RabbitMQ can be embedded into the Pulsar Proxy by loading it as a proxy extension.
 
-1. Set the configuration of the Starlight for RabbitMQ protocol handler in the broker configuration file (generally `broker.conf` or `standalone.conf`).
-   Example where the NAR file was copied into the `./protocols` directory:
+1. Set the configuration of the Starlight for RabbitMQ proxy extension in the proxy configuration file (generally `proxy.conf` or `standalone.conf`).
+   Example where the NAR file was copied into the `./proxyextensions` directory:
     ```properties
    proxyExtensions=rabbitmq
-   proxyExtensionsDirectory=./protocols
+   proxyExtensionsDirectory=./proxyextensions
     ```
 
-2. Set the AMQP service listeners. Note that the hostname value in listeners is the same as Pulsar broker's `advertisedAddress`.
+2. Set the AMQP service listeners. Note that the hostname value in listeners is the same as Pulsar proxy's `advertisedAddress`.
    The following is an example.
    ```properties
    amqpListeners=amqp://127.0.0.1:5672
