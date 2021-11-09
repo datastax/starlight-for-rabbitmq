@@ -17,11 +17,14 @@ package com.datastax.oss.starlight.rabbitmqtests.javaclient.functional;
 
 import static org.junit.Assert.*;
 
+import com.datastax.oss.starlight.rabbitmqtests.SystemTest;
 import com.datastax.oss.starlight.rabbitmqtests.javaclient.BrokerTestCase;
 import com.rabbitmq.client.ConnectionFactory;
 import com.rabbitmq.client.impl.recovery.AutorecoveringConnection;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
+@Category(SystemTest.class)
 public class Heartbeat extends BrokerTestCase {
 
   @Override

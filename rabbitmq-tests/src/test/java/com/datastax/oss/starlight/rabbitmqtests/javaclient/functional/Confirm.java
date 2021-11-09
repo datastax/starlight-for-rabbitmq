@@ -17,6 +17,7 @@ package com.datastax.oss.starlight.rabbitmqtests.javaclient.functional;
 
 import static org.junit.Assert.*;
 
+import com.datastax.oss.starlight.rabbitmqtests.SystemTest;
 import com.datastax.oss.starlight.rabbitmqtests.javaclient.BrokerTestCase;
 import com.datastax.oss.starlight.rabbitmqtests.javaclient.TestUtils;
 import com.rabbitmq.client.AMQP;
@@ -34,7 +35,9 @@ import java.util.TreeSet;
 import java.util.concurrent.TimeoutException;
 import org.junit.Ignore;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
+@Category(SystemTest.class)
 public class Confirm extends BrokerTestCase {
   private static final int NUM_MESSAGES = 50;
 

@@ -17,13 +17,16 @@ package com.datastax.oss.starlight.rabbitmqtests.javaclient.functional;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.datastax.oss.starlight.rabbitmqtests.SystemTest;
 import com.datastax.oss.starlight.rabbitmqtests.javaclient.BrokerTestCase;
 import java.io.IOException;
 import java.time.Duration;
 import org.awaitility.Awaitility;
 import org.junit.Ignore;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
+@Category(SystemTest.class)
 public class Nowait extends BrokerTestCase {
 
   @Test

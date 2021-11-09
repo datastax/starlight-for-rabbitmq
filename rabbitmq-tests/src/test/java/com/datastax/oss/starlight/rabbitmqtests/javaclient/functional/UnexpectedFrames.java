@@ -15,6 +15,7 @@
 
 package com.datastax.oss.starlight.rabbitmqtests.javaclient.functional;
 
+import com.datastax.oss.starlight.rabbitmqtests.SystemTest;
 import com.datastax.oss.starlight.rabbitmqtests.javaclient.BrokerTestCase;
 import com.datastax.oss.starlight.rabbitmqtests.javaclient.TestUtils;
 import com.rabbitmq.client.AMQP;
@@ -26,8 +27,10 @@ import java.io.IOException;
 import java.net.Socket;
 import javax.net.SocketFactory;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
 /** Test that the server correctly handles us when we send it bad frames */
+@Category(SystemTest.class)
 public class UnexpectedFrames extends BrokerTestCase {
 
   private interface Confuser {

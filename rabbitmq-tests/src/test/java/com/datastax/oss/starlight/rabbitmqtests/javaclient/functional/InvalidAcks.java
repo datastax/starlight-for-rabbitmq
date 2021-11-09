@@ -15,8 +15,12 @@
 
 package com.datastax.oss.starlight.rabbitmqtests.javaclient.functional;
 
+import com.datastax.oss.starlight.rabbitmqtests.SystemTest;
+import org.junit.experimental.categories.Category;
+
 import java.io.IOException;
 
+@Category(SystemTest.class)
 public class InvalidAcks extends InvalidAcksBase {
   protected void select() throws IOException {}
 

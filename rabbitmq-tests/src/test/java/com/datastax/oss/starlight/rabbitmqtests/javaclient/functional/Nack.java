@@ -18,6 +18,7 @@ package com.datastax.oss.starlight.rabbitmqtests.javaclient.functional;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
+import com.datastax.oss.starlight.rabbitmqtests.SystemTest;
 import com.datastax.oss.starlight.rabbitmqtests.javaclient.QueueingConsumer;
 import com.datastax.oss.starlight.rabbitmqtests.javaclient.TestUtils;
 import com.datastax.oss.starlight.rabbitmqtests.javaclient.TestUtils.CallableFunction;
@@ -28,9 +29,11 @@ import java.util.HashSet;
 import java.util.Set;
 import java.util.UUID;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
 
+@Category(SystemTest.class)
 @RunWith(Parameterized.class)
 public class Nack extends AbstractRejectTest {
 

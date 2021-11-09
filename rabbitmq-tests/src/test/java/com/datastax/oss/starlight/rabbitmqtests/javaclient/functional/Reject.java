@@ -17,6 +17,7 @@ package com.datastax.oss.starlight.rabbitmqtests.javaclient.functional;
 
 import static org.junit.Assert.assertNull;
 
+import com.datastax.oss.starlight.rabbitmqtests.SystemTest;
 import com.datastax.oss.starlight.rabbitmqtests.javaclient.QueueingConsumer;
 import com.datastax.oss.starlight.rabbitmqtests.javaclient.TestUtils;
 import com.datastax.oss.starlight.rabbitmqtests.javaclient.TestUtils.CallableFunction;
@@ -25,9 +26,11 @@ import com.rabbitmq.client.Channel;
 import java.util.Collections;
 import java.util.UUID;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
 
+@Category(SystemTest.class)
 @RunWith(Parameterized.class)
 public class Reject extends AbstractRejectTest {
 

@@ -117,16 +117,16 @@ public class BrokerTestCase {
 
   private static PulsarCluster cluster;
   protected static GatewayService gatewayService;
-  protected static int port = Integer.parseInt(System.getProperty("externalPulsar.port", "5672"));
-  protected static String host = System.getProperty("externalPulsar.host", "pulsar");
-  private static boolean EXTERNAL_PULSAR =
-      Boolean.parseBoolean(System.getProperty("externalPulsar.enabled", "true"));
+  protected static int port = Integer.parseInt(System.getProperty("tests.systemtests.pulsar.ampqlistener.port", "5672"));
+  protected static String host = System.getProperty("tests.systemtests.pulsar.host", "localhost");
+  private static final boolean SYSTEM_TEST_MODE =
+      Boolean.parseBoolean(System.getProperty("tests.systemtests.enabled", "false"));
 
   @ClassRule public static TemporaryFolder tempDir = new TemporaryFolder();
 
   @BeforeClass
   public static void before() throws Exception {
-    if (!EXTERNAL_PULSAR) {
+    if (!SYSTEM_TEST_MODE) {
       cluster = new PulsarCluster(tempDir.getRoot().toPath());
       cluster.start();
       GatewayConfiguration config = new GatewayConfiguration();
@@ -142,13 +142,13 @@ public class BrokerTestCase {
       gatewayService = new GatewayService(config, null);
       gatewayService.start();
     } else {
-      System.out.println("Using external pulsat at pulsar://" + host + ":" + port);
+      LOGGER.info("Running system test with external pulsar. host={}, port={}", host, port);
     }
   }
 
   @AfterClass
   public static void after() throws Exception {
-    if (!EXTERNAL_PULSAR) {
+    if (!SYSTEM_TEST_MODE) {
       if (cluster != null) {
         cluster.close();
       }

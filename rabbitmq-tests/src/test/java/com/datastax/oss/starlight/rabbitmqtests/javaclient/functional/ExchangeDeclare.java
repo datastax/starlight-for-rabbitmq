@@ -17,6 +17,7 @@ package com.datastax.oss.starlight.rabbitmqtests.javaclient.functional;
 
 import static org.junit.Assert.assertEquals;
 
+import com.datastax.oss.starlight.rabbitmqtests.SystemTest;
 import com.rabbitmq.client.BuiltinExchangeType;
 import com.rabbitmq.client.Channel;
 import com.rabbitmq.client.Connection;
@@ -28,7 +29,9 @@ import java.util.Map;
 import java.util.concurrent.TimeoutException;
 import org.awaitility.Awaitility;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
+@Category(SystemTest.class)
 public class ExchangeDeclare extends ExchangeEquivalenceBase {
 
   static final String TYPE = "direct";

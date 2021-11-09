@@ -2,6 +2,7 @@ package com.datastax.oss.starlight.rabbitmqtests.javaclient.functional;
 
 import static org.junit.Assert.assertTrue;
 
+import com.datastax.oss.starlight.rabbitmqtests.SystemTest;
 import com.datastax.oss.starlight.rabbitmqtests.javaclient.BrokerTestCase;
 import com.rabbitmq.client.AMQP;
 import com.rabbitmq.client.Channel;
@@ -11,8 +12,10 @@ import java.io.IOException;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
 /** */
+@Category(SystemTest.class)
 public class BasicConsume extends BrokerTestCase {
 
   @Test

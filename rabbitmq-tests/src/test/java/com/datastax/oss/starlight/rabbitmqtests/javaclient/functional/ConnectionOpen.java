@@ -19,6 +19,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
+import com.datastax.oss.starlight.rabbitmqtests.SystemTest;
 import com.datastax.oss.starlight.rabbitmqtests.javaclient.BrokerTestCase;
 import com.datastax.oss.starlight.rabbitmqtests.javaclient.TestUtils;
 import com.rabbitmq.client.AMQP;
@@ -33,8 +34,10 @@ import java.net.Socket;
 import java.util.concurrent.TimeoutException;
 import javax.net.SocketFactory;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
 /** Check that protocol negotiation works */
+@Category(SystemTest.class)
 public class ConnectionOpen extends BrokerTestCase {
   @Test
   public void correctProtocolHeader() throws IOException {
