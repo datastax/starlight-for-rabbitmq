@@ -20,6 +20,7 @@ import static org.junit.Assume.*;
 
 import com.datastax.oss.starlight.rabbitmq.GatewayConfiguration;
 import com.datastax.oss.starlight.rabbitmq.GatewayService;
+import com.datastax.oss.starlight.rabbitmqtests.SystemTest;
 import com.datastax.oss.starlight.rabbitmqtests.utils.PulsarCluster;
 import com.rabbitmq.client.*;
 import com.rabbitmq.client.impl.nio.NioParams;
@@ -128,7 +129,7 @@ public class BrokerTestCase {
 
   @BeforeClass
   public static void before() throws Exception {
-    if (!SYSTEM_TEST_MODE) {
+    if (!SystemTest.enabled) {
       cluster = new PulsarCluster(tempDir.getRoot().toPath());
       cluster.start();
       GatewayConfiguration config = new GatewayConfiguration();
@@ -144,7 +145,9 @@ public class BrokerTestCase {
       gatewayService = new GatewayService(config, null);
       gatewayService.start();
     } else {
-      LOGGER.info("Running system test with external pulsar. host={}, port={}", host, port);
+      port = SystemTest.listenerPort;
+      host = SystemTest.host;
+      LOGGER.info("Running system test with external pulsar cluster. Connecting to host={}, port={}", host, port);
     }
   }
 
