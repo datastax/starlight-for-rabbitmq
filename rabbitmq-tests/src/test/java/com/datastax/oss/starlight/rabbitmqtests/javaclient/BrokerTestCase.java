@@ -119,7 +119,8 @@ public class BrokerTestCase {
   protected static GatewayService gatewayService;
   protected static int port = Integer.parseInt(System.getProperty("externalPulsar.port", "5672"));
   protected static String host = System.getProperty("externalPulsar.host", "pulsar");
-  private static boolean EXTERNAL_PULSAR = Boolean.parseBoolean(System.getProperty("externalPulsar.enabled", "true"));
+  private static boolean EXTERNAL_PULSAR =
+      Boolean.parseBoolean(System.getProperty("externalPulsar.enabled", "true"));
 
   @ClassRule public static TemporaryFolder tempDir = new TemporaryFolder();
 
@@ -140,6 +141,8 @@ public class BrokerTestCase {
       config.setAmqpBatchingEnabled(false);
       gatewayService = new GatewayService(config, null);
       gatewayService.start();
+    } else {
+      System.out.println("Using external pulsat at pulsar://" + host + ":" + port);
     }
   }
 
