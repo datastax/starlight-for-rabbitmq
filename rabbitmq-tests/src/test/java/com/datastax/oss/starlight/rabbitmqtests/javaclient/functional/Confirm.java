@@ -39,7 +39,7 @@ import org.junit.experimental.categories.Category;
 
 @Category(SystemTest.class)
 public class Confirm extends BrokerTestCase {
-  private static final int NUM_MESSAGES = 50;
+  private static final int NUM_MESSAGES = 1000;
 
   private static final String TTL_ARG = "x-message-ttl";
 
