@@ -42,7 +42,8 @@ public class ConnectionOpen extends BrokerTestCase {
   @Test
   public void correctProtocolHeader() throws IOException {
     SocketFrameHandler fh =
-        new SocketFrameHandler(SocketFactory.getDefault().createSocket("localhost", port));
+        new SocketFrameHandler(
+            SocketFactory.getDefault().createSocket("localhost", pulsarListenerPort));
     fh.sendHeader();
     AMQCommand command = new AMQCommand();
     while (!command.handleFrame(fh.readFrame())) {}
@@ -61,7 +62,7 @@ public class ConnectionOpen extends BrokerTestCase {
   public void crazyProtocolHeader() throws IOException {
     ConnectionFactory factory = TestUtils.connectionFactory();
     // keep the frame handler's socket
-    Socket fhSocket = SocketFactory.getDefault().createSocket("localhost", port);
+    Socket fhSocket = SocketFactory.getDefault().createSocket("localhost", pulsarListenerPort);
     SocketFrameHandler fh = new SocketFrameHandler(fhSocket);
     fh.sendHeader(100, 3); // major, minor
     DataInputStream in = fh.getInputStream();

@@ -52,7 +52,7 @@ public class FrameMax extends BrokerTestCase {
 
   public FrameMax() {
     connectionFactory = new MyConnectionFactory();
-    connectionFactory.setPort(port);
+    connectionFactory.setPort(pulsarListenerPort);
     connectionFactory.setRequestedFrameMax(FRAME_MAX);
   }
 
@@ -105,7 +105,7 @@ public class FrameMax extends BrokerTestCase {
     closeChannel();
     closeConnection();
     ConnectionFactory cf = new GenerousConnectionFactory();
-    cf.setPort(port);
+    cf.setPort(pulsarListenerPort);
     cf.setRequestedFrameMax(8192);
     connection = cf.newConnection();
     openChannel();

@@ -99,7 +99,7 @@ public class UnexpectedFrames extends BrokerTestCase {
   public UnexpectedFrames() {
     super();
     connectionFactory = new ConfusedConnectionFactory();
-    connectionFactory.setPort(port);
+    connectionFactory.setPort(pulsarListenerPort);
   }
 
   @Test

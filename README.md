@@ -252,3 +252,17 @@ The mapping is done as follows:
 * AMQP vhost `/<tenant>/<namespace>` or `<tenant>/<namespace>` is mapped to Pulsar namespace `<tenant>/<namespace>`
 
 This means that AMQP vhosts must only contain characters that are accepted in Pulsar tenant and namespace names (ie. `a-zA-Z0-9_-=:.`)
+
+# Tests
+## System tests
+
+System tests is a test suite which runs a RabbitMQ client against a real Pulsar Cluster and tests the protocol handler is working correctly.
+
+```
+mvn -f rabbitmq-tests integration-test failsafe:verify -Dgroups=com.datastax.oss.starlight.rabbitmqtests.SystemTest \
+   -Dtests.systemtests.enabled=true \
+   -Dtests.systemtests.pulsar.host=your-pulsar-broker-or-proxy-hostname \
+   -Dtests.systemtests.ampqlistener.port=5672
+```
+
+

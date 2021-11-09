@@ -78,8 +78,8 @@ public class BrokerTestCase {
       connectionFactory.setNioParams(nioParams());
     }
     connectionFactory.setAutomaticRecoveryEnabled(isAutomaticRecoveryEnabled());
-    connectionFactory.setHost(host);
-    connectionFactory.setPort(port);
+    connectionFactory.setHost(pulsarHost);
+    connectionFactory.setPort(pulsarListenerPort);
     return connectionFactory;
   }
 
@@ -119,12 +119,8 @@ public class BrokerTestCase {
 
   private static PulsarCluster cluster;
   protected static GatewayService gatewayService;
-  protected static int port =
-      Integer.parseInt(System.getProperty("tests.systemtests.pulsar.ampqlistener.port", "5672"));
-  protected static String host = System.getProperty("tests.systemtests.pulsar.host", "localhost");
-  private static final boolean SYSTEM_TEST_MODE =
-      Boolean.parseBoolean(System.getProperty("tests.systemtests.enabled", "false"));
-
+  protected static String pulsarHost;
+  protected static int pulsarListenerPort;
   @ClassRule public static TemporaryFolder tempDir = new TemporaryFolder();
 
   @BeforeClass
@@ -135,9 +131,9 @@ public class BrokerTestCase {
       GatewayConfiguration config = new GatewayConfiguration();
       config.setBrokerServiceURL(cluster.getAddress());
       config.setBrokerWebServiceURL(cluster.getAddress());
-      port = PortManager.nextFreePort();
-      host = "127.0.0.1";
-      config.setAmqpListeners(Collections.singleton("amqp://127.0.0.1:" + port));
+      pulsarListenerPort = PortManager.nextFreePort();
+      pulsarHost = "127.0.0.1";
+      config.setAmqpListeners(Collections.singleton("amqp://127.0.0.1:" + pulsarListenerPort));
       config.setConfigurationStoreServers(
           cluster.getService().getConfig().getConfigurationStoreServers());
       // Deactivate batching since some tests rely on individual negative acknowledgement redelivery
@@ -145,15 +141,18 @@ public class BrokerTestCase {
       gatewayService = new GatewayService(config, null);
       gatewayService.start();
     } else {
-      port = SystemTest.listenerPort;
-      host = SystemTest.host;
-      LOGGER.info("Running system test with external pulsar cluster. Connecting to host={}, port={}", host, port);
+      pulsarListenerPort = SystemTest.listenerPort;
+      pulsarHost = SystemTest.host;
+      LOGGER.info(
+          "Running system test with external pulsar cluster. Connecting to host={}, port={}",
+          pulsarHost,
+          pulsarListenerPort);
     }
   }
 
   @AfterClass
   public static void after() throws Exception {
-    if (!SYSTEM_TEST_MODE) {
+    if (!SystemTest.enabled) {
       if (cluster != null) {
         cluster.close();
       }
