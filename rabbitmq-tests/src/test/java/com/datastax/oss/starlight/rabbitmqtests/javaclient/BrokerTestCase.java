@@ -77,6 +77,7 @@ public class BrokerTestCase {
       connectionFactory.setNioParams(nioParams());
     }
     connectionFactory.setAutomaticRecoveryEnabled(isAutomaticRecoveryEnabled());
+    connectionFactory.setHost(host);
     connectionFactory.setPort(port);
     return connectionFactory;
   }
@@ -117,7 +118,8 @@ public class BrokerTestCase {
 
   private static PulsarCluster cluster;
   protected static GatewayService gatewayService;
-  protected static int port = Integer.parseInt(System.getProperty("tests.systemtests.pulsar.ampqlistener.port", "5672"));
+  protected static int port =
+      Integer.parseInt(System.getProperty("tests.systemtests.pulsar.ampqlistener.port", "5672"));
   protected static String host = System.getProperty("tests.systemtests.pulsar.host", "localhost");
   private static final boolean SYSTEM_TEST_MODE =
       Boolean.parseBoolean(System.getProperty("tests.systemtests.enabled", "false"));
