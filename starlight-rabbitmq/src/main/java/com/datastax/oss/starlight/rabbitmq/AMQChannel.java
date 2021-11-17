@@ -1628,8 +1628,6 @@ public class AMQChannel implements ServerChannelMethodProcessor {
         messageBuilder.eventTime(contentHeader.getProperties().getTimestamp());
       }
 
-      QpidByteBuffer returnPayload = qpidByteBuffer.rewind();
-
       messageBuilder
           .sendAsync()
           .thenAccept(
@@ -1642,56 +1640,21 @@ public class AMQChannel implements ServerChannelMethodProcessor {
               })
           .exceptionally(
               throwable -> {
-                if (LOGGER.isDebugEnabled()) {
-                  LOGGER.debug(
-                      "Unroutable message exchange='{}', routing key='{}', mandatory={},"
-                          + " confirmOnPublish={}",
-                      exchangeName,
-                      routingKey,
-                      mandatory,
-                      _confirmOnPublish,
-                      throwable);
-                }
-
-                /* TODO: review this error management.
-                 *  NO_ROUTE should probably be checked before (no queue bound to exchange and
-                 *  mandatory flag)
-                 *  NO_CONSUMERS should probably be checked before (no consumer to queue bound to
-                 *  exchange and immediate flag)
-                 *  Random PulsarClientException should Nack with INTERNAL_ERROR. See https://www.rabbitmq.com/confirms.html#server-sent-nacks
-                 */
-                int errorCode = ErrorCodes.NO_ROUTE;
-                String errorMessage =
-                    String.format(
-                        "No route for message with exchange '%s' and routing key '%s'",
-                        exchangeName, routingKey);
                 if (throwable instanceof PulsarClientException.ProducerQueueIsFullError) {
-                  errorCode = ErrorCodes.RESOURCE_ERROR;
-                  errorMessage = errorMessage + ":" + throwable.getMessage();
-                }
-                if (mandatory || info.isImmediate()) {
-                  _connection
-                      .getProtocolOutputConverter()
-                      .writeReturn(
-                          info,
-                          contentHeader,
-                          returnPayload,
-                          _channelId,
-                          errorCode,
-                          AMQShortString.validValueOf(errorMessage));
-                  if (_confirmOnPublish) {
-                    _confirmedMessageCounter++;
-                    _connection.writeFrame(
-                        new AMQFrame(
-                            _channelId, new BasicNackBody(_confirmedMessageCounter, false, false)));
+                  if (LOGGER.isDebugEnabled()) {
+                    LOGGER.debug(
+                        "Failed to send message to exchange='{}' because producer queue is full",
+                        exchangeName,
+                        throwable);
                   }
                 } else {
-                  if (_confirmOnPublish) {
-                    _confirmedMessageCounter++;
-                    _connection.writeFrame(
-                        new AMQFrame(
-                            _channelId, new BasicAckBody(_confirmedMessageCounter, false)));
-                  }
+                  LOGGER.error("Failed to send message to exchange='{}'", exchangeName, throwable);
+                }
+                if (_confirmOnPublish) {
+                  _confirmedMessageCounter++;
+                  _connection.writeFrame(
+                      new AMQFrame(
+                          _channelId, new BasicNackBody(_confirmedMessageCounter, false, false)));
                 }
                 return null;
               });
