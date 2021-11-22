@@ -138,7 +138,7 @@
         <artifactId>maven-assembly-plugin</artifactId>
         <executions>
           <execution>
-            <id>distro-assembly</id>
+            <id>jar-with-dependencies</id>
             <phase>package</phase>
             <goals>
               <goal>single</goal>
@@ -154,6 +154,18 @@
                   <mainClass>com.datastax.oss.starlight.rabbitmq.GatewayServiceStarter</mainClass>
                 </manifest>
               </archive>
+            </configuration>
+          </execution>
+          <execution>
+            <id>all</id>
+            <phase>package</phase>
+            <goals>
+              <goal>single</goal>
+            </goals>
+            <configuration>
+              <descriptors>
+                <descriptor>src/assemble/all.xml</descriptor>
+              </descriptors>
             </configuration>
           </execution>
         </executions>
