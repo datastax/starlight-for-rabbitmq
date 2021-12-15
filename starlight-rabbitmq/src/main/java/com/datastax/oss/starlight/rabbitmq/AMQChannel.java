@@ -774,7 +774,7 @@ public class AMQChannel implements ServerChannelMethodProcessor {
     Versioned<ContextMetadata> versionedContext = getContextMetadata();
     ContextMetadata context = versionedContext.model();
     String queueName = queueNameStr == null ? getDefaultQueueName() : queueNameStr.toString();
-    QueueMetadata queue = getQueue(context, getDefaultQueueName());
+    QueueMetadata queue = getQueue(context, queueName);
 
     if (queue == null) {
       // Note: Since v3.2, RabbitMQ delete queue is idempotent :
@@ -863,7 +863,7 @@ public class AMQChannel implements ServerChannelMethodProcessor {
     Versioned<ContextMetadata> versionedContext = getContextMetadata();
     ContextMetadata context = versionedContext.model();
     String queueName = queueNameStr == null ? getDefaultQueueName() : queueNameStr.toString();
-    QueueMetadata queue = getQueue(context, getDefaultQueueName());
+    QueueMetadata queue = getQueue(context, queueName);
 
     if (queue == null) {
       final AMQMethodBody responseBody = _connection.getMethodRegistry().createQueueUnbindOkBody();
