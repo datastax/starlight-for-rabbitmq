@@ -90,6 +90,9 @@ public class AbstractBaseTest {
     when(pulsarClient.newProducer()).thenReturn(producerBuilder);
     when(producerBuilder.topic(anyString())).thenReturn(producerBuilder);
     when(producerBuilder.enableBatching(anyBoolean())).thenReturn(producerBuilder);
+    when(producerBuilder.batchingMaxPublishDelay(anyLong(), any(TimeUnit.class)))
+        .thenReturn(producerBuilder);
+    when(producerBuilder.maxPendingMessages(anyInt())).thenReturn(producerBuilder);
     when(producerBuilder.create()).thenReturn(producer);
 
     ConsumerBuilder consumerBuilder = mock(ConsumerBuilder.class);
@@ -103,7 +106,8 @@ public class AbstractBaseTest {
     when(consumerBuilder.enableBatchIndexAcknowledgment(anyBoolean())).thenReturn(consumerBuilder);
     when(consumerBuilder.negativeAckRedeliveryDelay(anyLong(), any(TimeUnit.class)))
         .thenReturn(consumerBuilder);
-    when(consumerBuilder.receiverQueueSize(anyInt())).thenReturn(consumerBuilder);
+    when(consumerBuilder.maxTotalReceiverQueueSizeAcrossPartitions(anyInt()))
+        .thenReturn(consumerBuilder);
     when(consumerBuilder.subscribeAsync()).thenReturn(CompletableFuture.completedFuture(consumer));
 
     when(consumer.receive(anyInt(), any(TimeUnit.class))).thenReturn(null);

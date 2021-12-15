@@ -40,6 +40,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -73,6 +74,7 @@ public class GatewayService implements Closeable {
   private final String brokerWebServiceUrl;
   private final AuthenticationService authenticationService;
   private final ScheduledExecutorService executor;
+  private final ExecutorProvider internalExecutorService;
   private PulsarClient pulsarClient;
   private PulsarAdmin pulsarAdmin;
 
@@ -124,6 +126,7 @@ public class GatewayService implements Closeable {
     this.executor =
         Executors.newScheduledThreadPool(
             numThreads, new DefaultThreadFactory("pulsar-rabbitmq-executor"));
+    this.internalExecutorService = new ExecutorProvider(numThreads, "starlight-rabbitmq-internal");
   }
 
   public void start() throws Exception {
@@ -200,7 +203,14 @@ public class GatewayService implements Closeable {
 
   private PulsarClient createClientInstance() throws PulsarClientException {
     ClientBuilder clientBuilder =
-        PulsarClient.builder().statsInterval(0, TimeUnit.SECONDS).serviceUrl(brokerServiceUrl);
+        PulsarClient.builder()
+            .statsInterval(0, TimeUnit.SECONDS)
+            .ioThreads(8)
+            .connectionsPerBroker(8)
+            .maxConcurrentLookupRequests(50000)
+            .maxLookupRequests(100000)
+            // .memoryLimit(256, SizeUnit.MEGA_BYTES)
+            .serviceUrl(brokerServiceUrl);
 
     if (isNotBlank(config.getBrokerClientAuthenticationPlugin())) {
       if (isNotBlank(config.getAmqpBrokerClientAuthenticationParameters())) {
@@ -302,6 +312,9 @@ public class GatewayService implements Closeable {
     if (executor != null) {
       executor.shutdown();
     }
+    if (internalExecutorService != null) {
+      internalExecutorService.shutdownNow();
+    }
   }
 
   public GatewayConfiguration getConfig() {
@@ -395,5 +408,9 @@ public class GatewayService implements Closeable {
 
   public ScheduledExecutorService getExecutor() {
     return executor;
+  }
+
+  public ExecutorService getInternalExecutorService() {
+    return internalExecutorService.getExecutor();
   }
 }

@@ -32,16 +32,18 @@ import io.netty.handler.timeout.IdleStateHandler;
 import java.lang.reflect.Proxy;
 import java.net.SocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentSkipListSet;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import javax.naming.AuthenticationException;
 import javax.net.ssl.SSLSession;
+import net.jodah.failsafe.Failsafe;
+import net.jodah.failsafe.RetryPolicy;
 import org.apache.bookkeeper.util.collections.ConcurrentLongHashMap;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.curator.x.async.modeled.versioned.Versioned;
@@ -76,6 +78,7 @@ import org.apache.qpid.server.protocol.v0_8.transport.ServerChannelMethodProcess
 import org.apache.qpid.server.protocol.v0_8.transport.ServerMethodDispatcher;
 import org.apache.qpid.server.protocol.v0_8.transport.ServerMethodProcessor;
 import org.apache.qpid.server.util.ConnectionScopedRuntimeException;
+import org.apache.zookeeper.KeeperException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -98,13 +101,19 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
 
   private static final Logger LOGGER = LoggerFactory.getLogger(GatewayConnection.class);
 
+  public static final RetryPolicy<Object> ZK_CONFLICT_RETRY =
+      new RetryPolicy<>()
+          .handle(KeeperException.BadVersionException.class)
+          .onRetriesExceeded(lis -> LOGGER.error("Zookeeper Retries exceeded", lis.getFailure()))
+          .withJitter(0.3)
+          .withDelay(Duration.ofMillis(50))
+          .withMaxRetries(100);
+
   private final GatewayService gatewayService;
   private ChannelHandlerContext ctx;
   private SocketAddress remoteAddress;
   private String namespace;
   private String role;
-  private boolean isTenantAdmin = false;
-  private Set<AuthAction> authActions = new ConcurrentSkipListSet<>();
 
   // Variables copied from Qpid's AMQPConnection_0_8Impl
   private ServerDecoder _decoder;
@@ -499,61 +508,67 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
   }
 
   private void connectionOpen(AMQShortString virtualHostName) {
-    Versioned<ContextMetadata> versionedContext = getGatewayService().getContextMetadata();
-    if (!versionedContext.model().getVhosts().containsKey(namespace)) {
-      Versioned<ContextMetadata> newContext =
-          getGatewayService().newContextMetadata(versionedContext);
-      VirtualHostMetadata virtualHostMetadata = new VirtualHostMetadata();
-      virtualHostMetadata.setNamespace(namespace);
-      virtualHostMetadata
-          .getExchanges()
-          .put(
-              ExchangeDefaults.DEFAULT_EXCHANGE_NAME,
-              new ExchangeMetadata(ExchangeMetadata.Type.direct, true, LifetimePolicy.PERMANENT));
-      virtualHostMetadata
-          .getExchanges()
-          .put(
-              ExchangeDefaults.DIRECT_EXCHANGE_NAME,
-              new ExchangeMetadata(ExchangeMetadata.Type.direct, true, LifetimePolicy.PERMANENT));
-      virtualHostMetadata
-          .getExchanges()
-          .put(
-              ExchangeDefaults.FANOUT_EXCHANGE_NAME,
-              new ExchangeMetadata(ExchangeMetadata.Type.fanout, true, LifetimePolicy.PERMANENT));
-      virtualHostMetadata
-          .getExchanges()
-          .put(
-              ExchangeDefaults.TOPIC_EXCHANGE_NAME,
-              new ExchangeMetadata(ExchangeMetadata.Type.topic, true, LifetimePolicy.PERMANENT));
-      virtualHostMetadata
-          .getExchanges()
-          .put(
-              ExchangeDefaults.HEADERS_EXCHANGE_NAME,
-              new ExchangeMetadata(ExchangeMetadata.Type.headers, true, LifetimePolicy.PERMANENT));
-      newContext.model().getVhosts().put(namespace, virtualHostMetadata);
-      getGatewayService()
-          .saveContext(newContext)
-          .thenAccept(
-              it -> {
-                AMQMethodBody responseBody =
-                    getMethodRegistry().createConnectionOpenOkBody(virtualHostName);
-                writeFrame(responseBody.generateFrame(0));
-                _state = ConnectionState.OPEN;
-              })
-          .exceptionally(
-              t -> {
-                String errorMessage =
-                    "Error while saving new vhost in configuration store: '" + namespace + "'";
-                LOGGER.error(errorMessage, t);
-                sendConnectionClose(ErrorCodes.INTERNAL_ERROR, errorMessage, 0);
-                return null;
-              });
-    } else {
-      MethodRegistry methodRegistry = getMethodRegistry();
-      AMQMethodBody responseBody = methodRegistry.createConnectionOpenOkBody(virtualHostName);
-      writeFrame(responseBody.generateFrame(0));
-      _state = ConnectionState.OPEN;
-    }
+    Failsafe.with(ZK_CONFLICT_RETRY)
+        .getStageAsync(
+            () -> {
+              Versioned<ContextMetadata> versionedContext =
+                  getGatewayService().getContextMetadata();
+              if (!versionedContext.model().getVhosts().containsKey(namespace)) {
+                Versioned<ContextMetadata> newContext =
+                    getGatewayService().newContextMetadata(versionedContext);
+                VirtualHostMetadata virtualHostMetadata = new VirtualHostMetadata();
+                virtualHostMetadata.setNamespace(namespace);
+                virtualHostMetadata
+                    .getExchanges()
+                    .put(
+                        ExchangeDefaults.DEFAULT_EXCHANGE_NAME,
+                        new ExchangeMetadata(
+                            ExchangeMetadata.Type.direct, true, LifetimePolicy.PERMANENT));
+                virtualHostMetadata
+                    .getExchanges()
+                    .put(
+                        ExchangeDefaults.DIRECT_EXCHANGE_NAME,
+                        new ExchangeMetadata(
+                            ExchangeMetadata.Type.direct, true, LifetimePolicy.PERMANENT));
+                virtualHostMetadata
+                    .getExchanges()
+                    .put(
+                        ExchangeDefaults.FANOUT_EXCHANGE_NAME,
+                        new ExchangeMetadata(
+                            ExchangeMetadata.Type.fanout, true, LifetimePolicy.PERMANENT));
+                virtualHostMetadata
+                    .getExchanges()
+                    .put(
+                        ExchangeDefaults.TOPIC_EXCHANGE_NAME,
+                        new ExchangeMetadata(
+                            ExchangeMetadata.Type.topic, true, LifetimePolicy.PERMANENT));
+                virtualHostMetadata
+                    .getExchanges()
+                    .put(
+                        ExchangeDefaults.HEADERS_EXCHANGE_NAME,
+                        new ExchangeMetadata(
+                            ExchangeMetadata.Type.headers, true, LifetimePolicy.PERMANENT));
+                newContext.model().getVhosts().put(namespace, virtualHostMetadata);
+                return getGatewayService().saveContext(newContext);
+              } else {
+                return CompletableFuture.completedFuture(null);
+              }
+            })
+        .thenAccept(
+            it -> {
+              AMQMethodBody responseBody =
+                  getMethodRegistry().createConnectionOpenOkBody(virtualHostName);
+              writeFrame(responseBody.generateFrame(0));
+              _state = ConnectionState.OPEN;
+            })
+        .exceptionally(
+            t -> {
+              String errorMessage =
+                  "Error while saving new vhost in configuration store: '" + namespace + "'";
+              LOGGER.error(errorMessage, t);
+              sendConnectionClose(ErrorCodes.INTERNAL_ERROR, errorMessage, 0);
+              return null;
+            });
   }
 
   @Override

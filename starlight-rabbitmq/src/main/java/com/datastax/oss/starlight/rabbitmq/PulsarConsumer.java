@@ -36,7 +36,7 @@ public class PulsarConsumer {
 
   private volatile MessageId lastMessageId;
 
-  private final ScheduledExecutorService executorService;
+  private final ScheduledExecutorService internalPinnedExecutor;
 
   private final AtomicBoolean closing;
 
@@ -46,7 +46,7 @@ public class PulsarConsumer {
     this.subscriptionName = subscriptionName;
     this.gatewayService = service;
     this.amqConsumer = amqConsumer;
-    this.executorService = service.getExecutor();
+    this.internalPinnedExecutor = (ScheduledExecutorService) service.getInternalExecutorService();
     this.closing = new AtomicBoolean(false);
   }
 
@@ -58,6 +58,8 @@ public class PulsarConsumer {
         .subscriptionName(subscriptionName)
         .subscriptionType(SubscriptionType.Shared)
         .negativeAckRedeliveryDelay(0, TimeUnit.MILLISECONDS)
+        .receiverQueueSize(10000)
+        .maxTotalReceiverQueueSizeAcrossPartitions(Integer.MAX_VALUE)
         .enableBatchIndexAcknowledgment(true)
         .subscribeAsync()
         .thenAccept(
@@ -100,7 +102,7 @@ public class PulsarConsumer {
 
                   // Receive messages again after some time to check if we get unacked messages
                   // Note: unacked messages are sent in priority by the broker
-                  this.executorService.schedule(
+                  this.internalPinnedExecutor.schedule(
                       this::resumeConsumption, 100, TimeUnit.MILLISECONDS);
                   return null;
                 } else {
@@ -116,7 +118,7 @@ public class PulsarConsumer {
   }
 
   public CompletableFuture<Void> receiveAndDeliverMessages() {
-    return receiveMessageAsync().thenAcceptAsync(amqConsumer::deliverMessage, this.executorService);
+    return receiveMessageAsync().thenAccept(amqConsumer::deliverMessage);
   }
 
   private CompletableFuture<Void> resumeConsumption() {

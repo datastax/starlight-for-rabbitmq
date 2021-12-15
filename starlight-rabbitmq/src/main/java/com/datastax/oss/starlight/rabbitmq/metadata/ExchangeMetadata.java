@@ -15,8 +15,8 @@
  */
 package com.datastax.oss.starlight.rabbitmq.metadata;
 
-import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import org.apache.qpid.server.model.LifetimePolicy;
 
 public class ExchangeMetadata {
@@ -31,7 +31,7 @@ public class ExchangeMetadata {
   private Type type;
   private boolean durable;
   private LifetimePolicy lifetimePolicy;
-  private Map<String, BindingSetMetadata> bindings = new HashMap<>();
+  private Map<String, BindingSetMetadata> bindings = new ConcurrentHashMap<>();
 
   public ExchangeMetadata() {
     // For Jackson

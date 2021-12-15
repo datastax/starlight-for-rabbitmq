@@ -21,6 +21,7 @@ import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import org.apache.pulsar.client.api.Message;
@@ -47,44 +48,53 @@ public class AMQConsumer {
 
   private final Map<String, PulsarConsumer> subscriptions = new ConcurrentHashMap<>();
 
+  private final ScheduledExecutorService internalPinnedExecutor;
+
   public AMQConsumer(AMQChannel channel, AMQShortString tag, Queue queue, boolean noAck) {
     this.channel = channel;
     this.tag = tag;
     this.queue = queue;
     this.noAck = noAck;
+    this.internalPinnedExecutor =
+        (ScheduledExecutorService)
+            channel.getConnection().getGatewayService().getInternalExecutorService();
   }
 
-  public synchronized void deliverMessage(PulsarConsumer.PulsarConsumerMessage consumerMessage) {
+  public void deliverMessage(PulsarConsumer.PulsarConsumerMessage consumerMessage) {
     if (consumerMessage != null) {
-      Message<byte[]> message = consumerMessage.getMessage();
-      boolean allocated = false;
-      if (messageCompletableFuture != null && !messageCompletableFuture.isDone()) {
-        allocated = useCreditForMessage(message.size());
-        if (allocated) {
-          messageCompletableFuture.complete(consumerMessage);
-          consumerMessage.getConsumer().receiveAndDeliverMessages();
-        } else {
-          block();
-        }
-      }
-      if (!allocated) {
-        pendingBindings.add(consumerMessage);
-      }
+      internalPinnedExecutor.execute(
+          () -> {
+            Message<byte[]> message = consumerMessage.getMessage();
+            boolean allocated = false;
+            if (messageCompletableFuture != null && !messageCompletableFuture.isDone()) {
+              allocated = useCreditForMessage(message.size());
+              if (allocated) {
+                messageCompletableFuture.complete(consumerMessage);
+                consumerMessage.getConsumer().receiveAndDeliverMessages();
+              } else {
+                block();
+              }
+            }
+            if (!allocated) {
+              pendingBindings.add(consumerMessage);
+            }
+          });
     }
   }
 
-  public synchronized void consume() {
-    if (!blocked.get()) {
-      messageCompletableFuture = new CompletableFuture<>();
-      messageCompletableFuture
-          .thenAccept(this::handleMessage)
-          .thenRunAsync(this::consume, channel.getConnection().getGatewayService().getExecutor());
+  public void consume() {
+    internalPinnedExecutor.execute(
+        () -> {
+          if (!blocked.get()) {
+            messageCompletableFuture = new CompletableFuture<>();
+            messageCompletableFuture.thenAccept(this::handleMessage).thenRun(this::consume);
 
-      deliverMessage(pendingBindings.poll());
-    }
+            deliverMessage(pendingBindings.poll());
+          }
+        });
   }
 
-  private synchronized void handleMessage(PulsarConsumer.PulsarConsumerMessage messageResponse) {
+  private void handleMessage(PulsarConsumer.PulsarConsumerMessage messageResponse) {
     if (!blocked.get()) {
       Message<byte[]> message = messageResponse.getMessage();
       long deliveryTag = channel.getNextDeliveryTag();
