@@ -20,6 +20,7 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
+import com.datastax.oss.starlight.rabbitmqtests.SystemTest;
 import com.datastax.oss.starlight.rabbitmqtests.javaclient.BrokerTestCase;
 import com.datastax.oss.starlight.rabbitmqtests.javaclient.QueueingConsumer;
 import com.datastax.oss.starlight.rabbitmqtests.javaclient.TestUtils;
@@ -30,7 +31,9 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
+@Category(SystemTest.class)
 public class Recover extends BrokerTestCase {
 
   String queue;

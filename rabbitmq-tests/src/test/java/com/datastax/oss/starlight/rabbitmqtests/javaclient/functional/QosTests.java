@@ -20,6 +20,7 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
+import com.datastax.oss.starlight.rabbitmqtests.SystemTest;
 import com.datastax.oss.starlight.rabbitmqtests.javaclient.BrokerTestCase;
 import com.datastax.oss.starlight.rabbitmqtests.javaclient.QueueingConsumer;
 import com.datastax.oss.starlight.rabbitmqtests.javaclient.QueueingConsumer.Delivery;
@@ -39,7 +40,9 @@ import java.util.Map;
 import java.util.concurrent.TimeoutException;
 import org.junit.Ignore;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
+@Category(SystemTest.class)
 public class QosTests extends BrokerTestCase {
 
   public void setUp() throws IOException, TimeoutException {

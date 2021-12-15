@@ -19,6 +19,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
+import com.datastax.oss.starlight.rabbitmqtests.SystemTest;
 import com.datastax.oss.starlight.rabbitmqtests.javaclient.BrokerTestCase;
 import com.datastax.oss.starlight.rabbitmqtests.javaclient.TestUtils;
 import com.rabbitmq.client.AMQP;
@@ -33,13 +34,16 @@ import java.net.Socket;
 import java.util.concurrent.TimeoutException;
 import javax.net.SocketFactory;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
 /** Check that protocol negotiation works */
+@Category(SystemTest.class)
 public class ConnectionOpen extends BrokerTestCase {
   @Test
   public void correctProtocolHeader() throws IOException {
     SocketFrameHandler fh =
-        new SocketFrameHandler(SocketFactory.getDefault().createSocket("localhost", port));
+        new SocketFrameHandler(
+            SocketFactory.getDefault().createSocket("localhost", pulsarListenerPort));
     fh.sendHeader();
     AMQCommand command = new AMQCommand();
     while (!command.handleFrame(fh.readFrame())) {}
@@ -58,7 +62,7 @@ public class ConnectionOpen extends BrokerTestCase {
   public void crazyProtocolHeader() throws IOException {
     ConnectionFactory factory = TestUtils.connectionFactory();
     // keep the frame handler's socket
-    Socket fhSocket = SocketFactory.getDefault().createSocket("localhost", port);
+    Socket fhSocket = SocketFactory.getDefault().createSocket("localhost", pulsarListenerPort);
     SocketFrameHandler fh = new SocketFrameHandler(fhSocket);
     fh.sendHeader(100, 3); // major, minor
     DataInputStream in = fh.getInputStream();

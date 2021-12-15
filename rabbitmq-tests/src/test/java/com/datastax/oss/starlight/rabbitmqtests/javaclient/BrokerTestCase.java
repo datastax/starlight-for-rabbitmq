@@ -20,6 +20,7 @@ import static org.junit.Assume.*;
 
 import com.datastax.oss.starlight.rabbitmq.GatewayConfiguration;
 import com.datastax.oss.starlight.rabbitmq.GatewayService;
+import com.datastax.oss.starlight.rabbitmqtests.SystemTest;
 import com.datastax.oss.starlight.rabbitmqtests.utils.PulsarCluster;
 import com.rabbitmq.client.*;
 import com.rabbitmq.client.impl.nio.NioParams;
@@ -77,7 +78,8 @@ public class BrokerTestCase {
       connectionFactory.setNioParams(nioParams());
     }
     connectionFactory.setAutomaticRecoveryEnabled(isAutomaticRecoveryEnabled());
-    connectionFactory.setPort(port);
+    connectionFactory.setHost(pulsarHost);
+    connectionFactory.setPort(pulsarListenerPort);
     return connectionFactory;
   }
 
@@ -117,34 +119,46 @@ public class BrokerTestCase {
 
   private static PulsarCluster cluster;
   protected static GatewayService gatewayService;
-  protected static int port;
-
+  protected static String pulsarHost;
+  protected static int pulsarListenerPort;
   @ClassRule public static TemporaryFolder tempDir = new TemporaryFolder();
 
   @BeforeClass
   public static void before() throws Exception {
-    cluster = new PulsarCluster(tempDir.getRoot().toPath());
-    cluster.start();
-    GatewayConfiguration config = new GatewayConfiguration();
-    config.setBrokerServiceURL(cluster.getAddress());
-    config.setBrokerWebServiceURL(cluster.getAddress());
-    port = PortManager.nextFreePort();
-    config.setAmqpListeners(Collections.singleton("amqp://127.0.0.1:" + port));
-    config.setConfigurationStoreServers(
-        cluster.getService().getConfig().getConfigurationStoreServers());
-    // Deactivate batching since some tests rely on individual negative acknowledgement redelivery
-    config.setAmqpBatchingEnabled(false);
-    gatewayService = new GatewayService(config, null);
-    gatewayService.start();
+    if (!SystemTest.enabled) {
+      cluster = new PulsarCluster(tempDir.getRoot().toPath());
+      cluster.start();
+      GatewayConfiguration config = new GatewayConfiguration();
+      config.setBrokerServiceURL(cluster.getAddress());
+      config.setBrokerWebServiceURL(cluster.getAddress());
+      pulsarListenerPort = PortManager.nextFreePort();
+      pulsarHost = "127.0.0.1";
+      config.setAmqpListeners(Collections.singleton("amqp://127.0.0.1:" + pulsarListenerPort));
+      config.setConfigurationStoreServers(
+          cluster.getService().getConfig().getConfigurationStoreServers());
+      // Deactivate batching since some tests rely on individual negative acknowledgement redelivery
+      config.setAmqpBatchingEnabled(false);
+      gatewayService = new GatewayService(config, null);
+      gatewayService.start();
+    } else {
+      pulsarListenerPort = SystemTest.listenerPort;
+      pulsarHost = SystemTest.host;
+      LOGGER.info(
+          "Running system test with external pulsar cluster. Connecting to host={}, port={}",
+          pulsarHost,
+          pulsarListenerPort);
+    }
   }
 
   @AfterClass
   public static void after() throws Exception {
-    if (cluster != null) {
-      cluster.close();
-    }
-    if (gatewayService != null) {
-      gatewayService.close();
+    if (!SystemTest.enabled) {
+      if (cluster != null) {
+        cluster.close();
+      }
+      if (gatewayService != null) {
+        gatewayService.close();
+      }
     }
   }
 

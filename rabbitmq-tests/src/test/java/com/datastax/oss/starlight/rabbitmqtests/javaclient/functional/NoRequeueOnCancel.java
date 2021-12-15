@@ -19,13 +19,16 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
+import com.datastax.oss.starlight.rabbitmqtests.SystemTest;
 import com.datastax.oss.starlight.rabbitmqtests.javaclient.BrokerTestCase;
 import com.datastax.oss.starlight.rabbitmqtests.javaclient.TestUtils;
 import com.rabbitmq.client.*;
 import java.io.IOException;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import org.junit.experimental.categories.Category;
 
+@Category(SystemTest.class)
 public class NoRequeueOnCancel extends BrokerTestCase {
   protected final String Q = "NoRequeueOnCancel";
 

@@ -17,6 +17,7 @@ package com.datastax.oss.starlight.rabbitmqtests.javaclient.functional;
 
 import static org.junit.Assert.fail;
 
+import com.datastax.oss.starlight.rabbitmqtests.SystemTest;
 import com.datastax.oss.starlight.rabbitmqtests.javaclient.BrokerTestCase;
 import com.rabbitmq.client.AMQP;
 import com.rabbitmq.client.Consumer;
@@ -27,7 +28,9 @@ import java.util.Map;
 import java.util.concurrent.TimeoutException;
 import org.junit.Ignore;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
+@Category(SystemTest.class)
 /** Test queue auto-delete and exclusive semantics. */
 public class QueueLifecycle extends BrokerTestCase {
 

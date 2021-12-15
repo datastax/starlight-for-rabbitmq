@@ -17,14 +17,17 @@ package com.datastax.oss.starlight.rabbitmqtests.javaclient.functional;
 
 import static org.junit.Assert.fail;
 
+import com.datastax.oss.starlight.rabbitmqtests.SystemTest;
 import com.datastax.oss.starlight.rabbitmqtests.javaclient.BrokerTestCase;
 import com.rabbitmq.client.AMQP;
 import java.io.IOException;
 import java.util.concurrent.TimeoutException;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
 /* Declare an exchange, bind a queue to it, then try to delete it,
  * setting if-unused to true.  This should throw an exception. */
+@Category(SystemTest.class)
 public class ExchangeDeleteIfUnused extends BrokerTestCase {
   private static final String EXCHANGE_NAME = "xchg1";
   private static final String ROUTING_KEY = "something";

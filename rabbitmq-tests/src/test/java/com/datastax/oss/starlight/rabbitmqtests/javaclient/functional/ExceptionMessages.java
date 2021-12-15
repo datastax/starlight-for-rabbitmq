@@ -18,12 +18,15 @@ package com.datastax.oss.starlight.rabbitmqtests.javaclient.functional;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
+import com.datastax.oss.starlight.rabbitmqtests.SystemTest;
 import com.datastax.oss.starlight.rabbitmqtests.javaclient.BrokerTestCase;
 import com.rabbitmq.client.AlreadyClosedException;
 import java.io.IOException;
 import java.util.UUID;
 import org.junit.Test;
+import org.junit.experimental.categories.Category;
 
+@Category(SystemTest.class)
 public class ExceptionMessages extends BrokerTestCase {
   @Test
   public void alreadyClosedExceptionMessageWithChannelError() throws IOException {
