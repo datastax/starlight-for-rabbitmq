@@ -15,11 +15,11 @@
  */
 package com.datastax.oss.starlight.rabbitmq.metadata;
 
-import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class ContextMetadata {
-  Map<String, VirtualHostMetadata> vhosts = new HashMap<>();
+  Map<String, VirtualHostMetadata> vhosts = new ConcurrentHashMap<>();
 
   public Map<String, VirtualHostMetadata> getVhosts() {
     return vhosts;

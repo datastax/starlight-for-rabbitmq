@@ -131,8 +131,10 @@ public class AMQChannel implements ServerChannelMethodProcessor {
   public static final RetryPolicy<Object> ZK_CONFLICT_RETRY =
       new RetryPolicy<>()
           .handle(KeeperException.BadVersionException.class)
-          .withDelay(Duration.ofMillis(100))
-          .withMaxRetries(10);
+          .onRetriesExceeded(lis -> LOGGER.error("Zookeeper Retries exceeded", lis.getFailure()))
+          .withJitter(0.3)
+          .withDelay(Duration.ofMillis(50))
+          .withMaxRetries(100);
 
   public AMQChannel(GatewayConnection connection, int channelId) {
     _connection = connection;
@@ -1640,7 +1642,8 @@ public class AMQChannel implements ServerChannelMethodProcessor {
               })
           .exceptionally(
               throwable -> {
-                if (throwable instanceof PulsarClientException.ProducerQueueIsFullError) {
+                if (throwable.getCause()
+                    instanceof PulsarClientException.ProducerQueueIsFullError) {
                   if (LOGGER.isDebugEnabled()) {
                     LOGGER.debug(
                         "Failed to send message to exchange='{}' because producer queue is full",
@@ -1852,7 +1855,9 @@ public class AMQChannel implements ServerChannelMethodProcessor {
   }
 
   private QueueMetadata getQueue(ContextMetadata context, String queueName) {
-    return context.getVhosts().get(_connection.getNamespace()).getQueues().get(queueName);
+    Map<String, QueueMetadata> queues =
+        context.getVhosts().get(_connection.getNamespace()).getQueues();
+    return queues.get(queueName);
   }
 
   public CompletableFuture<ContextMetadata> bindQueue(
@@ -1903,6 +1908,8 @@ public class AMQChannel implements ServerChannelMethodProcessor {
           .getPulsarClient()
           .newProducer()
           .enableBatching(getConfiguration().isAmqpBatchingEnabled())
+          .batchingMaxPublishDelay(100, TimeUnit.MILLISECONDS)
+          .maxPendingMessages(10000)
           .topic(topicName)
           .create();
     } catch (PulsarClientException e) {

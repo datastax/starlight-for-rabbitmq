@@ -15,14 +15,14 @@
  */
 package com.datastax.oss.starlight.rabbitmq.metadata;
 
-import java.util.HashSet;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class BindingMetadata {
   private String exchange;
   private String topic;
   private String subscription;
-  private Set<String> keys = new HashSet<>();
+  private Set<String> keys = ConcurrentHashMap.newKeySet();
   private byte[] lastMessageId;
 
   public BindingMetadata() {}

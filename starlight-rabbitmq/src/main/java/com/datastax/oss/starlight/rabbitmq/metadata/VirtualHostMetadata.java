@@ -15,16 +15,16 @@
  */
 package com.datastax.oss.starlight.rabbitmq.metadata;
 
-import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class VirtualHostMetadata {
 
   private String namespace;
-  private final Map<String, ExchangeMetadata> exchanges = new HashMap<>();
-  private final Map<String, QueueMetadata> queues = new HashMap<>();
+  private final Map<String, ExchangeMetadata> exchanges = new ConcurrentHashMap<>();
+  private final Map<String, QueueMetadata> queues = new ConcurrentHashMap<>();
 
-  private final Map<String, Map<String, BindingMetadata>> subscriptions = new HashMap<>();
+  private final Map<String, Map<String, BindingMetadata>> subscriptions = new ConcurrentHashMap<>();
 
   public String getNamespace() {
     return namespace;
