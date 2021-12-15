@@ -38,6 +38,7 @@ import org.apache.bookkeeper.util.PortManager;
 import org.apache.pulsar.broker.authentication.AuthenticationService;
 import org.apache.pulsar.broker.authentication.utils.AuthTokenUtils;
 import org.apache.pulsar.common.policies.data.AuthAction;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -96,6 +97,16 @@ public class AuthorizationIT {
 
     factory = new ConnectionFactory();
     factory.setPort(port);
+  }
+
+  @AfterAll
+  public static void after() throws Exception {
+    if (cluster != null) {
+      cluster.close();
+    }
+    if (gatewayService != null) {
+      gatewayService.close();
+    }
   }
 
   @Test
