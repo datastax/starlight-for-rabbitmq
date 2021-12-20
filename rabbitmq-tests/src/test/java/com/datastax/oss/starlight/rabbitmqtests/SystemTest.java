@@ -25,19 +25,13 @@ package com.datastax.oss.starlight.rabbitmqtests;
  * rabbitmq</code> protocol handler active.
  */
 public interface SystemTest {
-    /**
-     * If true, the test must run using an external Pulsar cluster.
-     */
-    boolean enabled = Boolean.parseBoolean(System.getProperty("tests.systemtests.enabled", "false"));
+  /** If true, the test must run using an external Pulsar cluster. */
+  boolean enabled = Boolean.parseBoolean(System.getProperty("tests.systemtests.enabled", "false"));
 
-    /**
-     * The host to connect used by the client (Broker/Proxy host).
-     */
-    String host = System.getProperty("tests.systemtests.pulsar.host", "localhost");
+  /** The host to connect used by the client (Broker/Proxy host). */
+  String host = System.getProperty("tests.systemtests.pulsar.host", "localhost");
 
-    /**
-     * The AMQP listener port exposed on Pulsar Broker/Proxy.
-     */
-    int listenerPort =
-            Integer.parseInt(System.getProperty("tests.systemtests.pulsar.ampqlistener.port", "5672"));
+  /** The AMQP listener port exposed on Pulsar Broker/Proxy. */
+  int listenerPort =
+      Integer.parseInt(System.getProperty("tests.systemtests.pulsar.ampqlistener.port", "5672"));
 }

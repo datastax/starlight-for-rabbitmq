@@ -914,4 +914,8 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
   public GatewayService getGatewayService() {
     return gatewayService;
   }
+
+  public ChannelHandlerContext getCtx() {
+    return ctx;
+  }
 }

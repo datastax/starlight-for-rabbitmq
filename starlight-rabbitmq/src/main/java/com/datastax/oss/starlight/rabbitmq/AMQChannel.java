@@ -24,6 +24,7 @@ import com.datastax.oss.starlight.rabbitmq.metadata.ContextMetadata;
 import com.datastax.oss.starlight.rabbitmq.metadata.ExchangeMetadata;
 import com.datastax.oss.starlight.rabbitmq.metadata.QueueMetadata;
 import com.datastax.oss.starlight.rabbitmq.metadata.VirtualHostMetadata;
+import io.netty.channel.ChannelHandlerContext;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.time.Duration;
@@ -127,6 +128,10 @@ public class AMQChannel implements ServerChannelMethodProcessor {
   private boolean _confirmOnPublish;
   private long _confirmedMessageCounter;
 
+  private final int maxPendingSendRequests;
+  private final int resumeReadsThreshold;
+  private int pendingSendRequest = 0;
+
   private final ConcurrentHashMap<String, Producer<byte[]>> producers = new ConcurrentHashMap<>();
   public static final RetryPolicy<Object> ZK_CONFLICT_RETRY =
       new RetryPolicy<>()
@@ -142,6 +147,9 @@ public class AMQChannel implements ServerChannelMethodProcessor {
     _creditManager =
         new Pre0_10CreditManager(0L, 0L, DEFAULT_HIGH_PREFETCH_LIMIT, DEFAULT_BATCH_LIMIT);
     _unacknowledgedMessageMap = new UnacknowledgedMessageMap(_creditManager);
+
+    this.maxPendingSendRequests = 1000;
+    this.resumeReadsThreshold = maxPendingSendRequests / 2;
   }
 
   @Override
@@ -1630,15 +1638,29 @@ public class AMQChannel implements ServerChannelMethodProcessor {
         messageBuilder.eventTime(contentHeader.getProperties().getTimestamp());
       }
 
+      if (++pendingSendRequest == maxPendingSendRequests) {
+        // When the quota of pending send requests is reached, stop reading from socket to cause
+        // backpressure on client connection, possibly shared between multiple producers
+        getCtx().channel().config().setAutoRead(false);
+      }
+
       messageBuilder
           .sendAsync()
           .thenAccept(
               messageId -> {
-                if (_confirmOnPublish) {
-                  _confirmedMessageCounter++;
-                  _connection.writeFrame(
-                      new AMQFrame(_channelId, new BasicAckBody(_confirmedMessageCounter, false)));
-                }
+                getCtx()
+                    .channel()
+                    .eventLoop()
+                    .execute(
+                        () -> {
+                          if (_confirmOnPublish) {
+                            _confirmedMessageCounter++;
+                            _connection.writeFrame(
+                                new AMQFrame(
+                                    _channelId, new BasicAckBody(_confirmedMessageCounter, false)));
+                          }
+                          completedSendOperation();
+                        });
               })
           .exceptionally(
               throwable -> {
@@ -1653,16 +1675,35 @@ public class AMQChannel implements ServerChannelMethodProcessor {
                 } else {
                   LOGGER.error("Failed to send message to exchange='{}'", exchangeName, throwable);
                 }
-                if (_confirmOnPublish) {
-                  _confirmedMessageCounter++;
-                  _connection.writeFrame(
-                      new AMQFrame(
-                          _channelId, new BasicNackBody(_confirmedMessageCounter, false, false)));
-                }
+                getCtx()
+                    .channel()
+                    .eventLoop()
+                    .execute(
+                        () -> {
+                          if (_confirmOnPublish) {
+                            _confirmedMessageCounter++;
+                            _connection.writeFrame(
+                                new AMQFrame(
+                                    _channelId,
+                                    new BasicNackBody(_confirmedMessageCounter, false, false)));
+                          }
+                          completedSendOperation();
+                        });
                 return null;
               });
     }
     // TODO: auth, immediate, mandatory, closeOnNoRoute
+  }
+
+  private void completedSendOperation() {
+    if (--pendingSendRequest == resumeReadsThreshold) {
+      if (getCtx() != null && !getCtx().channel().config().isAutoRead()) {
+        // Resume reading from socket if pending-request is not reached to threshold
+        getCtx().channel().config().setAutoRead(true);
+        // triggers channel read
+        getCtx().read();
+      }
+    }
   }
 
   private void setPublishFrame(MessagePublishInfo info) {
@@ -1935,5 +1976,9 @@ public class AMQChannel implements ServerChannelMethodProcessor {
 
   private GatewayService getGatewayService() {
     return _connection.getGatewayService();
+  }
+
+  private ChannelHandlerContext getCtx() {
+    return _connection.getCtx();
   }
 }
