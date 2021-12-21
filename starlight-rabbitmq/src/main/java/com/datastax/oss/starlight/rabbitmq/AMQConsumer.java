@@ -17,7 +17,6 @@ package com.datastax.oss.starlight.rabbitmq;
 
 import java.nio.ByteBuffer;
 import java.util.Map;
-import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -45,6 +44,7 @@ public class AMQConsumer {
   private final AtomicBoolean blocked = new AtomicBoolean(false);
   private final java.util.Queue<PulsarConsumer.PulsarConsumerMessage> pendingBindings =
       new ConcurrentLinkedQueue<>();
+  private boolean pendingConsume = false;
 
   private final Map<String, PulsarConsumer> subscriptions = new ConcurrentHashMap<>();
 
@@ -66,8 +66,11 @@ public class AMQConsumer {
           () -> {
             Message<byte[]> message = consumerMessage.getMessage();
             boolean allocated = false;
-            if (messageCompletableFuture != null && !messageCompletableFuture.isDone()) {
+            if (messageCompletableFuture != null
+                && !messageCompletableFuture.isDone()
+                && !blocked.get()) {
               allocated = useCreditForMessage(message.size());
+              pendingConsume = false;
               if (allocated) {
                 messageCompletableFuture.complete(consumerMessage);
                 consumerMessage.getConsumer().receiveAndDeliverMessages();
@@ -85,7 +88,10 @@ public class AMQConsumer {
   public void consume() {
     internalPinnedExecutor.execute(
         () -> {
-          if (!blocked.get()) {
+          if (!blocked.get()
+              && !pendingConsume
+              && channel.getConnection().getCtx().channel().isWritable()) {
+            pendingConsume = true;
             messageCompletableFuture = new CompletableFuture<>();
             messageCompletableFuture.thenAccept(this::handleMessage).thenRun(this::consume);
 
@@ -95,39 +101,32 @@ public class AMQConsumer {
   }
 
   private void handleMessage(PulsarConsumer.PulsarConsumerMessage messageResponse) {
-    if (!blocked.get()) {
-      Message<byte[]> message = messageResponse.getMessage();
-      long deliveryTag = channel.getNextDeliveryTag();
-      ContentBody contentBody = new ContentBody(ByteBuffer.wrap(message.getData()));
-      channel
-          .getConnection()
-          .getProtocolOutputConverter()
-          .writeDeliver(
-              MessageUtils.getMessagePublishInfo(message),
-              contentBody,
-              MessageUtils.getContentHeaderBody(message),
-              message.getRedeliveryCount() > 0,
-              channel.getChannelId(),
-              deliveryTag,
-              tag);
+    Message<byte[]> message = messageResponse.getMessage();
+    long deliveryTag = channel.getNextDeliveryTag();
+    ContentBody contentBody = new ContentBody(ByteBuffer.wrap(message.getData()));
+    channel
+        .getConnection()
+        .getProtocolOutputConverter()
+        .writeDeliver(
+            MessageUtils.getMessagePublishInfo(message),
+            contentBody,
+            MessageUtils.getContentHeaderBody(message),
+            message.getRedeliveryCount() > 0,
+            channel.getChannelId(),
+            deliveryTag,
+            tag);
 
-      if (noAck) {
-        messageResponse.getConsumer().ackMessage(message.getMessageId());
-      } else {
-        MessageConsumerAssociation messageConsumerAssociation =
-            new BasicConsumeMessageConsumerAssociation(
-                message.getMessageId(), messageResponse.getConsumer(), contentBody.getSize());
-        channel.addUnacknowledgedMessage(deliveryTag, messageConsumerAssociation);
-      }
+    if (noAck) {
+      messageResponse.getConsumer().ackMessage(message.getMessageId());
     } else {
-      deliverMessage(messageResponse);
-      channel.getCreditManager().restoreCredit(1, messageResponse.getMessage().size());
-      unblock();
-      throw new CancellationException();
+      MessageConsumerAssociation messageConsumerAssociation =
+          new BasicConsumeMessageConsumerAssociation(
+              message.getMessageId(), messageResponse.getConsumer(), contentBody.getSize());
+      channel.addUnacknowledgedMessage(deliveryTag, messageConsumerAssociation);
     }
   }
 
-  public boolean useCreditForMessage(int length) {
+  private boolean useCreditForMessage(int length) {
     boolean allocated = channel.getCreditManager().useCreditForMessage(length);
     if (allocated && noAck) {
       channel.getCreditManager().restoreCredit(1, length);
@@ -147,10 +146,7 @@ public class AMQConsumer {
   }
 
   public void block() {
-    synchronized (this) {
-      blocked.set(true);
-      messageCompletableFuture.cancel(false);
-    }
+    blocked.set(true);
   }
 
   public void unblock() {
