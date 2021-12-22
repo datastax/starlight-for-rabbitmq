@@ -155,6 +155,16 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
   }
 
   @Override
+  public void channelWritabilityChanged(ChannelHandlerContext ctx) {
+    if (LOGGER.isDebugEnabled()) {
+      LOGGER.debug("Channel writability has changed to: {}", ctx.channel().isWritable());
+    }
+    if (ctx.channel().isWritable()) {
+      _channelMap.values().forEach(AMQChannel::startConsumers);
+    }
+  }
+
+  @Override
   public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
     LOGGER.warn(
         "[{}] Got exception {} : {} {}",

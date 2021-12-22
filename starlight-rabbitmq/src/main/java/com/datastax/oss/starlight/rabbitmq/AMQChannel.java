@@ -32,7 +32,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.Collection;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
@@ -115,7 +114,8 @@ public class AMQChannel implements ServerChannelMethodProcessor {
 
   private final UnacknowledgedMessageMap _unacknowledgedMessageMap;
   /** Maps from consumer tag to subscription instance. Allows us to unsubscribe from a queue. */
-  private final Map<AMQShortString, AMQConsumer> _tag2SubscriptionTargetMap = new HashMap<>();
+  private final Map<AMQShortString, AMQConsumer> _tag2SubscriptionTargetMap =
+      new ConcurrentHashMap<>();
   /**
    * The current message - which may be partial in the sense that not all frames have been received
    * yet - which has been received by this channel. As the frames are received the message gets
@@ -1956,6 +1956,10 @@ public class AMQChannel implements ServerChannelMethodProcessor {
     } catch (PulsarClientException e) {
       throw new RuntimeException(e);
     }
+  }
+
+  public void startConsumers() {
+    _tag2SubscriptionTargetMap.values().forEach(AMQConsumer::consume);
   }
 
   public FlowCreditManager getCreditManager() {
