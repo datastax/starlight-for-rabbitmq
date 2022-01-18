@@ -491,6 +491,7 @@ limitations under the License.]]></inlineHeader>
           </plugin>
           <plugin>
             <artifactId>maven-gpg-plugin</artifactId>
+            <version>3.0.1</version>
             <executions>
               <execution>
                 <id>sign-artifacts</id>
@@ -500,6 +501,14 @@ limitations under the License.]]></inlineHeader>
                 </goals>
               </execution>
             </executions>
+          </plugin>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-release-plugin</artifactId>
+            <version>3.0.0-M5</version>
+            <configuration>
+              <tagNameFormat>v@{project.version}</tagNameFormat>
+            </configuration>
           </plugin>
         </plugins>
       </build>
