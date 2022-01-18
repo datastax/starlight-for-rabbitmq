@@ -42,8 +42,8 @@
     <java.release.version>8</java.release.version>
     <maven.compiler.source>8</maven.compiler.source>
     <maven.compiler.target>8</maven.compiler.target>
-    <pulsar.groupId>org.apache.pulsar</pulsar.groupId>
-    <pulsar.version>2.8.0.1.1.5</pulsar.version>
+    <pulsar.groupId>com.datastax.oss</pulsar.groupId>
+    <pulsar.version>2.8.0.1.1.14</pulsar.version>
     <qpid.version>8.0.0</qpid.version>
     <failsafe.version>2.4.2</failsafe.version>
     <lombok.version>1.18.20</lombok.version>
@@ -60,6 +60,8 @@
     <assertj.version>3.19.0</assertj.version>
     <awaitility.version>4.1.0</awaitility.version>
     <rabbitmqclient.version>5.12.0</rabbitmqclient.version>
+    <jackson-databind.version>2.12.6</jackson-databind.version>
+    <common-compress.version>1.21</common-compress.version>
   </properties>
   <dependencyManagement>
     <dependencies>
@@ -196,6 +198,21 @@
         <artifactId>amqp-client</artifactId>
         <version>${rabbitmqclient.version}</version>
         <scope>test</scope>
+      </dependency>
+      <dependency>
+        <groupId>com.fasterxml.jackson.core</groupId>
+        <artifactId>jackson-databind</artifactId>
+        <version>${jackson-databind.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>com.fasterxml.jackson.core</groupId>
+        <artifactId>jackson-core</artifactId>
+        <version>${jackson-databind.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.apache.commons</groupId>
+        <artifactId>commons-compress</artifactId>
+        <version>${common-compress.version}</version>
       </dependency>
     </dependencies>
   </dependencyManagement>
