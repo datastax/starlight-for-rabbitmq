@@ -253,7 +253,15 @@ The mapping is done as follows:
 
 This means that AMQP vhosts must only contain characters that are accepted in Pulsar tenant and namespace names (ie. `a-zA-Z0-9_-=:.`)
 
-# Tests
+# Contribute
+## Release
+
+```
+mvn release:prepare -DautoVersionSubmodules -Prelease -Darguments='-DskipTests'
+```
+
+The GitHub release is handled by a GitHub action whenever a tag is being pushed
+
 ## System tests
 
 System tests is a test suite which runs a RabbitMQ client against a real Pulsar Cluster and tests the protocol handler is working correctly.
