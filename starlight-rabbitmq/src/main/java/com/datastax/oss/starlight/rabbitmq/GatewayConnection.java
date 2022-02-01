@@ -48,8 +48,8 @@ import org.apache.bookkeeper.util.collections.ConcurrentLongHashMap;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.curator.x.async.modeled.versioned.Versioned;
 import org.apache.pulsar.broker.authentication.AuthenticationDataCommand;
-import org.apache.pulsar.broker.authentication.AuthenticationProvider;
 import org.apache.pulsar.broker.authentication.AuthenticationService;
+import org.apache.pulsar.client.admin.PulsarAdminException;
 import org.apache.pulsar.common.naming.NamespaceName;
 import org.apache.pulsar.common.policies.data.AuthAction;
 import org.apache.qpid.server.QpidException;
@@ -288,21 +288,23 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
       AuthenticationService authenticationService = gatewayService.getAuthenticationService();
       try {
         if ("PLAIN".equals(mechanism.toString())) {
-          AuthenticationProvider tokenAuthProvider =
-              authenticationService.getAuthenticationProvider("token");
-          if (tokenAuthProvider != null) {
-            if (response.length > 2 && response[0] == 0 && response[1] == 0) {
-              String token = new String(response, 2, response.length - 2, StandardCharsets.UTF_8);
-              AuthenticationDataCommand authData =
-                  new AuthenticationDataCommand(token, remoteAddress, null);
-              role = authenticationService.authenticate(authData, "token");
-            }
+          if (authenticationService.getAuthenticationProvider("token") == null) {
+            throw new AuthenticationException("SASL PLAIN mechanism not enabled");
+          }
+          if (response.length > 2 && response[0] == 0 && response[1] == 0) {
+            String token = new String(response, 2, response.length - 2, StandardCharsets.UTF_8);
+            AuthenticationDataCommand authData =
+                new AuthenticationDataCommand(token, remoteAddress, null);
+            role = authenticationService.authenticate(authData, "token");
           }
           if (role == null) {
             throw new AuthenticationException(
                 "SASL PLAIN is only supported with JWT as password at the moment");
           }
         } else if ("EXTERNAL".equals(mechanism.toString())) {
+          if (authenticationService.getAuthenticationProvider("tls") == null) {
+            throw new AuthenticationException("SASL EXTERNAL mechanism not enabled");
+          }
           ChannelHandler sslHandler =
               ctx.channel().pipeline().get(ServiceChannelInitializer.TLS_HANDLER);
           SSLSession sslSession = null;
@@ -495,6 +497,12 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
                 isTenantAdmin,
                 (__, isAdmin) -> {
                   if (!isAdmin) {
+                    if (LOGGER.isDebugEnabled()) {
+                      LOGGER.debug(
+                          "Authorization failed: user {} is not tenant admin of {}",
+                          role,
+                          namespace);
+                    }
                     sendConnectionClose(ErrorCodes.ACCESS_REFUSED, "Authorization failed", 0);
                   } else {
                     connectionOpen(virtualHostName);
@@ -502,7 +510,13 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
                 })
             .exceptionally(
                 t -> {
-                  LOGGER.warn("Failed to get tenant or namespace", t);
+                  if (t.getCause() instanceof PulsarAdminException.NotFoundException) {
+                    if (LOGGER.isDebugEnabled()) {
+                      LOGGER.debug("Authorization failed: namespace {} not found", namespace);
+                    }
+                  } else {
+                    LOGGER.error("Authorization failed: Failed to get tenant or namespace", t);
+                  }
                   sendConnectionClose(ErrorCodes.ACCESS_REFUSED, "Authorization failed", 0);
                   return null;
                 });
@@ -512,7 +526,9 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
 
       // For now, just checking that the namespace exists
     } catch (IllegalArgumentException e) {
-      LOGGER.warn("Invalid virtual host :" + virtualHostName, e);
+      if (LOGGER.isDebugEnabled()) {
+        LOGGER.debug("Invalid virtual host :" + virtualHostName, e);
+      }
       sendConnectionClose(ErrorCodes.INVALID_PATH, e.getMessage(), 0);
     }
   }

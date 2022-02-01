@@ -1598,12 +1598,12 @@ public class AMQChannel implements ServerChannelMethodProcessor {
       try {
         producer = getOrCreateProducerForExchange(exchangeName, routingKey);
       } catch (Exception e) {
-        _connection.sendConnectionClose(
-            ErrorCodes.INTERNAL_ERROR,
+        String message =
             String.format(
                 "Failed in creating producer for exchange [%s] and routing key [%s]",
-                exchangeName, routingKey),
-            _channelId);
+                exchangeName, routingKey);
+        LOGGER.error(message, e);
+        _connection.sendConnectionClose(ErrorCodes.INTERNAL_ERROR, message, _channelId);
         return;
       }
 
@@ -1784,7 +1784,7 @@ public class AMQChannel implements ServerChannelMethodProcessor {
     } finally {
       LogMessage operationalLogMessage =
           cause == 0 ? ChannelMessages.CLOSE() : ChannelMessages.CLOSE_FORCED(cause, message);
-      messageWithSubject(operationalLogMessage);
+      LOGGER.info(operationalLogMessage.toString());
     }
   }
 
