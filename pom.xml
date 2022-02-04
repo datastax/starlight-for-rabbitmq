@@ -21,7 +21,7 @@
   <groupId>com.datastax.oss</groupId>
   <artifactId>starlight-rabbitmq-parent</artifactId>
   <packaging>pom</packaging>
-  <version>1.2.0-SNAPSHOT</version>
+  <version>2.8.1.1-SNAPSHOT</version>
   <name>DataStax Starlight for RabbitMQ (R) parent</name>
   <description>Proxy to seamlessly connect RabbitMQ clients to Apache Pulsar</description>
   <url>https://github.com/datastax/starlight-for-rabbitmq</url>
@@ -42,8 +42,8 @@
     <java.release.version>8</java.release.version>
     <maven.compiler.source>8</maven.compiler.source>
     <maven.compiler.target>8</maven.compiler.target>
-    <pulsar.groupId>com.datastax.oss</pulsar.groupId>
-    <pulsar.version>2.8.0.1.1.14</pulsar.version>
+    <pulsar.groupId>org.apache.pulsar</pulsar.groupId>
+    <pulsar.version>2.8.1</pulsar.version>
     <qpid.version>8.0.0</qpid.version>
     <failsafe.version>2.4.2</failsafe.version>
     <lombok.version>1.18.20</lombok.version>

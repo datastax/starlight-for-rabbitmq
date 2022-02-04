@@ -1,3 +1,0 @@
-name: rabbitmq
-description: Starlight for RabbitMQ Proxy Extension
-extensionClass: com.datastax.oss.starlight.rabbitmq.GatewayProxyProtocolHandler
