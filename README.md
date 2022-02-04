@@ -2,9 +2,8 @@
 
 Starlight for RabbitMQ acts as a proxy between your RabbitMQ application and Apache Pulsar.
 It implements the AMQP 0.9.1 protocol used by RabbitMQ clients and translates AMQP frames and concepts to Pulsar ones.
-The proxy can be run as a standalone jar, a Pulsar
-[Pluggable Protocol Handler](https://github.com/apache/pulsar/wiki/PIP-41%3A-Pluggable-Protocol-Handler) 
- or a Pulsar [Proxy extension](https://github.com/apache/pulsar/wiki/PIP-99%3A-Pulsar-Proxy-Extensions).
+The proxy can be run as a standalone jar or a Pulsar
+[Pluggable Protocol Handler](https://github.com/apache/pulsar/wiki/PIP-41%3A-Pluggable-Protocol-Handler).
 
 ## Limitations
 
@@ -79,26 +78,6 @@ Starlight for RabbitMQ can be embedded directly into the Pulsar brokers by loadi
    ```
 
 3. Start the Pulsar broker
-
-### Running Starlight for RabbitMQ as a Pulsar Proxy extension
-
-Starlight for RabbitMQ can be embedded into the Pulsar Proxy by loading it as a proxy extension.
-
-1. Set the configuration of the Starlight for RabbitMQ proxy extension in the proxy configuration file (generally `proxy.conf` or `standalone.conf`).
-   Example where the NAR file was copied into the `./proxyextensions` directory:
-    ```properties
-   proxyExtensions=rabbitmq
-   proxyExtensionsDirectory=./proxyextensions
-    ```
-
-2. Set the AMQP service listeners. Note that the hostname value in listeners is the same as Pulsar proxy's `advertisedAddress`.
-   The following is an example.
-   ```properties
-   amqpListeners=amqp://127.0.0.1:5672
-   advertisedAddress=127.0.0.1
-   ```
-
-3. Start the Pulsar Proxy
 
 ### Checking that it works
 

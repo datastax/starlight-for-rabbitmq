@@ -24,8 +24,6 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import org.apache.bookkeeper.util.PortManager;
 import org.apache.pulsar.broker.ServiceConfiguration;
-import org.apache.pulsar.proxy.server.ProxyConfiguration;
-import org.apache.pulsar.proxy.server.ProxyService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -35,15 +33,15 @@ public class NarLoadingIT {
 
   @Test
   public void loadsNarWithZkDiscovery() throws Exception {
-    loadProtocolHandlerAndProxyExtension(true);
+    loadProtocolHandler(true);
   }
 
   @Test
   public void loadsNarWithBrokerServiceUrl() throws Exception {
-    loadProtocolHandlerAndProxyExtension(false);
+    loadProtocolHandler(false);
   }
 
-  private void loadProtocolHandlerAndProxyExtension(boolean zkDiscovery) throws Exception {
+  private void loadProtocolHandler(boolean zkDiscovery) throws Exception {
     Path handlerPath = Paths.get("target/test-protocol-handler.nar").toAbsolutePath();
     String protocolHandlerDir = handlerPath.toFile().getParent();
 
@@ -63,41 +61,11 @@ public class NarLoadingIT {
     PulsarCluster cluster = new PulsarCluster(pulsarConfig, bookKeeperCluster);
     cluster.start();
 
-    ProxyConfiguration proxyConfiguration = new ProxyConfiguration();
-    proxyConfiguration.setProxyExtensionsDirectory(protocolHandlerDir);
-    proxyConfiguration.setProxyExtensions(Sets.newHashSet("rabbitmq"));
-    if (zkDiscovery) {
-      proxyConfiguration.setZookeeperServers(bookKeeperCluster.getZooKeeperAddress());
-      proxyConfiguration.setConfigurationStoreServers(bookKeeperCluster.getZooKeeperAddress());
-    } else {
-      proxyConfiguration
-          .getProperties()
-          .put("brokerServiceURL", cluster.getService().getBrokerServiceUrl());
-      proxyConfiguration
-          .getProperties()
-          .put("brokerWebServiceURL", cluster.getService().getWebServiceAddress());
-    }
-
-    int portOnProxy = PortManager.nextFreePort();
-    proxyConfiguration.getProperties().put("amqpListeners", "amqp://127.0.0.1:" + portOnProxy);
-    proxyConfiguration
-        .getProperties()
-        .put("configurationStoreServers", cluster.getService().getConfig().getZookeeperServers());
-
-    ProxyService pulsarProxy = new ProxyService(proxyConfiguration, null);
-    pulsarProxy.start();
-
     ConnectionFactory factory = new ConnectionFactory();
     factory.setPort(portOnBroker);
     Connection connection = factory.newConnection();
     connection.close();
 
-    factory = new ConnectionFactory();
-    factory.setPort(portOnProxy);
-    connection = factory.newConnection();
-    connection.close();
-
-    pulsarProxy.close();
     cluster.close();
   }
 }
