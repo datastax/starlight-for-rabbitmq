@@ -42,6 +42,11 @@
       <scope>test</scope>
     </dependency>
     <dependency>
+      <groupId>${pulsar.groupId}</groupId>
+      <artifactId>pulsar-proxy</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
       <groupId>org.apache.curator</groupId>
       <artifactId>curator-test</artifactId>
       <scope>test</scope>
