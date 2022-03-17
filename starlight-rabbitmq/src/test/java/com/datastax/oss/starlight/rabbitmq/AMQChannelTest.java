@@ -23,6 +23,9 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Matchers.any;
 import static org.mockito.Matchers.anyInt;
 import static org.mockito.Matchers.eq;
@@ -41,6 +44,8 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import org.apache.commons.codec.binary.Base64;
 import org.apache.pulsar.client.api.MessageId;
+import org.apache.pulsar.client.api.ProducerBuilder;
+import org.apache.pulsar.client.api.PulsarClient;
 import org.apache.pulsar.client.api.PulsarClientException;
 import org.apache.pulsar.client.api.TypedMessageBuilder;
 import org.apache.pulsar.client.impl.MessageIdImpl;
@@ -613,7 +618,16 @@ public class AMQChannelTest extends AbstractBaseTest {
 
   @Test
   void testReceiveMessagePulsarClientError() throws Exception {
-    when(gatewayService.getPulsarClient()).thenThrow(PulsarClientException.class);
+    PulsarClient pulsarClient = mock(PulsarClient.class);
+    ProducerBuilder producerBuilder = mock(ProducerBuilder.class);
+    when(pulsarClient.newProducer()).thenReturn(producerBuilder);
+    when(producerBuilder.topic(anyString())).thenReturn(producerBuilder);
+    when(producerBuilder.enableBatching(anyBoolean())).thenReturn(producerBuilder);
+    when(producerBuilder.batchingMaxPublishDelay(anyLong(), any(TimeUnit.class)))
+        .thenReturn(producerBuilder);
+    when(producerBuilder.maxPendingMessages(anyInt())).thenReturn(producerBuilder);
+    when(producerBuilder.create()).thenThrow(PulsarClientException.class);
+    when(gatewayService.getPulsarClient()).thenReturn(pulsarClient);
 
     openChannel();
     sendBasicPublish();

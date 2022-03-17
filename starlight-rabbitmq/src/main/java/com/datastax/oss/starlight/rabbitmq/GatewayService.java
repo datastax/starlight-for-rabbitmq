@@ -31,6 +31,7 @@ import io.netty.channel.ChannelOption;
 import io.netty.channel.EventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.util.concurrent.DefaultThreadFactory;
+import io.prometheus.client.Counter;
 import java.io.Closeable;
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -105,19 +106,31 @@ public class GatewayService implements Closeable {
       Versioned.from(new ContextMetadata(), 0);
   private SubscriptionCleaner subscriptionCleaner;
 
+  private Counter inBytesCounter;
+  private Counter outBytesCounter;
+
   public GatewayService(GatewayConfiguration config, AuthenticationService authenticationService) {
+    this(config, authenticationService, "server");
+  }
+
+  public GatewayService(
+      GatewayConfiguration config,
+      AuthenticationService authenticationService,
+      String metricsPrefix) {
     this(
         config,
         authenticationService,
         config.getBrokerServiceURL(),
-        config.getBrokerWebServiceURL());
+        config.getBrokerWebServiceURL(),
+        metricsPrefix);
   }
 
   public GatewayService(
       GatewayConfiguration config,
       AuthenticationService authenticationService,
       String brokerServiceUrl,
-      String brokerWebServiceUrl) {
+      String brokerWebServiceUrl,
+      String metricsPrefix) {
     checkNotNull(config);
     this.config = config;
     this.brokerServiceUrl = brokerServiceUrl;
@@ -127,6 +140,18 @@ public class GatewayService implements Closeable {
         Executors.newScheduledThreadPool(
             numThreads, new DefaultThreadFactory("pulsar-rabbitmq-executor"));
     this.internalExecutorService = new ExecutorProvider(numThreads, "starlight-rabbitmq-internal");
+
+    inBytesCounter =
+        Counter.build(
+                metricsPrefix + "_rabbitmq_in_bytes", "Counter of Starlight for RabbitMQ bytes in")
+            .labelNames("namespace")
+            .register();
+
+    outBytesCounter =
+        Counter.build(
+                metricsPrefix + "_rabbitmq_out_bytes", "Counter of Starlight for RabbitMQ bytes in")
+            .labelNames("namespace")
+            .register();
   }
 
   public void start() throws Exception {
@@ -134,6 +159,7 @@ public class GatewayService implements Closeable {
   }
 
   public void start(boolean startChannels) throws Exception {
+
     pulsarClient = createClientInstance();
     pulsarAdmin = createAdminInstance();
     curator = createCuratorInstance();
@@ -400,6 +426,14 @@ public class GatewayService implements Closeable {
             });
 
     return contextMetadata;
+  }
+
+  public void incrementBytesIn(String namespace, double bytes) {
+    inBytesCounter.labels(namespace == null ? "" : namespace).inc(bytes);
+  }
+
+  public void incrementBytesOut(String namespace, double bytes) {
+    outBytesCounter.labels(namespace == null ? "" : namespace).inc(bytes);
   }
 
   public AuthenticationService getAuthenticationService() {

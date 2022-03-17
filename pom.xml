@@ -46,58 +46,24 @@
     <pulsar.version>2.9.1</pulsar.version>
     <qpid.version>8.0.0</qpid.version>
     <failsafe.version>2.4.2</failsafe.version>
-    <lombok.version>1.18.20</lombok.version>
     <curator.version>5.1.0</curator.version>
-    <jcommander.version>1.78</jcommander.version>
-    <guava.version>30.1-jre</guava.version>
-    <commonslang3.version>3.12.0</commonslang3.version>
-    <slf4j.version>1.7.30</slf4j.version>
-    <log4j2.version>2.17.1</log4j2.version>
     <junit.version>5.7.1</junit.version>
     <spotbugs.version>4.2.3</spotbugs.version>
-    <mockito.version>1.10.19</mockito.version>
     <surefire.version>3.0.0-M5</surefire.version>
-    <assertj.version>3.19.0</assertj.version>
-    <awaitility.version>4.1.0</awaitility.version>
     <rabbitmqclient.version>5.12.0</rabbitmqclient.version>
-    <jackson-databind.version>2.12.6</jackson-databind.version>
-    <common-compress.version>1.21</common-compress.version>
   </properties>
   <dependencyManagement>
     <dependencies>
       <dependency>
-        <groupId>org.slf4j</groupId>
-        <artifactId>slf4j-api</artifactId>
-        <version>${slf4j.version}</version>
-      </dependency>
-      <dependency>
-        <groupId>org.apache.logging.log4j</groupId>
-        <artifactId>log4j-core</artifactId>
-        <version>${log4j2.version}</version>
-      </dependency>
-      <dependency>
-        <groupId>org.apache.logging.log4j</groupId>
-        <artifactId>log4j-slf4j-impl</artifactId>
-        <version>${log4j2.version}</version>
+        <groupId>org.apache.pulsar</groupId>
+        <artifactId>pulsar</artifactId>
+        <version>${pulsar.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
       </dependency>
       <dependency>
         <groupId>${pulsar.groupId}</groupId>
         <artifactId>pulsar-broker</artifactId>
-        <version>${pulsar.version}</version>
-      </dependency>
-      <dependency>
-        <groupId>${pulsar.groupId}</groupId>
-        <artifactId>pulsar-broker-common</artifactId>
-        <version>${pulsar.version}</version>
-      </dependency>
-      <dependency>
-        <groupId>${pulsar.groupId}</groupId>
-        <artifactId>pulsar-client-original</artifactId>
-        <version>${pulsar.version}</version>
-      </dependency>
-      <dependency>
-        <groupId>${pulsar.groupId}</groupId>
-        <artifactId>pulsar-client-admin-original</artifactId>
         <version>${pulsar.version}</version>
       </dependency>
       <dependency>
@@ -114,27 +80,13 @@
         <groupId>org.apache.curator</groupId>
         <artifactId>curator-test</artifactId>
         <version>${curator.version}</version>
+        <scope>test</scope>
         <exclusions>
           <exclusion>
             <groupId>org.apache.zookeeper</groupId>
             <artifactId>*</artifactId>
           </exclusion>
         </exclusions>
-      </dependency>
-      <dependency>
-        <groupId>com.beust</groupId>
-        <artifactId>jcommander</artifactId>
-        <version>${jcommander.version}</version>
-      </dependency>
-      <dependency>
-        <groupId>com.google.guava</groupId>
-        <artifactId>guava</artifactId>
-        <version>${guava.version}</version>
-      </dependency>
-      <dependency>
-        <groupId>org.apache.commons</groupId>
-        <artifactId>commons-lang3</artifactId>
-        <version>${commonslang3.version}</version>
       </dependency>
       <dependency>
         <groupId>org.apache.qpid</groupId>
@@ -150,11 +102,6 @@
         <groupId>net.jodah</groupId>
         <artifactId>failsafe</artifactId>
         <version>${failsafe.version}</version>
-      </dependency>
-      <dependency>
-        <groupId>org.projectlombok</groupId>
-        <artifactId>lombok</artifactId>
-        <version>${lombok.version}</version>
       </dependency>
       <dependency>
         <groupId>org.junit.jupiter</groupId>
@@ -181,48 +128,10 @@
         <scope>test</scope>
       </dependency>
       <dependency>
-        <groupId>com.github.spotbugs</groupId>
-        <artifactId>spotbugs-annotations</artifactId>
-        <version>${spotbugs.version}</version>
-      </dependency>
-      <dependency>
-        <groupId>org.mockito</groupId>
-        <artifactId>mockito-core</artifactId>
-        <version>${mockito.version}</version>
-        <scope>test</scope>
-      </dependency>
-      <dependency>
-        <groupId>org.assertj</groupId>
-        <artifactId>assertj-core</artifactId>
-        <version>${assertj.version}</version>
-        <scope>test</scope>
-      </dependency>
-      <dependency>
-        <groupId>org.awaitility</groupId>
-        <artifactId>awaitility</artifactId>
-        <version>${awaitility.version}</version>
-        <scope>test</scope>
-      </dependency>
-      <dependency>
         <groupId>com.rabbitmq</groupId>
         <artifactId>amqp-client</artifactId>
         <version>${rabbitmqclient.version}</version>
         <scope>test</scope>
-      </dependency>
-      <dependency>
-        <groupId>com.fasterxml.jackson.core</groupId>
-        <artifactId>jackson-databind</artifactId>
-        <version>${jackson-databind.version}</version>
-      </dependency>
-      <dependency>
-        <groupId>com.fasterxml.jackson.core</groupId>
-        <artifactId>jackson-core</artifactId>
-        <version>${jackson-databind.version}</version>
-      </dependency>
-      <dependency>
-        <groupId>org.apache.commons</groupId>
-        <artifactId>commons-compress</artifactId>
-        <version>${common-compress.version}</version>
       </dependency>
     </dependencies>
   </dependencyManagement>
@@ -369,7 +278,7 @@ limitations under the License.]]></inlineHeader>
         <plugin>
           <groupId>com.github.spotbugs</groupId>
           <artifactId>spotbugs-maven-plugin</artifactId>
-          <version>4.2.0</version>
+          <version>{spotbugs.version}</version>
         </plugin>
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
