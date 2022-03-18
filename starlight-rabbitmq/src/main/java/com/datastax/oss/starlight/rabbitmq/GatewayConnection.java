@@ -178,6 +178,7 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
   @Override
   public void channelRead(ChannelHandlerContext ctx, Object msg) {
     ByteBuf buffer = (ByteBuf) msg;
+    gatewayService.incrementBytesIn(namespace, buffer.readableBytes());
     try {
       QpidByteBuffer buf = QpidByteBuffer.wrap(buffer.nioBuffer());
       if (_netInputBuffer.remaining() < buf.remaining()) {
@@ -817,7 +818,8 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
       LOGGER.debug("SEND: " + frame);
     }
 
-    ctx.writeAndFlush(frame);
+    ctx.writeAndFlush(frame)
+        .addListener(msg -> gatewayService.incrementBytesOut(namespace, frame.getSize()));
   }
 
   public void closeChannel(AMQChannel channel) {

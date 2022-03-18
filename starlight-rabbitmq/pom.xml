@@ -31,56 +31,14 @@
   </properties>
   <dependencies>
     <dependency>
-      <groupId>com.beust</groupId>
-      <artifactId>jcommander</artifactId>
-      <scope>provided</scope>
-    </dependency>
-    <dependency>
-      <groupId>com.google.guava</groupId>
-      <artifactId>guava</artifactId>
-      <scope>provided</scope>
-    </dependency>
-    <dependency>
-      <groupId>org.apache.commons</groupId>
-      <artifactId>commons-lang3</artifactId>
-      <scope>provided</scope>
-    </dependency>
-    <dependency>
-      <groupId>${pulsar.groupId}</groupId>
-      <artifactId>pulsar-client-original</artifactId>
-      <scope>provided</scope>
-    </dependency>
-    <dependency>
-      <groupId>${pulsar.groupId}</groupId>
-      <artifactId>pulsar-client-admin-original</artifactId>
-      <scope>provided</scope>
-    </dependency>
-    <dependency>
-      <groupId>${pulsar.groupId}</groupId>
-      <artifactId>pulsar-broker-common</artifactId>
-      <scope>provided</scope>
-    </dependency>
-    <dependency>
       <groupId>${pulsar.groupId}</groupId>
       <artifactId>pulsar-broker</artifactId>
       <scope>provided</scope>
-      <exclusions>
-        <exclusion>
-          <groupId>*</groupId>
-          <artifactId>*</artifactId>
-        </exclusion>
-      </exclusions>
     </dependency>
     <dependency>
       <groupId>${pulsar.groupId}</groupId>
       <artifactId>pulsar-proxy</artifactId>
       <scope>provided</scope>
-      <exclusions>
-        <exclusion>
-          <groupId>*</groupId>
-          <artifactId>*</artifactId>
-        </exclusion>
-      </exclusions>
     </dependency>
     <dependency>
       <groupId>org.slf4j</groupId>
@@ -88,28 +46,21 @@
       <scope>provided</scope>
     </dependency>
     <dependency>
-      <groupId>org.apache.logging.log4j</groupId>
-      <artifactId>log4j-core</artifactId>
-      <scope>provided</scope>
-    </dependency>
-    <dependency>
-      <groupId>org.apache.logging.log4j</groupId>
-      <artifactId>log4j-slf4j-impl</artifactId>
-      <scope>provided</scope>
-    </dependency>
-    <dependency>
       <groupId>org.apache.qpid</groupId>
       <artifactId>qpid-broker-core</artifactId>
+      <!-- Pulled by pulsar-broker -->
       <exclusions>
-        <!-- Pulled by pulsar-client-original-->
         <exclusion>
           <groupId>com.fasterxml.jackson.core</groupId>
           <artifactId>jackson-databind</artifactId>
         </exclusion>
-        <!-- Pulled by pulsar-client-original-->
         <exclusion>
           <groupId>com.fasterxml.jackson.core</groupId>
           <artifactId>jackson-core</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>com.google.guava</groupId>
+          <artifactId>guava</artifactId>
         </exclusion>
       </exclusions>
     </dependency>
@@ -120,11 +71,15 @@
     <dependency>
       <groupId>org.apache.curator</groupId>
       <artifactId>curator-x-async</artifactId>
+      <!-- Pulled by pulsar-broker -->
       <exclusions>
         <exclusion>
-          <!-- Pulled by pulsar-broker-common -->
           <groupId>org.apache.curator</groupId>
           <artifactId>curator-framework</artifactId>
+        </exclusion>
+        <exclusion>
+          <groupId>com.google.guava</groupId>
+          <artifactId>guava</artifactId>
         </exclusion>
       </exclusions>
     </dependency>

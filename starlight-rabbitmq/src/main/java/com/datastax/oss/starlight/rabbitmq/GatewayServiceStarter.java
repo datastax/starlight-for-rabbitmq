@@ -19,11 +19,15 @@ import static org.apache.commons.lang3.StringUtils.isBlank;
 
 import com.beust.jcommander.JCommander;
 import com.beust.jcommander.Parameter;
+import io.prometheus.client.exporter.MetricsServlet;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
+import java.util.Collections;
 import java.util.Date;
 import org.apache.pulsar.broker.PulsarServerException;
 import org.apache.pulsar.broker.authentication.AuthenticationService;
+import org.apache.pulsar.proxy.server.WebServer;
+import org.eclipse.jetty.servlet.ServletHolder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -79,6 +83,7 @@ public class GatewayServiceStarter {
 
       // create gateway service
       GatewayService gatewayService = new GatewayService(config, authenticationService);
+      WebServer webServer = new WebServer(config, authenticationService);
 
       Runtime.getRuntime()
           .addShutdownHook(
@@ -87,11 +92,24 @@ public class GatewayServiceStarter {
                     try {
                       gatewayService.close();
                     } catch (Exception e) {
-                      log.warn("server couldn't stop gracefully {}", e.getMessage(), e);
+                      log.warn("gRPC server couldn't stop gracefully {}", e.getMessage(), e);
+                    }
+                    try {
+                      webServer.stop();
+                    } catch (Exception e) {
+                      log.warn("Web server couldn't stop gracefully {}", e.getMessage(), e);
                     }
                   }));
 
       gatewayService.start(true);
+
+      webServer.addServlet(
+          "/metrics",
+          new ServletHolder(MetricsServlet.class),
+          Collections.emptyList(),
+          config.isAuthenticateMetricsEndpoint());
+
+      webServer.start();
 
     } catch (Exception e) {
       log.error("Failed to start Starlight for RabbitMQ. error msg " + e.getMessage(), e);

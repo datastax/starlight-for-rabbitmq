@@ -26,6 +26,7 @@ import org.apache.pulsar.broker.service.BrokerService;
 
 public class GatewayProtocolHandler implements ProtocolHandler {
   public static final String PROTOCOL_NAME = "rabbitmq";
+  public static final String METRICS_PREFIX = "pulsar";
 
   private GatewayConfiguration config;
   private GatewayService service;
@@ -59,7 +60,8 @@ public class GatewayProtocolHandler implements ProtocolHandler {
             config,
             brokerService.getAuthenticationService(),
             brokerService.getPulsar().getSafeBrokerServiceUrl(),
-            brokerService.getPulsar().getSafeWebServiceAddress());
+            brokerService.getPulsar().getSafeWebServiceAddress(),
+            METRICS_PREFIX);
     service.start(false);
   }
 
