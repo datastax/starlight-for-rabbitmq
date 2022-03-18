@@ -30,6 +30,7 @@ import com.rabbitmq.client.ConnectionFactory;
 import com.rabbitmq.client.Envelope;
 import com.rabbitmq.client.GetResponse;
 import com.rabbitmq.client.ShutdownSignalException;
+import io.prometheus.client.CollectorRegistry;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.Collections;
@@ -65,6 +66,7 @@ public class RabbitmqInteropIT {
 
   @BeforeAll
   public static void before() throws Exception {
+    CollectorRegistry.defaultRegistry.clear();
     cluster = new PulsarCluster(tempDir);
     cluster.start();
     GatewayConfiguration config = new GatewayConfiguration();

@@ -24,6 +24,7 @@ import com.datastax.oss.starlight.rabbitmq.GatewayConfiguration;
 import com.datastax.oss.starlight.rabbitmq.GatewayService;
 import com.datastax.oss.starlight.rabbitmqtests.utils.PulsarCluster;
 import com.google.common.collect.Sets;
+import io.prometheus.client.CollectorRegistry;
 import java.nio.file.Path;
 import java.util.Collections;
 import java.util.Optional;
@@ -102,6 +103,7 @@ public class BrokerClientTlsAuthenticationIT {
 
   @BeforeEach
   public void beforeEach() {
+    CollectorRegistry.defaultRegistry.clear();
     gatewayConfiguration = new GatewayConfiguration();
     gatewayConfiguration.setBrokerServiceURL("pulsar+ssl://localhost:" + brokerServicePortTls);
     gatewayConfiguration.setBrokerWebServiceURL("https://localhost:" + webServicePortTls);

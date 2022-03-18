@@ -17,17 +17,21 @@ package com.datastax.oss.starlight.rabbitmqtests;
 
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
 
 import com.datastax.oss.starlight.rabbitmq.ConfigurationUtils;
 import com.datastax.oss.starlight.rabbitmq.GatewayConfiguration;
 import com.datastax.oss.starlight.rabbitmq.GatewayService;
 import com.datastax.oss.starlight.rabbitmqtests.utils.PulsarCluster;
+import com.rabbitmq.client.AuthenticationFailureException;
 import com.rabbitmq.client.Connection;
 import com.rabbitmq.client.ConnectionFactory;
 import com.rabbitmq.client.PossibleAuthenticationFailureException;
 import com.rabbitmq.client.impl.DefaultCredentialsProvider;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.SignatureAlgorithm;
+import io.prometheus.client.CollectorRegistry;
+import java.net.ConnectException;
 import java.nio.file.Path;
 import java.util.Base64;
 import java.util.Collections;
@@ -54,6 +58,7 @@ public class TokenAuthenticationIT {
 
   @BeforeAll
   public static void before() throws Exception {
+    CollectorRegistry.defaultRegistry.clear();
     cluster = new PulsarCluster(tempDir);
     cluster.start();
     GatewayConfiguration config = new GatewayConfiguration();
@@ -98,16 +103,26 @@ public class TokenAuthenticationIT {
   }
 
   @Test
-  void testTokenAuthenticationInvalidUser() {
+  void testTokenAuthenticationInvalidUser() throws Exception {
     factory.setCredentialsProvider(new DefaultCredentialsProvider("nobody", CLIENT_TOKEN));
-    assertThrows(PossibleAuthenticationFailureException.class, factory::newConnection);
+    try {
+      factory.newConnection();
+      fail("Should have failed authentication");
+    } catch (AuthenticationFailureException | ConnectException e) {
+      // expected
+    }
   }
 
   @Test
-  void testTokenAuthenticationInvalidToken() {
+  void testTokenAuthenticationInvalidToken() throws Exception {
     SecretKey secretKey = AuthTokenUtils.createSecretKey(SignatureAlgorithm.HS256);
     String jwt = Jwts.builder().setSubject(CLIENT_ROLE).signWith(secretKey).compact();
     factory.setCredentialsProvider(new DefaultCredentialsProvider("", jwt));
-    assertThrows(PossibleAuthenticationFailureException.class, factory::newConnection);
+    try {
+      factory.newConnection();
+      fail("Should have failed authentication");
+    } catch (AuthenticationFailureException | ConnectException e) {
+      // expected
+    }
   }
 }

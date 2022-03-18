@@ -24,6 +24,7 @@ import com.datastax.oss.starlight.rabbitmqtests.SystemTest;
 import com.datastax.oss.starlight.rabbitmqtests.utils.PulsarCluster;
 import com.rabbitmq.client.*;
 import com.rabbitmq.client.impl.nio.NioParams;
+import io.prometheus.client.CollectorRegistry;
 import java.io.IOException;
 import java.security.NoSuchAlgorithmException;
 import java.util.Collections;
@@ -126,6 +127,7 @@ public class BrokerTestCase {
   @BeforeClass
   public static void before() throws Exception {
     if (!SystemTest.enabled) {
+      CollectorRegistry.defaultRegistry.clear();
       cluster = new PulsarCluster(tempDir.getRoot().toPath());
       cluster.start();
       GatewayConfiguration config = new GatewayConfiguration();
