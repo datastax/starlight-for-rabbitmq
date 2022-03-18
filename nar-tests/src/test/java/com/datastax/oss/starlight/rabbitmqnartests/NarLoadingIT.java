@@ -26,6 +26,8 @@ import org.apache.bookkeeper.util.PortManager;
 import org.apache.pulsar.broker.ServiceConfiguration;
 import org.apache.pulsar.proxy.server.ProxyConfiguration;
 import org.apache.pulsar.proxy.server.ProxyService;
+import org.apache.pulsar.proxy.server.ProxyServiceStarter;
+import org.apache.pulsar.proxy.server.WebServer;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -85,7 +87,13 @@ public class NarLoadingIT {
         .put("configurationStoreServers", cluster.getService().getConfig().getZookeeperServers());
 
     ProxyService pulsarProxy = new ProxyService(proxyConfiguration, null);
+    WebServer server = new WebServer(proxyConfiguration, null);
+    int externalServicePort = server.getExternalServicePort();
     pulsarProxy.start();
+
+    ProxyServiceStarter.addWebServerHandlers(
+        server, proxyConfiguration, pulsarProxy, pulsarProxy.getDiscoveryProvider());
+    server.start();
 
     ConnectionFactory factory = new ConnectionFactory();
     factory.setPort(portOnBroker);

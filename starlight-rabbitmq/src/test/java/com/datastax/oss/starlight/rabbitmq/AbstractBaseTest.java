@@ -35,6 +35,7 @@ import com.datastax.oss.starlight.rabbitmq.metadata.ContextMetadata;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufAllocator;
 import io.netty.channel.embedded.EmbeddedChannel;
+import io.prometheus.client.CollectorRegistry;
 import java.util.Collections;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
@@ -80,6 +81,7 @@ public class AbstractBaseTest {
 
   @BeforeEach
   void setup() throws Exception {
+    CollectorRegistry.defaultRegistry.clear();
     gatewayService = spy(new GatewayService(config, null));
     connection = new GatewayConnection(gatewayService);
     channel = new EmbeddedChannel(connection, new AMQDataBlockEncoder());

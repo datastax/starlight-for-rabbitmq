@@ -34,6 +34,7 @@ import org.apache.pulsar.proxy.server.ProxyService;
 public class GatewayProxyProtocolHandler implements ProxyExtension {
 
   private static final String PROTOCOL_NAME = "rabbitmq";
+  public static final String METRICS_PREFIX = "pulsar_proxy";
 
   private GatewayConfiguration config;
   private GatewayService service;
@@ -73,9 +74,12 @@ public class GatewayProxyProtocolHandler implements ProxyExtension {
                   : lookupData.getPulsarServiceUrl(),
               config.isTlsEnabledWithBroker()
                   ? lookupData.getWebServiceUrlTls()
-                  : lookupData.getWebServiceUrl());
+                  : lookupData.getWebServiceUrl(),
+              METRICS_PREFIX);
     } else {
-      service = new GatewayService(config, new AuthenticationService(convertFrom(config)));
+      service =
+          new GatewayService(
+              config, new AuthenticationService(convertFrom(config)), "pulsar_proxy");
     }
     service.start(false);
   }

@@ -248,7 +248,7 @@ On the receiving side, messages will be dispatched evenly to all connected AMQP 
 Starlight for RabbitMQ offers support for multi-tenancy by mapping an AMQP `Virtual host` to a Pulsar `tenant` and `namespace`.
 The mapping is done as follows:
 * AMQP vhost `/` is mapped to Pulsar namespace `public/default`
-* AMQP vhost `/<tenant>` or `<tenant>` is mapped to Pulsar namespace `public/<tenant>`
+* AMQP vhost `/<namespace>` or `<namespace>` is mapped to Pulsar namespace `public/<namespace>`
 * AMQP vhost `/<tenant>/<namespace>` or `<tenant>/<namespace>` is mapped to Pulsar namespace `<tenant>/<namespace>`
 
 This means that AMQP vhosts must only contain characters that are accepted in Pulsar tenant and namespace names (ie. `a-zA-Z0-9_-=:.`)
