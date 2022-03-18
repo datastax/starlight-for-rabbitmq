@@ -48,7 +48,6 @@
     <failsafe.version>2.4.2</failsafe.version>
     <curator.version>5.1.0</curator.version>
     <junit.version>5.7.1</junit.version>
-    <spotbugs.version>4.2.3</spotbugs.version>
     <surefire.version>3.0.0-M5</surefire.version>
     <rabbitmqclient.version>5.12.0</rabbitmqclient.version>
   </properties>
@@ -278,7 +277,7 @@ limitations under the License.]]></inlineHeader>
         <plugin>
           <groupId>com.github.spotbugs</groupId>
           <artifactId>spotbugs-maven-plugin</artifactId>
-          <version>{spotbugs.version}</version>
+          <version>4.2.0</version>
         </plugin>
         <plugin>
           <groupId>org.apache.maven.plugins</groupId>
