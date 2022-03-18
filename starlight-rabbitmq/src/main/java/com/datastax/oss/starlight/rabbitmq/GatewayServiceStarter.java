@@ -83,6 +83,7 @@ public class GatewayServiceStarter {
 
       // create gateway service
       GatewayService gatewayService = new GatewayService(config, authenticationService);
+      WebServer webServer = new WebServer(config, authenticationService);
 
       Runtime.getRuntime()
           .addShutdownHook(
@@ -91,13 +92,17 @@ public class GatewayServiceStarter {
                     try {
                       gatewayService.close();
                     } catch (Exception e) {
-                      log.warn("server couldn't stop gracefully {}", e.getMessage(), e);
+                      log.warn("gRPC server couldn't stop gracefully {}", e.getMessage(), e);
+                    }
+                    try {
+                      webServer.stop();
+                    } catch (Exception e) {
+                      log.warn("Web server couldn't stop gracefully {}", e.getMessage(), e);
                     }
                   }));
 
       gatewayService.start(true);
 
-      WebServer webServer = new WebServer(config, authenticationService);
       webServer.addServlet(
           "/metrics",
           new ServletHolder(MetricsServlet.class),
