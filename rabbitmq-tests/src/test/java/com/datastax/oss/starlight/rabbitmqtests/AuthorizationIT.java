@@ -27,6 +27,7 @@ import com.rabbitmq.client.ConnectionFactory;
 import com.rabbitmq.client.impl.DefaultCredentialsProvider;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.SignatureAlgorithm;
+import io.prometheus.client.CollectorRegistry;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Arrays;
@@ -61,6 +62,7 @@ public class AuthorizationIT {
 
   @BeforeAll
   public static void before() throws Exception {
+    CollectorRegistry.defaultRegistry.clear();
     cluster = new PulsarCluster(tempDir);
     cluster.start();
 

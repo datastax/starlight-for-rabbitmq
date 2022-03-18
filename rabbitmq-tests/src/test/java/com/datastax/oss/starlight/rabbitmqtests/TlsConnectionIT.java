@@ -24,6 +24,7 @@ import com.datastax.oss.starlight.rabbitmqtests.utils.PulsarCluster;
 import com.rabbitmq.client.ConnectionFactory;
 import com.rabbitmq.client.DefaultSaslConfig;
 import com.rabbitmq.client.PossibleAuthenticationFailureException;
+import io.prometheus.client.CollectorRegistry;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Collections;
@@ -90,7 +91,8 @@ public class TlsConnectionIT {
   }
 
   @BeforeEach
-  public void beforeEach() throws PulsarServerException {
+  public void beforeEach() {
+    CollectorRegistry.defaultRegistry.clear();
     int port = PortManager.nextFreePort();
 
     config = new GatewayConfiguration();
@@ -113,10 +115,6 @@ public class TlsConnectionIT {
 
     config.setTlsRequireTrustedClientCertOnConnect(true);
 
-    gatewayService =
-        new GatewayService(
-            config, new AuthenticationService(ConfigurationUtils.convertFrom(config)));
-
     factory = new ConnectionFactory();
     factory.setPort(port);
     factory.enableHostnameVerification();
@@ -131,6 +129,9 @@ public class TlsConnectionIT {
 
   @Test
   void testTlsConnectionSuccess() throws Exception {
+    gatewayService =
+        new GatewayService(
+            config, new AuthenticationService(ConfigurationUtils.convertFrom(config)));
     gatewayService.start();
 
     SSLContext sslCtx =
@@ -143,6 +144,9 @@ public class TlsConnectionIT {
 
   @Test
   void testTlsConnectionFailure() throws Exception {
+    gatewayService =
+        new GatewayService(
+            config, new AuthenticationService(ConfigurationUtils.convertFrom(config)));
     gatewayService.start();
 
     assertThrows(IOException.class, factory::newConnection);
@@ -151,6 +155,9 @@ public class TlsConnectionIT {
   @Test
   void testKeyStoreTlsConnectionSuccess() throws Exception {
     config.setTlsEnabledWithKeyStore(true);
+    gatewayService =
+        new GatewayService(
+            config, new AuthenticationService(ConfigurationUtils.convertFrom(config)));
     gatewayService.start();
 
     SSLContext sslCtx =
@@ -173,6 +180,9 @@ public class TlsConnectionIT {
   @Test
   void testKeyStoreTlsConnectionFailure() throws Exception {
     config.setTlsEnabledWithKeyStore(true);
+    gatewayService =
+        new GatewayService(
+            config, new AuthenticationService(ConfigurationUtils.convertFrom(config)));
     gatewayService.start();
 
     assertThrows(IOException.class, factory::newConnection);

@@ -106,8 +106,8 @@ public class GatewayService implements Closeable {
       Versioned.from(new ContextMetadata(), 0);
   private SubscriptionCleaner subscriptionCleaner;
 
-  private Counter inBytesCounter;
-  private Counter outBytesCounter;
+  private final Counter inBytesCounter;
+  private final Counter outBytesCounter;
 
   public GatewayService(GatewayConfiguration config, AuthenticationService authenticationService) {
     this(config, authenticationService, "server");

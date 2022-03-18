@@ -23,6 +23,7 @@ import com.datastax.oss.starlight.rabbitmq.ConfigurationUtils;
 import com.datastax.oss.starlight.rabbitmq.GatewayConfiguration;
 import com.datastax.oss.starlight.rabbitmq.GatewayService;
 import com.datastax.oss.starlight.rabbitmqtests.utils.PulsarCluster;
+import io.prometheus.client.CollectorRegistry;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Collections;
@@ -95,6 +96,7 @@ public class BrokerClientTlsConnectionWithKeyStoreIT {
 
   @BeforeEach
   public void beforeEach() {
+    CollectorRegistry.defaultRegistry.clear();
     gatewayConfiguration = new GatewayConfiguration();
     gatewayConfiguration.setBrokerServiceURL("pulsar+ssl://localhost:" + brokerServicePortTls);
     gatewayConfiguration.setBrokerWebServiceURL("https://localhost:" + webServicePortTls);

@@ -320,7 +320,7 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
         }
       } catch (AuthenticationException e) {
         LOGGER.debug("Invalid authentication", e);
-        sendConnectionClose(ErrorCodes.NOT_ALLOWED, "Invalid authentication", 0);
+        sendConnectionClose(ErrorCodes.ACCESS_REFUSED, "Invalid authentication", 0);
         return;
       }
     }
