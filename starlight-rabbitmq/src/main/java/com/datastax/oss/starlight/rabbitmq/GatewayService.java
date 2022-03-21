@@ -32,6 +32,7 @@ import io.netty.channel.EventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.util.concurrent.DefaultThreadFactory;
 import io.prometheus.client.Counter;
+import io.prometheus.client.Gauge;
 import java.io.Closeable;
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -106,8 +107,10 @@ public class GatewayService implements Closeable {
       Versioned.from(new ContextMetadata(), 0);
   private SubscriptionCleaner subscriptionCleaner;
 
-  private final Counter inBytesCounter;
-  private final Counter outBytesCounter;
+  final Counter inBytesCounter;
+  final Counter outBytesCounter;
+  final Gauge activeConnections;
+  final Gauge newConnections;
 
   public GatewayService(GatewayConfiguration config, AuthenticationService authenticationService) {
     this(config, authenticationService, "server");
@@ -138,7 +141,7 @@ public class GatewayService implements Closeable {
     this.authenticationService = authenticationService;
     this.executor =
         Executors.newScheduledThreadPool(
-            numThreads, new DefaultThreadFactory("pulsar-rabbitmq-executor"));
+            numThreads, new DefaultThreadFactory("starlight-rabbitmq-executor"));
     this.internalExecutorService = new ExecutorProvider(numThreads, "starlight-rabbitmq-internal");
 
     inBytesCounter =
@@ -151,6 +154,17 @@ public class GatewayService implements Closeable {
         Counter.build(
                 metricsPrefix + "_rabbitmq_out_bytes", "Counter of Starlight for RabbitMQ bytes in")
             .labelNames("namespace")
+            .register();
+
+    activeConnections =
+        Gauge.build(
+                metricsPrefix + "_rabbitmq_active_connections",
+                "Number of connections currently active for Starlight-for-RabbitMQ")
+            .register();
+    newConnections =
+        Gauge.build(
+                metricsPrefix + "_rabbitmq_new_connections",
+                "Counter of connections being opened in Starlight-for-RabbitMQ")
             .register();
   }
 
