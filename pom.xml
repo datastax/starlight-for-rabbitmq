@@ -43,7 +43,7 @@
     <maven.compiler.source>8</maven.compiler.source>
     <maven.compiler.target>8</maven.compiler.target>
     <pulsar.groupId>com.datastax.oss</pulsar.groupId>
-    <pulsar.version>2.8.0.1.1.19</pulsar.version>
+    <pulsar.version>2.8.0.1.1.27</pulsar.version>
     <qpid.version>8.0.0</qpid.version>
     <failsafe.version>2.4.2</failsafe.version>
     <curator.version>5.1.0</curator.version>
