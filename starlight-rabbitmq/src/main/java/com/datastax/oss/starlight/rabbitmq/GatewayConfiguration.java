@@ -94,4 +94,24 @@ public class GatewayConfiguration extends ProxyConfiguration {
 
   @FieldContext(category = CATEGORY_AMQP, doc = "Whether batching messages is enabled in AMQP")
   private boolean amqpBatchingEnabled = true;
+
+  @FieldContext(
+    category = CATEGORY_AMQP,
+    doc = "Default Pulsar tenant used to map short or empty VHosts"
+  )
+  private String amqpDefaultTenant = "public";
+
+  @FieldContext(
+    category = CATEGORY_AMQP,
+    doc = "Default Pulsar namespace used to map short or empty VHosts"
+  )
+  private String amqpDefaultNamespace = "default";
+
+  @FieldContext(
+    category = CATEGORY_AMQP,
+    doc =
+        "By default short VHosts (not containing a slash character) will be mapped to a namespace on the default tenant."
+            + "Set this parameter to true to map short VHosts to tenants with the default namespace instead."
+  )
+  private boolean amqpMapShortVhostToTenant = false;
 }
