@@ -15,8 +15,10 @@
  */
 package com.datastax.oss.starlight.rabbitmq;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+
 import io.prometheus.client.CollectorRegistry;
 import org.junit.jupiter.api.Test;
 
@@ -25,17 +27,44 @@ public class MetricsTest extends AbstractBaseTest {
   @Test
   void testBytesInOutMetrics() {
     CollectorRegistry registry = CollectorRegistry.defaultRegistry;
-    assertNull(registry.getSampleValue("server_rabbitmq_in_bytes", new String[]{"namespace"},
-        new String[]{"public/default"}));
-    assertNull(registry.getSampleValue("server_rabbitmq_out_bytes", new String[]{"namespace"},
-        new String[]{"public/default"}));
+    assertNull(
+        registry.getSampleValue(
+            "server_rabbitmq_in_bytes",
+            new String[] {"namespace"},
+            new String[] {"public/default"}));
+    assertNull(
+        registry.getSampleValue(
+            "server_rabbitmq_out_bytes",
+            new String[] {"namespace"},
+            new String[] {"public/default"}));
 
     openConnection();
     sendChannelOpen();
 
-    assertTrue(registry.getSampleValue("server_rabbitmq_in_bytes", new String[]{"namespace"},
-        new String[]{"public/default"}) > 0);
-    assertTrue(registry.getSampleValue("server_rabbitmq_out_bytes", new String[]{"namespace"},
-        new String[]{"public/default"}) > 0);
+    assertTrue(
+        registry.getSampleValue(
+                "server_rabbitmq_in_bytes",
+                new String[] {"namespace"},
+                new String[] {"public/default"})
+            > 0);
+    assertTrue(
+        registry.getSampleValue(
+                "server_rabbitmq_out_bytes",
+                new String[] {"namespace"},
+                new String[] {"public/default"})
+            > 0);
+  }
+
+  @Test
+  void testActiveAndNewConnections() {
+    CollectorRegistry registry = CollectorRegistry.defaultRegistry;
+
+    assertEquals(1, registry.getSampleValue("server_rabbitmq_active_connections"));
+    assertEquals(1, registry.getSampleValue("server_rabbitmq_new_connections"));
+
+    channel.close();
+
+    assertEquals(0, registry.getSampleValue("server_rabbitmq_active_connections"));
+    assertEquals(1, registry.getSampleValue("server_rabbitmq_new_connections"));
   }
 }

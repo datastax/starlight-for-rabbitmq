@@ -30,7 +30,6 @@ import java.nio.file.Path;
 import java.util.Collections;
 import javax.net.ssl.SSLContext;
 import org.apache.bookkeeper.util.PortManager;
-import org.apache.pulsar.broker.PulsarServerException;
 import org.apache.pulsar.broker.authentication.AuthenticationService;
 import org.apache.pulsar.common.util.SecurityUtility;
 import org.apache.pulsar.common.util.keystoretls.KeyStoreSSLContext;
