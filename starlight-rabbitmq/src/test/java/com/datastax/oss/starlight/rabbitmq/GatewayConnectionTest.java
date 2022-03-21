@@ -23,8 +23,10 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.charset.StandardCharsets;
+import java.util.stream.Stream;
 import org.apache.qpid.server.protocol.ErrorCodes;
 import org.apache.qpid.server.protocol.ProtocolVersion;
+import org.apache.qpid.server.protocol.v0_8.AMQShortString;
 import org.apache.qpid.server.protocol.v0_8.FieldTable;
 import org.apache.qpid.server.protocol.v0_8.transport.AMQBody;
 import org.apache.qpid.server.protocol.v0_8.transport.AMQFrame;
@@ -39,6 +41,8 @@ import org.apache.qpid.server.protocol.v0_8.transport.ProtocolInitiation;
 import org.apache.qpid.server.protocol.v0_8.transport.TxSelectBody;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 class GatewayConnectionTest extends AbstractBaseTest {
@@ -189,68 +193,37 @@ class GatewayConnectionTest extends AbstractBaseTest {
     assertEquals(0xFFFF, connection.getSessionCountLimit());
   }
 
-  @Test
-  void testReceiveConnectionOpen() {
-    sendProtocolHeader();
-    sendConnectionStartOk();
-    sendConnectionTuneOk();
-
-    AMQFrame frame = sendConnectionOpen("test-vhost");
-
-    assertEquals(0, frame.getChannel());
-    AMQBody body = frame.getBodyFrame();
-    assertTrue(body instanceof ConnectionOpenOkBody);
-    ConnectionOpenOkBody connectionOpenOkBody = (ConnectionOpenOkBody) body;
-    assertEquals("test-vhost", connectionOpenOkBody.getKnownHosts().toString());
-    assertEquals("public/test-vhost", connection.getNamespace());
+  private static Stream<Arguments> testReceiveConnectionOpenParameters() {
+    return Stream.of(
+        Arguments.of("test-vhost", false, "test-vhost", "test-tenant/test-vhost"),
+        Arguments.of("/test-vhost", false, "/test-vhost", "test-tenant/test-vhost"),
+        Arguments.of("test-vhost", true, "test-vhost", "test-vhost/test-namespace"),
+        Arguments.of("foo/bar", false, "foo/bar", "foo/bar"),
+        Arguments.of("/foo/bar", false, "/foo/bar", "foo/bar"),
+        Arguments.of("", false, null, "test-tenant/test-namespace"),
+        Arguments.of("/", false, "/", "test-tenant/test-namespace"),
+        Arguments.of(null, false, null, "test-tenant/test-namespace"));
   }
 
-  @Test
-  void testReceiveConnectionOpenVhostWithSlash() {
+  @ParameterizedTest
+  @MethodSource("testReceiveConnectionOpenParameters")
+  void testReceiveConnectionOpen(
+      String vhost, boolean mapToTenant, String knownhost, String pulsarNamespace) {
+    config.setAmqpDefaultTenant("test-tenant");
+    config.setAmqpDefaultNamespace("test-namespace");
+    config.setAmqpMapShortVhostToTenant(mapToTenant);
     sendProtocolHeader();
     sendConnectionStartOk();
     sendConnectionTuneOk();
 
-    AMQFrame frame = sendConnectionOpen("/test-vhost");
+    AMQFrame frame = sendConnectionOpen(vhost);
 
     assertEquals(0, frame.getChannel());
     AMQBody body = frame.getBodyFrame();
     assertTrue(body instanceof ConnectionOpenOkBody);
     ConnectionOpenOkBody connectionOpenOkBody = (ConnectionOpenOkBody) body;
-    assertEquals("/test-vhost", connectionOpenOkBody.getKnownHosts().toString());
-    assertEquals("public/test-vhost", connection.getNamespace());
-  }
-
-  @Test
-  void testReceiveConnectionOpenEmptyVhost() {
-    sendProtocolHeader();
-    sendConnectionStartOk();
-    sendConnectionTuneOk();
-
-    AMQFrame frame = sendConnectionOpen("");
-
-    assertEquals(0, frame.getChannel());
-    AMQBody body = frame.getBodyFrame();
-    assertTrue(body instanceof ConnectionOpenOkBody);
-    ConnectionOpenOkBody connectionOpenOkBody = (ConnectionOpenOkBody) body;
-    assertNull(connectionOpenOkBody.getKnownHosts());
-    assertEquals("public/default", connection.getNamespace());
-  }
-
-  @Test
-  void testReceiveConnectionOpenTenant() {
-    sendProtocolHeader();
-    sendConnectionStartOk();
-    sendConnectionTuneOk();
-
-    AMQFrame frame = sendConnectionOpen("/test-tenant/test-ns");
-
-    assertEquals(0, frame.getChannel());
-    AMQBody body = frame.getBodyFrame();
-    assertTrue(body instanceof ConnectionOpenOkBody);
-    ConnectionOpenOkBody connectionOpenOkBody = (ConnectionOpenOkBody) body;
-    assertEquals("/test-tenant/test-ns", connectionOpenOkBody.getKnownHosts().toString());
-    assertEquals("test-tenant/test-ns", connection.getNamespace());
+    assertEquals(knownhost, AMQShortString.toString(connectionOpenOkBody.getKnownHosts()));
+    assertEquals(pulsarNamespace, connection.getNamespace());
   }
 
   @ParameterizedTest

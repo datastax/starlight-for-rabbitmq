@@ -246,9 +246,17 @@ On the receiving side, messages will be dispatched evenly to all connected AMQP 
 ### Multi-tenancy
 
 Starlight for RabbitMQ offers support for multi-tenancy by mapping an AMQP `Virtual host` to a Pulsar `tenant` and `namespace`.
+The mapping depends on the following configuration parameters
+
+|Name|Description|Default|
+|---|---|---|
+|amqpDefaultTenant|Default Pulsar tenant used to map short or empty VHosts|public
+|amqpDefaultNamespace|Default Pulsar namespace used to map short or empty VHosts|default
+|amqpMapShortVhostToTenant|By default short VHosts (not containing a slash character) will be mapped to a namespace on the default tenant. Set this parameter to true to map short VHosts to tenants with the default namespace instead.|false
+
 The mapping is done as follows:
-* AMQP vhost `/` is mapped to Pulsar namespace `public/default`
-* AMQP vhost `/<namespace>` or `<namespace>` is mapped to Pulsar namespace `public/<namespace>`
+* AMQP vhost `/` is mapped to Pulsar namespace `<amqpDefaultTenant>/<amqpDefaultNamespace>`
+* AMQP vhost `/<vhost>` or `<vhost>` is mapped to Pulsar namespace `<amqpDefaultTenant>/<vhost>` if `amqpMapShortVhostToTenant`  is false (default) or to `<vhost>/<amqpDefaultNamespace>` if `amqpMapShortVhostToTenant` is true
 * AMQP vhost `/<tenant>/<namespace>` or `<tenant>/<namespace>` is mapped to Pulsar namespace `<tenant>/<namespace>`
 
 This means that AMQP vhosts must only contain characters that are accepted in Pulsar tenant and namespace names (ie. `a-zA-Z0-9_-=:.`)
