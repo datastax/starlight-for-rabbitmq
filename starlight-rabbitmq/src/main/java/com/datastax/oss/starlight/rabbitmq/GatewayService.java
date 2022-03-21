@@ -152,7 +152,8 @@ public class GatewayService implements Closeable {
 
     outBytesCounter =
         Counter.build(
-                metricsPrefix + "_rabbitmq_out_bytes", "Counter of Starlight for RabbitMQ bytes in")
+                metricsPrefix + "_rabbitmq_out_bytes",
+                "Counter of Starlight for RabbitMQ bytes out")
             .labelNames("namespace")
             .register();
 

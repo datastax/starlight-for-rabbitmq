@@ -45,7 +45,6 @@ import javax.net.ssl.SSLSession;
 import net.jodah.failsafe.Failsafe;
 import net.jodah.failsafe.RetryPolicy;
 import org.apache.bookkeeper.util.collections.ConcurrentLongHashMap;
-import org.apache.commons.lang3.StringUtils;
 import org.apache.curator.x.async.modeled.versioned.Versioned;
 import org.apache.pulsar.broker.authentication.AuthenticationDataCommand;
 import org.apache.pulsar.broker.authentication.AuthenticationService;
@@ -136,7 +135,7 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
 
   public GatewayConnection(GatewayService gatewayService) {
     this.gatewayService = gatewayService;
-    this._networkBufferSize = gatewayService.getConfig().getAmqpNetworkBufferSize();
+    this._networkBufferSize = getConfiguration().getAmqpNetworkBufferSize();
     this._protocolOutputConverter = new ProtocolOutputConverter(this);
   }
 
@@ -297,7 +296,7 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
       return;
     }
 
-    if (gatewayService.getConfig().isAuthenticationEnabled()) {
+    if (getConfiguration().isAuthenticationEnabled()) {
       role = null;
       AuthenticationService authenticationService = gatewayService.getAuthenticationService();
       try {
@@ -363,9 +362,9 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
 
     ConnectionTuneBody tuneBody =
         _methodRegistry.createConnectionTuneBody(
-            gatewayService.getConfig().getAmqpSessionCountLimit(),
+            getConfiguration().getAmqpSessionCountLimit(),
             frameMax,
-            gatewayService.getConfig().getAmqpHeartbeatDelay());
+            getConfiguration().getAmqpHeartbeatDelay());
     writeFrame(tuneBody.generateFrame(0));
   }
 
@@ -392,9 +391,7 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
           .addFirst(
               "idleStateHandler",
               new IdleStateHandler(
-                  heartbeat * gatewayService.getConfig().getAmqpHeartbeatTimeoutFactor(),
-                  heartbeat,
-                  0));
+                  heartbeat * getConfiguration().getAmqpHeartbeatTimeoutFactor(), heartbeat, 0));
     }
 
     int brokerFrameMax = getDefaultMaxFrameSize();
@@ -440,7 +437,7 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
   private int getDefaultMaxFrameSize() {
     // QPID-6784 : Some old clients send payload with size equals to max frame size
     // we want to fit those frames into the network buffer
-    return gatewayService.getConfig().getAmqpNetworkBufferSize() - AMQFrame.getFrameOverhead();
+    return getConfiguration().getAmqpNetworkBufferSize() - AMQFrame.getFrameOverhead();
   }
 
   public int getSessionCountLimit() {
@@ -477,7 +474,8 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
     assertState(ConnectionState.AWAIT_OPEN);
 
     String virtualHostStr = AMQShortString.toString(virtualHostName);
-    String tenant = "public";
+    String tenant = getConfiguration().getAmqpDefaultTenant();
+    String ns = getConfiguration().getAmqpDefaultNamespace();
     if ((virtualHostStr != null)) {
       if (virtualHostStr.charAt(0) == '/') {
         virtualHostStr = virtualHostStr.substring(1);
@@ -485,14 +483,18 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
       int index = virtualHostStr.indexOf("/");
       if (index != -1 && index != virtualHostStr.length() - 1) {
         tenant = virtualHostStr.substring(0, index);
-        virtualHostStr = virtualHostStr.substring(index + 1);
+        ns = virtualHostStr.substring(index + 1);
+      } else if (!virtualHostStr.equals("")) {
+        if (getConfiguration().isAmqpMapShortVhostToTenant()) {
+          tenant = virtualHostStr;
+        } else {
+          ns = virtualHostStr;
+        }
       }
     }
 
     try {
-      NamespaceName namespaceName =
-          NamespaceName.get(
-              tenant, StringUtils.isEmpty(virtualHostStr) ? "default" : virtualHostStr);
+      NamespaceName namespaceName = NamespaceName.get(tenant, ns);
       this.namespace = namespaceName.toString();
 
       if (getGatewayService().getConfig().isAuthorizationEnabled()) {
@@ -750,8 +752,7 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
       ProtocolVersion pv = pi.checkVersion(); // Fails if not correct
       setProtocolVersion(pv);
 
-      String mechanisms =
-          String.join(" ", gatewayService.getConfig().getAmqpAuthenticationMechanisms());
+      String mechanisms = String.join(" ", getConfiguration().getAmqpAuthenticationMechanisms());
 
       String locales = "en_US";
 
@@ -928,7 +929,7 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
           ctx.executor()
               .schedule(
                   this::closeNetworkConnection,
-                  gatewayService.getConfig().getAmqpConnectionCloseTimeout(),
+                  getConfiguration().getAmqpConnectionCloseTimeout(),
                   TimeUnit.MILLISECONDS);
         }
       }
@@ -954,6 +955,10 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
 
   public GatewayService getGatewayService() {
     return gatewayService;
+  }
+
+  public GatewayConfiguration getConfiguration() {
+    return gatewayService.getConfig();
   }
 
   public ChannelHandlerContext getCtx() {
