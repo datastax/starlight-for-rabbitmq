@@ -15,7 +15,6 @@
  */
 package com.datastax.oss.starlight.rabbitmqtests;
 
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
@@ -26,7 +25,6 @@ import com.datastax.oss.starlight.rabbitmqtests.utils.PulsarCluster;
 import com.rabbitmq.client.AuthenticationFailureException;
 import com.rabbitmq.client.Connection;
 import com.rabbitmq.client.ConnectionFactory;
-import com.rabbitmq.client.PossibleAuthenticationFailureException;
 import com.rabbitmq.client.impl.DefaultCredentialsProvider;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.SignatureAlgorithm;

@@ -141,7 +141,20 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
   }
 
   @Override
+  public void channelRegistered(ChannelHandlerContext ctx) throws Exception {
+    super.channelRegistered(ctx);
+    gatewayService.activeConnections.inc();
+  }
+
+  @Override
+  public void channelUnregistered(ChannelHandlerContext ctx) throws Exception {
+    super.channelUnregistered(ctx);
+    gatewayService.activeConnections.dec();
+  }
+
+  @Override
   public void channelActive(ChannelHandlerContext ctx) {
+    gatewayService.newConnections.inc();
     this.remoteAddress = ctx.channel().remoteAddress();
     this.ctx = ctx;
     this._decoder = new ServerDecoder(this);
