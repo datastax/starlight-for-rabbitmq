@@ -1607,6 +1607,7 @@ public class AMQChannel implements ServerChannelMethodProcessor {
         return;
       }
 
+      getGatewayService().incrementMessagesIn(_connection.getNamespace(), 1);
       TypedMessageBuilder<byte[]> messageBuilder = producer.newMessage();
       QpidByteBuffer qpidByteBuffer = QpidByteBuffer.emptyQpidByteBuffer();
       int bodyCount = _currentMessage.getBodyCount();

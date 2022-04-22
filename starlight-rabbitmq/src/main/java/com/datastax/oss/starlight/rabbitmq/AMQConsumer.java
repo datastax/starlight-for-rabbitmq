@@ -62,6 +62,8 @@ public class AMQConsumer {
 
   public void deliverMessage(PulsarConsumer.PulsarConsumerMessage consumerMessage) {
     if (consumerMessage != null) {
+      GatewayConnection _connection = channel.getConnection();
+      _connection.getGatewayService().incrementMessagesOut(_connection.getNamespace(), 1);
       internalPinnedExecutor.execute(
           () -> {
             Message<byte[]> message = consumerMessage.getMessage();
@@ -104,6 +106,8 @@ public class AMQConsumer {
     Message<byte[]> message = messageResponse.getMessage();
     long deliveryTag = channel.getNextDeliveryTag();
     ContentBody contentBody = new ContentBody(ByteBuffer.wrap(message.getData()));
+    GatewayConnection _connection = channel.getConnection();
+    _connection.getGatewayService().incrementMessagesOut(_connection.getNamespace(), 1);
     channel
         .getConnection()
         .getProtocolOutputConverter()

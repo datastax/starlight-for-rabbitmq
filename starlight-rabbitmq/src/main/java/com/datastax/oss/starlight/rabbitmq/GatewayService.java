@@ -112,6 +112,9 @@ public class GatewayService implements Closeable {
   final Gauge activeConnections;
   final Gauge newConnections;
 
+  final Counter inMessagesCounter;
+  final Counter outMessagesCounter;
+
   public GatewayService(GatewayConfiguration config, AuthenticationService authenticationService) {
     this(config, authenticationService, "server");
   }
@@ -154,6 +157,20 @@ public class GatewayService implements Closeable {
         Counter.build(
                 metricsPrefix + "_rabbitmq_out_bytes",
                 "Counter of Starlight for RabbitMQ bytes out")
+            .labelNames("namespace")
+            .register();
+
+    inMessagesCounter =
+        Counter.build(
+                metricsPrefix + "_rabbitmq_in_messages_total",
+                "Counter of Starlight for RabbitMQ messages in")
+            .labelNames("namespace")
+            .register();
+
+    outMessagesCounter =
+        Counter.build(
+                metricsPrefix + "_rabbitmq_out_messages_total",
+                "Counter of Starlight for RabbitMQ messages out")
             .labelNames("namespace")
             .register();
 
@@ -449,6 +466,14 @@ public class GatewayService implements Closeable {
 
   public void incrementBytesOut(String namespace, double bytes) {
     outBytesCounter.labels(namespace == null ? "" : namespace).inc(bytes);
+  }
+
+  public void incrementMessagesIn(String namespace, int count) {
+    inMessagesCounter.labels(namespace == null ? "" : namespace).inc(count);
+  }
+
+  public void incrementMessagesOut(String namespace, int count) {
+    outMessagesCounter.labels(namespace == null ? "" : namespace).inc(count);
   }
 
   public AuthenticationService getAuthenticationService() {

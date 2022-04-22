@@ -18,11 +18,25 @@ package com.datastax.oss.starlight.rabbitmq;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 import io.prometheus.client.CollectorRegistry;
+import org.apache.pulsar.client.api.TypedMessageBuilder;
+import org.apache.pulsar.client.impl.MessageIdImpl;
+import org.apache.qpid.server.protocol.v0_8.transport.AMQFrame;
+import org.apache.qpid.server.protocol.v0_8.transport.BasicContentHeaderProperties;
+import org.apache.qpid.server.protocol.v0_8.transport.BasicPublishBody;
+import org.apache.qpid.server.protocol.v0_8.transport.ContentBody;
+import org.apache.qpid.server.protocol.v0_8.transport.ContentHeaderBody;
 import org.junit.jupiter.api.Test;
 
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
+import java.util.concurrent.CompletableFuture;
+
 public class MetricsTest extends AbstractBaseTest {
+  public static final String TEST_QUEUE = "test-queue";
+  public static final byte[] TEST_MESSAGE = "test-message".getBytes(StandardCharsets.UTF_8);
 
   @Test
   void testBytesInOutMetrics() {
@@ -38,8 +52,23 @@ public class MetricsTest extends AbstractBaseTest {
             new String[] {"namespace"},
             new String[] {"public/default"}));
 
+
+    TypedMessageBuilder messageBuilder = mock(TypedMessageBuilder.class);
+
+    when(producer.newMessage()).thenReturn(messageBuilder);
+    when(messageBuilder.sendAsync())
+            .thenReturn(CompletableFuture.completedFuture(new MessageIdImpl(1, 2, 3)));
+
     openConnection();
     sendChannelOpen();
+    sendBasicPublish();
+
+    BasicContentHeaderProperties props = new BasicContentHeaderProperties();
+    props.setContentType("application/json");
+    props.setTimestamp(1234);
+
+    exchangeData(ContentHeaderBody.createAMQFrame(CHANNEL_ID, props, TEST_MESSAGE.length));
+    sendMessageContent();
 
     assertTrue(
         registry.getSampleValue(
@@ -53,6 +82,13 @@ public class MetricsTest extends AbstractBaseTest {
                 new String[] {"namespace"},
                 new String[] {"public/default"})
             > 0);
+      assertTrue(
+              registry.getSampleValue(
+                      "server_rabbitmq_in_messages_total",
+                      new String[] {"namespace"},
+                      new String[] {"public/default"})
+                      > 0);
+
   }
 
   @Test
@@ -67,4 +103,15 @@ public class MetricsTest extends AbstractBaseTest {
     assertEquals(0, registry.getSampleValue("server_rabbitmq_active_connections"));
     assertEquals(1, registry.getSampleValue("server_rabbitmq_new_connections"));
   }
+
+  private AMQFrame sendBasicPublish() {
+    BasicPublishBody basicPublishBody = new BasicPublishBody(0, null, null, false, false);
+    return exchangeData(basicPublishBody.generateFrame(CHANNEL_ID));
+  }
+
+  private AMQFrame sendMessageContent() {
+    ContentBody contentBody = new ContentBody(ByteBuffer.wrap(TEST_MESSAGE));
+    return exchangeData(ContentBody.createAMQFrame(CHANNEL_ID, contentBody));
+  }
+
 }
