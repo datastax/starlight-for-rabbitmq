@@ -21,7 +21,7 @@
   <groupId>com.datastax.oss</groupId>
   <artifactId>starlight-rabbitmq-parent</artifactId>
   <packaging>pom</packaging>
-  <version>2.8.0.1.1.27-ls-2-SNAPSHOT</version>
+  <version>2.8.0.1.1.27-ls-2</version>
   <name>DataStax Starlight for RabbitMQ (R) parent</name>
   <description>Proxy to seamlessly connect RabbitMQ clients to Apache Pulsar</description>
   <url>https://github.com/datastax/starlight-for-rabbitmq</url>
@@ -364,7 +364,7 @@ limitations under the License.]]></inlineHeader>
     <connection>scm:git:git@github.com:datastax/starlight-for-rabbitmq.git</connection>
     <developerConnection>scm:git:git@github.com:datastax/starlight-for-rabbitmq.git</developerConnection>
     <url>https://github.com/datastax/starlight-for-rabbitmq</url>
-    <tag>HEAD</tag>
+    <tag>ls280_1.1.27-2</tag>
   </scm>
   <developers>
     <developer>
