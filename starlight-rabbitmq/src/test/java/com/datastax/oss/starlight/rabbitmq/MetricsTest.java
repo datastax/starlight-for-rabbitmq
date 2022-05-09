@@ -20,7 +20,11 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
+
 import io.prometheus.client.CollectorRegistry;
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
+import java.util.concurrent.CompletableFuture;
 import org.apache.pulsar.client.api.TypedMessageBuilder;
 import org.apache.pulsar.client.impl.MessageIdImpl;
 import org.apache.qpid.server.protocol.v0_8.transport.AMQFrame;
@@ -29,10 +33,6 @@ import org.apache.qpid.server.protocol.v0_8.transport.BasicPublishBody;
 import org.apache.qpid.server.protocol.v0_8.transport.ContentBody;
 import org.apache.qpid.server.protocol.v0_8.transport.ContentHeaderBody;
 import org.junit.jupiter.api.Test;
-
-import java.nio.ByteBuffer;
-import java.nio.charset.StandardCharsets;
-import java.util.concurrent.CompletableFuture;
 
 public class MetricsTest extends AbstractBaseTest {
   public static final String TEST_QUEUE = "test-queue";
@@ -52,12 +52,11 @@ public class MetricsTest extends AbstractBaseTest {
             new String[] {"namespace"},
             new String[] {"public/default"}));
 
-
     TypedMessageBuilder messageBuilder = mock(TypedMessageBuilder.class);
 
     when(producer.newMessage()).thenReturn(messageBuilder);
     when(messageBuilder.sendAsync())
-            .thenReturn(CompletableFuture.completedFuture(new MessageIdImpl(1, 2, 3)));
+        .thenReturn(CompletableFuture.completedFuture(new MessageIdImpl(1, 2, 3)));
 
     openConnection();
     sendChannelOpen();
@@ -82,13 +81,12 @@ public class MetricsTest extends AbstractBaseTest {
                 new String[] {"namespace"},
                 new String[] {"public/default"})
             > 0);
-      assertTrue(
-              registry.getSampleValue(
-                      "server_rabbitmq_in_messages_total",
-                      new String[] {"namespace"},
-                      new String[] {"public/default"})
-                      > 0);
-
+    assertTrue(
+        registry.getSampleValue(
+                "server_rabbitmq_in_messages_total",
+                new String[] {"namespace"},
+                new String[] {"public/default"})
+            > 0);
   }
 
   @Test
@@ -113,5 +111,4 @@ public class MetricsTest extends AbstractBaseTest {
     ContentBody contentBody = new ContentBody(ByteBuffer.wrap(TEST_MESSAGE));
     return exchangeData(ContentBody.createAMQFrame(CHANNEL_ID, contentBody));
   }
-
 }
