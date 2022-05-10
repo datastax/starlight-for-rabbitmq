@@ -39,3 +39,4 @@ jobs:
 
       - name: RabbitMQ Java client tests
         run: mvn -B integration-test -DfailIfNoTests=false -Dcurator-log-only-first-connection-issue-as-error-level=true -pl rabbitmq-tests
+
