@@ -41,4 +41,4 @@ jobs:
         run: mvn -B integration-test -DfailIfNoTests=false -Dcurator-log-only-first-connection-issue-as-error-level=true -pl rabbitmq-tests
 
       - name: NAR tests
-          run: mvn -B test -DfailIfNoTests=false -pl nar-tests
+        run: mvn -B clean test -DfailIfNoTests=false -pl nar-tests

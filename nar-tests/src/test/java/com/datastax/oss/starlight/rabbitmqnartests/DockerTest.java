@@ -48,7 +48,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.testcontainers.containers.Network;
 
-public class DockerIT {
+public class DockerTest {
 
   private static final String IMAGE_LUNASTREAMING283 = "datastax/lunastreaming:2.8.3_1.0.12";
 
