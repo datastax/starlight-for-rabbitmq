@@ -47,6 +47,7 @@ import net.jodah.failsafe.RetryPolicy;
 import org.apache.bookkeeper.util.collections.ConcurrentLongHashMap;
 import org.apache.curator.x.async.modeled.versioned.Versioned;
 import org.apache.pulsar.broker.authentication.AuthenticationDataCommand;
+import org.apache.pulsar.broker.authentication.AuthenticationProvider;
 import org.apache.pulsar.broker.authentication.AuthenticationService;
 import org.apache.pulsar.client.admin.PulsarAdminException;
 import org.apache.pulsar.common.naming.NamespaceName;
@@ -301,21 +302,24 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
       AuthenticationService authenticationService = gatewayService.getAuthenticationService();
       try {
         if ("PLAIN".equals(mechanism.toString())) {
-          if (authenticationService.getAuthenticationProvider("token") == null) {
+          AuthenticationProvider provider =
+              authenticationService.getAuthenticationProvider("token");
+          if (provider == null) {
             throw new AuthenticationException("SASL PLAIN mechanism not enabled");
           }
           if (response.length > 2 && response[0] == 0 && response[1] == 0) {
             String token = new String(response, 2, response.length - 2, StandardCharsets.UTF_8);
             AuthenticationDataCommand authData =
                 new AuthenticationDataCommand(token, remoteAddress, null);
-            role = authenticationService.authenticate(authData, "token");
+            role = provider.authenticate(authData);
           }
           if (role == null) {
             throw new AuthenticationException(
                 "SASL PLAIN is only supported with JWT as password at the moment");
           }
         } else if ("EXTERNAL".equals(mechanism.toString())) {
-          if (authenticationService.getAuthenticationProvider("tls") == null) {
+          AuthenticationProvider provider = authenticationService.getAuthenticationProvider("tls");
+          if (provider == null) {
             throw new AuthenticationException("SASL EXTERNAL mechanism not enabled");
           }
           ChannelHandler sslHandler =
@@ -326,7 +330,7 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
           }
           AuthenticationDataCommand authData =
               new AuthenticationDataCommand(null, remoteAddress, sslSession);
-          role = authenticationService.authenticate(authData, "tls");
+          role = provider.authenticate(authData);
         } else {
           throw new AuthenticationException("Unsupported authentication mechanism");
         }

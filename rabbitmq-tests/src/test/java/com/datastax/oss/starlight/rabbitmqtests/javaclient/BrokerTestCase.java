@@ -136,8 +136,8 @@ public class BrokerTestCase {
       pulsarListenerPort = PortManager.nextFreePort();
       pulsarHost = "127.0.0.1";
       config.setAmqpListeners(Collections.singleton("amqp://127.0.0.1:" + pulsarListenerPort));
-      config.setConfigurationStoreServers(
-          cluster.getService().getConfig().getConfigurationStoreServers());
+      config.setConfigurationMetadataStoreUrl(
+          cluster.getService().getConfig().getConfigurationMetadataStoreUrl());
       // Deactivate batching since some tests rely on individual negative acknowledgement redelivery
       config.setAmqpBatchingEnabled(false);
       gatewayService = new GatewayService(config, null);

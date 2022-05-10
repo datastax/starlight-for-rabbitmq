@@ -103,8 +103,8 @@ public class BrokerClientTlsConnectionWithKeyStoreIT {
 
     gatewayConfiguration.setAmqpListeners(
         Collections.singleton("amqp://127.0.0.1:" + PortManager.nextFreePort()));
-    gatewayConfiguration.setConfigurationStoreServers(
-        cluster.getService().getConfig().getConfigurationStoreServers());
+    gatewayConfiguration.setConfigurationMetadataStoreUrl(
+        cluster.getService().getConfig().getConfigurationMetadataStoreUrl());
     gatewayConfiguration.setTlsEnabledWithBroker(true);
     // PulsarAdmin will only verify the client cert if this is enabled
     gatewayConfiguration.setTlsHostnameVerificationEnabled(true);
