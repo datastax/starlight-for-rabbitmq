@@ -20,6 +20,7 @@ import com.datastax.oss.starlight.rabbitmqnartests.utils.PulsarCluster;
 import com.google.common.collect.Sets;
 import com.rabbitmq.client.Connection;
 import com.rabbitmq.client.ConnectionFactory;
+import io.prometheus.client.CollectorRegistry;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import org.apache.bookkeeper.util.PortManager;
@@ -44,6 +45,7 @@ public class NarLoadingIT {
   }
 
   private void loadProtocolHandlerAndProxyExtension(boolean zkDiscovery) throws Exception {
+    CollectorRegistry.defaultRegistry.clear();
     Path handlerPath = Paths.get("target/test-protocol-handler.nar").toAbsolutePath();
     String protocolHandlerDir = handlerPath.toFile().getParent();
 
