@@ -109,8 +109,8 @@ public class BrokerClientTlsAuthenticationIT {
     gatewayConfiguration.setBrokerWebServiceURL("https://localhost:" + webServicePortTls);
     gatewayConfiguration.setAmqpListeners(
         Collections.singleton("amqp://127.0.0.1:" + PortManager.nextFreePort()));
-    gatewayConfiguration.setConfigurationStoreServers(
-        cluster.getService().getConfig().getConfigurationStoreServers());
+    gatewayConfiguration.setConfigurationMetadataStoreUrl(
+        cluster.getService().getConfig().getConfigurationMetadataStoreUrl());
     gatewayConfiguration.setTlsEnabledWithBroker(true);
     gatewayConfiguration.setTlsHostnameVerificationEnabled(true);
     gatewayConfiguration.setBrokerClientTrustCertsFilePath(TLS_BROKER_CERT_FILE_PATH);

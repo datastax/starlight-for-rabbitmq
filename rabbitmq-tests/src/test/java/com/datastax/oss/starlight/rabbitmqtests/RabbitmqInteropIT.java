@@ -74,8 +74,8 @@ public class RabbitmqInteropIT {
     config.setBrokerWebServiceURL(cluster.getAddress());
     int port = PortManager.nextFreePort();
     config.setAmqpListeners(Collections.singleton("amqp://127.0.0.1:" + port));
-    config.setConfigurationStoreServers(
-        cluster.getService().getConfig().getConfigurationStoreServers());
+    config.setConfigurationMetadataStoreUrl(
+        cluster.getService().getConfig().getConfigurationMetadataStoreUrl());
     gatewayService = new GatewayService(config, null);
     gatewayService.start();
 

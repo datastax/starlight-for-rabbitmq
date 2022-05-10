@@ -98,8 +98,8 @@ public class TlsConnectionIT {
     config.setBrokerServiceURL(cluster.getAddress());
     config.setBrokerWebServiceURL(cluster.getAddress());
     config.setAmqpListeners(Collections.singleton("amqps://127.0.0.1:" + port));
-    config.setConfigurationStoreServers(
-        cluster.getService().getConfig().getConfigurationStoreServers());
+    config.setConfigurationMetadataStoreUrl(
+        cluster.getService().getConfig().getConfigurationMetadataStoreUrl());
 
     config.setTlsKeyStoreType(KEYSTORE_TYPE);
     config.setTlsKeyStore(BROKER_KEYSTORE_FILE_PATH);

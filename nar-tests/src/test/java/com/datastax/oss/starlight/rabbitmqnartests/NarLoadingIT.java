@@ -84,7 +84,9 @@ public class NarLoadingIT {
     proxyConfiguration.getProperties().put("amqpListeners", "amqp://127.0.0.1:" + portOnProxy);
     proxyConfiguration
         .getProperties()
-        .put("configurationStoreServers", cluster.getService().getConfig().getZookeeperServers());
+        .put(
+            "configurationStoreServers",
+            cluster.getService().getConfig().getConfigurationMetadataStoreUrl());
 
     ProxyService pulsarProxy = new ProxyService(proxyConfiguration, null);
     pulsarProxy.start();
