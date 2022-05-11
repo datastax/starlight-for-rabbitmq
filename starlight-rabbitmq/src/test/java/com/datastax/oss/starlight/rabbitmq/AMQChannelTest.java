@@ -993,7 +993,6 @@ public class AMQChannelTest extends AbstractBaseTest {
     assertEquals(TEST_CONSUMER_TAG, ((BasicCancelOkBody) body).getConsumerTag().toString());
 
     // Check nothing is received anymore
-    // TODO: flaky test ! Do something !!
     Thread.sleep(100);
     assertNull(channel.readOutbound());
   }
