@@ -20,6 +20,7 @@ import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
@@ -138,15 +139,23 @@ public class AMQConsumer {
     return allocated;
   }
 
-  public boolean close() {
+  public CompletableFuture<Void> close() {
     if (_state.compareAndSet(State.OPEN, State.CLOSED)) {
-      block();
       queue.unregisterConsumer(this);
       subscriptions.values().forEach(PulsarConsumer::close);
-      return true;
-    } else {
-      return false;
+      if (internalPinnedExecutor.isShutdown()) {
+        block();
+        return CompletableFuture.completedFuture(null);
+      }
+      CompletableFuture<Void> closeFuture = new CompletableFuture<>();
+      internalPinnedExecutor.execute(
+          () -> {
+            block();
+            closeFuture.complete(null);
+          });
+      return closeFuture;
     }
+    return CompletableFuture.completedFuture(null);
   }
 
   public void block() {

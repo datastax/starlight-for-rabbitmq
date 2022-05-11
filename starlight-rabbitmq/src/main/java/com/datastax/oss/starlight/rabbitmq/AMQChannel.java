@@ -1097,12 +1097,13 @@ public class AMQChannel implements ServerChannelMethodProcessor {
               + " ]");
     }
 
-    unsubscribeConsumer(consumerTag);
-    if (!nowait) {
-      MethodRegistry methodRegistry = _connection.getMethodRegistry();
-      BasicCancelOkBody cancelOkBody = methodRegistry.createBasicCancelOkBody(consumerTag);
-      _connection.writeFrame(cancelOkBody.generateFrame(_channelId));
-    }
+    unsubscribeConsumer(consumerTag).thenAccept(__ -> {
+      if (!nowait) {
+        MethodRegistry methodRegistry = _connection.getMethodRegistry();
+        BasicCancelOkBody cancelOkBody = methodRegistry.createBasicCancelOkBody(consumerTag);
+        _connection.writeFrame(cancelOkBody.generateFrame(_channelId));
+      }
+    });
   }
 
   @Override
@@ -1751,22 +1752,21 @@ public class AMQChannel implements ServerChannelMethodProcessor {
    * @param consumerTag
    * @return true if the consumerTag had a mapped queue that could be unregistered.
    */
-  public boolean unsubscribeConsumer(AMQShortString consumerTag) {
+  public CompletableFuture<Void> unsubscribeConsumer(AMQShortString consumerTag) {
     if (LOGGER.isDebugEnabled()) {
       LOGGER.debug("Unsubscribing consumer '{}' on channel {}", consumerTag, this);
     }
 
     AMQConsumer target = _tag2SubscriptionTargetMap.remove(consumerTag);
     if (target != null) {
-      target.close();
-      return true;
+      return target.close();
     } else {
       LOGGER.warn(
           "Attempt to unsubscribe consumer with tag '"
               + consumerTag
               + "' which is not registered.");
     }
-    return false;
+    return CompletableFuture.completedFuture(null);
   }
 
   public void close() {
