@@ -598,10 +598,10 @@ public class GatewayConnection extends ChannelInboundHandlerAdapter
             })
         .thenAccept(
             it -> {
+              _state = ConnectionState.OPEN;
               AMQMethodBody responseBody =
                   getMethodRegistry().createConnectionOpenOkBody(virtualHostName);
               writeFrame(responseBody.generateFrame(0));
-              _state = ConnectionState.OPEN;
             })
         .exceptionally(
             t -> {
