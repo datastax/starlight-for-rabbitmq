@@ -1097,13 +1097,16 @@ public class AMQChannel implements ServerChannelMethodProcessor {
               + " ]");
     }
 
-    unsubscribeConsumer(consumerTag).thenAccept(__ -> {
-      if (!nowait) {
-        MethodRegistry methodRegistry = _connection.getMethodRegistry();
-        BasicCancelOkBody cancelOkBody = methodRegistry.createBasicCancelOkBody(consumerTag);
-        _connection.writeFrame(cancelOkBody.generateFrame(_channelId));
-      }
-    });
+    unsubscribeConsumer(consumerTag)
+        .thenAccept(
+            __ -> {
+              if (!nowait) {
+                MethodRegistry methodRegistry = _connection.getMethodRegistry();
+                BasicCancelOkBody cancelOkBody =
+                    methodRegistry.createBasicCancelOkBody(consumerTag);
+                _connection.writeFrame(cancelOkBody.generateFrame(_channelId));
+              }
+            });
   }
 
   @Override
