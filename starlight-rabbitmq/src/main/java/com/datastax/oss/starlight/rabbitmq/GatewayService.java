@@ -49,6 +49,7 @@ import java.util.concurrent.TimeUnit;
 import org.apache.curator.RetryPolicy;
 import org.apache.curator.framework.CuratorFramework;
 import org.apache.curator.framework.CuratorFrameworkFactory;
+import org.apache.curator.framework.recipes.watch.PersistentWatcher;
 import org.apache.curator.retry.ExponentialBackoffRetry;
 import org.apache.curator.x.async.AsyncCuratorFramework;
 import org.apache.curator.x.async.modeled.JacksonModelSerializer;
@@ -66,6 +67,7 @@ import org.apache.pulsar.client.api.PulsarClient;
 import org.apache.pulsar.client.api.PulsarClientException;
 import org.apache.pulsar.common.allocator.PulsarByteBufAllocator;
 import org.apache.pulsar.common.util.netty.EventLoopUtil;
+import org.apache.zookeeper.Watcher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -97,6 +99,8 @@ public class GatewayService implements Closeable {
   private final Map<String, Producer<byte[]>> producers = new ConcurrentHashMap<>();
 
   private CuratorFramework curator;
+
+  private PersistentWatcher persistentWatcher;
 
   public static final ModelSpec<ContextMetadata> METADATA_MODEL_SPEC =
       ModelSpec.builder(
@@ -193,12 +197,30 @@ public class GatewayService implements Closeable {
   }
 
   public void start(boolean startChannels) throws Exception {
-
     pulsarClient = createClientInstance();
     pulsarAdmin = createAdminInstance();
     curator = createCuratorInstance();
     metadataModel = ModeledFramework.wrap(AsyncCuratorFramework.wrap(curator), METADATA_MODEL_SPEC);
-    executor.scheduleWithFixedDelay(this::loadContext, 0, 100, TimeUnit.MILLISECONDS);
+
+    persistentWatcher = new PersistentWatcher(curator, "/config", true);
+    persistentWatcher.start();
+    persistentWatcher
+        .getListenable()
+        .addListener(
+            event -> {
+              LOG.info("Config watcher event received - {}", event);
+              if (event.getType() == Watcher.Event.EventType.NodeDataChanged) {
+                loadContext();
+              }
+            });
+    persistentWatcher
+        .getResetListenable()
+        .addListener(
+            () -> {
+              LOG.info("ZooKeeper connection reset, reloading config...");
+              loadContext();
+            });
+
     subscriptionCleaner = new SubscriptionCleaner(this, curator);
     subscriptionCleaner.start();
 
@@ -359,6 +381,9 @@ public class GatewayService implements Closeable {
 
     if (subscriptionCleaner != null) {
       subscriptionCleaner.close();
+    }
+    if (persistentWatcher != null) {
+      persistentWatcher.close();
     }
     if (curator != null) {
       curator.close();
