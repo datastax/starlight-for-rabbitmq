@@ -66,6 +66,7 @@ import org.apache.pulsar.client.api.PulsarClient;
 import org.apache.pulsar.client.api.PulsarClientException;
 import org.apache.pulsar.common.allocator.PulsarByteBufAllocator;
 import org.apache.pulsar.common.util.netty.EventLoopUtil;
+import org.apache.zookeeper.Watcher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -194,7 +195,6 @@ public class GatewayService implements Closeable {
   }
 
   public void start(boolean startChannels) throws Exception {
-
     pulsarClient = createClientInstance();
     pulsarAdmin = createAdminInstance();
     curator = createCuratorInstance();
@@ -202,7 +202,22 @@ public class GatewayService implements Closeable {
 
     persistentWatcher = new PersistentWatcher(curator, "/config", true);
     persistentWatcher.start();
-    persistentWatcher.getListenable().addListener(event -> loadContext());
+    persistentWatcher
+        .getListenable()
+        .addListener(
+            event -> {
+              LOG.info("Config watcher event received - {}", event);
+              if (event.getType() == Watcher.Event.EventType.NodeDataChanged) {
+                loadContext();
+              }
+            });
+    persistentWatcher
+        .getResetListenable()
+        .addListener(
+            () -> {
+              LOG.info("ZooKeeper connection reset, reloading config...");
+              loadContext();
+            });
 
     subscriptionCleaner = new SubscriptionCleaner(this, curator);
     subscriptionCleaner.start();
