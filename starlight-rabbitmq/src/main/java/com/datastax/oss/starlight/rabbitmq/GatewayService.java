@@ -495,8 +495,8 @@ public class GatewayService implements Closeable {
     return producers.computeIfAbsent(topic, this::createProducer);
   }
 
-  public void removeProducer(String topic) {
-    Producer<byte[]> producer = producers.remove(topic);
+  public void removeProducer(Producer<byte[]> producer) {
+    producers.remove(producer.getTopic(), producer);
     producer.closeAsync();
   }
 

@@ -1679,7 +1679,7 @@ public class AMQChannel implements ServerChannelMethodProcessor {
                       "Failed to send message to exchange='{}' because producer is closed. Removing producer from cache",
                       exchangeName,
                       throwable);
-                  getGatewayService().removeProducer(producer.getTopic());
+                  getGatewayService().removeProducer(producer);
                 } else {
                   LOGGER.error("Failed to send message to exchange='{}'", exchangeName, throwable);
                 }
