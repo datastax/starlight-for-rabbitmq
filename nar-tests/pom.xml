@@ -69,7 +69,7 @@
             <configuration>
               <tasks>
                 <echo>copy proxy protocol handler</echo>
-                <copy file="${basedir}/../starlight-rabbitmq/target/starlight-rabbitmq-${project.version}.nar" tofile="${project.build.directory}/test-protocol-handler.nar" />
+                <copy file="${basedir}/../starlight-rabbitmq/target/starlight-rabbitmq-${project.version}.nar" tofile="${project.build.directory}/test-protocol-handler.nar"/>
               </tasks>
             </configuration>
           </execution>

@@ -61,6 +61,7 @@ import org.apache.pulsar.client.admin.PulsarAdmin;
 import org.apache.pulsar.client.admin.PulsarAdminBuilder;
 import org.apache.pulsar.client.api.ClientBuilder;
 import org.apache.pulsar.client.api.MessageId;
+import org.apache.pulsar.client.api.Producer;
 import org.apache.pulsar.client.api.PulsarClient;
 import org.apache.pulsar.client.api.PulsarClientException;
 import org.apache.pulsar.common.allocator.PulsarByteBufAllocator;
@@ -93,6 +94,7 @@ public class GatewayService implements Closeable {
   private static final int numThreads = Runtime.getRuntime().availableProcessors();
 
   private final Map<String, Map<String, Queue>> queues = new ConcurrentHashMap<>();
+  private final Map<String, Producer<byte[]>> producers = new ConcurrentHashMap<>();
 
   private CuratorFramework curator;
 
@@ -353,6 +355,7 @@ public class GatewayService implements Closeable {
 
   public void close() throws IOException {
     listenChannels.forEach(Channel::close);
+    producers.values().forEach(Producer::closeAsync);
 
     if (subscriptionCleaner != null) {
       subscriptionCleaner.close();
@@ -486,5 +489,28 @@ public class GatewayService implements Closeable {
 
   public ExecutorService getInternalExecutorService() {
     return internalExecutorService.getExecutor();
+  }
+
+  public Producer<byte[]> getOrCreateProducer(String topic) {
+    return producers.computeIfAbsent(topic, this::createProducer);
+  }
+
+  public void removeProducer(Producer<byte[]> producer) {
+    producers.remove(producer.getTopic(), producer);
+    producer.closeAsync();
+  }
+
+  private Producer<byte[]> createProducer(String topicName) {
+    try {
+      return getPulsarClient()
+          .newProducer()
+          .enableBatching(config.isAmqpBatchingEnabled())
+          .batchingMaxPublishDelay(100, TimeUnit.MILLISECONDS)
+          .maxPendingMessages(10000)
+          .topic(topicName)
+          .create();
+    } catch (PulsarClientException e) {
+      throw new RuntimeException(e);
+    }
   }
 }
