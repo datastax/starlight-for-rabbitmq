@@ -132,7 +132,6 @@ public class AMQChannel implements ServerChannelMethodProcessor {
   private final int resumeReadsThreshold;
   private int pendingSendRequest = 0;
 
-  private final ConcurrentHashMap<String, Producer<byte[]>> producers = new ConcurrentHashMap<>();
   public static final RetryPolicy<Object> ZK_CONFLICT_RETRY =
       new RetryPolicy<>()
           .handle(KeeperException.BadVersionException.class)
@@ -1652,21 +1651,21 @@ public class AMQChannel implements ServerChannelMethodProcessor {
       messageBuilder
           .sendAsync()
           .thenAccept(
-              messageId -> {
-                getCtx()
-                    .channel()
-                    .eventLoop()
-                    .execute(
-                        () -> {
-                          if (_confirmOnPublish) {
-                            _confirmedMessageCounter++;
-                            _connection.writeFrame(
-                                new AMQFrame(
-                                    _channelId, new BasicAckBody(_confirmedMessageCounter, false)));
-                          }
-                          completedSendOperation();
-                        });
-              })
+              messageId ->
+                  getCtx()
+                      .channel()
+                      .eventLoop()
+                      .execute(
+                          () -> {
+                            if (_confirmOnPublish) {
+                              _confirmedMessageCounter++;
+                              _connection.writeFrame(
+                                  new AMQFrame(
+                                      _channelId,
+                                      new BasicAckBody(_confirmedMessageCounter, false)));
+                            }
+                            completedSendOperation();
+                          }))
           .exceptionally(
               throwable -> {
                 if (throwable.getCause()
@@ -1677,6 +1676,14 @@ public class AMQChannel implements ServerChannelMethodProcessor {
                         exchangeName,
                         throwable);
                   }
+
+                } else if (throwable.getCause()
+                    instanceof PulsarClientException.AlreadyClosedException) {
+                  LOGGER.error(
+                      "Failed to send message to exchange='{}' because producer is closed. Removing producer from cache",
+                      exchangeName,
+                      throwable);
+                  getGatewayService().removeProducer(producer);
                 } else {
                   LOGGER.error("Failed to send message to exchange='{}'", exchangeName, throwable);
                 }
@@ -1752,7 +1759,7 @@ public class AMQChannel implements ServerChannelMethodProcessor {
   /**
    * Unsubscribe a consumer from a queue.
    *
-   * @param consumerTag
+   * @param consumerTag the consumer tag
    * @return true if the consumerTag had a mapped queue that could be unregistered.
    */
   public CompletableFuture<Void> unsubscribeConsumer(AMQShortString consumerTag) {
@@ -1840,11 +1847,6 @@ public class AMQChannel implements ServerChannelMethodProcessor {
       _unacknowledgedMessageMap.remove(entry.getKey(), true);
       entry.getValue().requeue();
     }
-  }
-
-  private void messageWithSubject(final LogMessage operationalLogMessage) {
-    Logger logger = LoggerFactory.getLogger(operationalLogMessage.getLogHierarchy());
-    logger.info(operationalLogMessage.toString());
   }
 
   private boolean isDefaultExchange(final AMQShortString exchangeName) {
@@ -1944,22 +1946,7 @@ public class AMQChannel implements ServerChannelMethodProcessor {
 
     TopicName topicName = getTopicName(_connection.getNamespace(), exchangeName, key);
 
-    return producers.computeIfAbsent(topicName.toString(), this::createProducer);
-  }
-
-  private Producer<byte[]> createProducer(String topicName) {
-    try {
-      return getGatewayService()
-          .getPulsarClient()
-          .newProducer()
-          .enableBatching(getConfiguration().isAmqpBatchingEnabled())
-          .batchingMaxPublishDelay(100, TimeUnit.MILLISECONDS)
-          .maxPendingMessages(10000)
-          .topic(topicName)
-          .create();
-    } catch (PulsarClientException e) {
-      throw new RuntimeException(e);
-    }
+    return getGatewayService().getOrCreateProducer(topicName.toString());
   }
 
   public void startConsumers() {
