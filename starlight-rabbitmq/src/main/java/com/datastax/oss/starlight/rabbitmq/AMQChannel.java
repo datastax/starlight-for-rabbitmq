@@ -42,7 +42,6 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -283,7 +282,7 @@ public class AMQChannel implements ServerChannelMethodProcessor {
           }
         } else {
           Failsafe.with(ZK_CONFLICT_RETRY)
-              .runAsync(
+              .getStageAsync(
                   () -> {
                     Versioned<ContextMetadata> newContext = newContextMetadata();
                     getVHostMetadata(newContext.model())
@@ -297,11 +296,7 @@ public class AMQChannel implements ServerChannelMethodProcessor {
                                     ? LifetimePolicy.DELETE_ON_NO_LINKS
                                     : LifetimePolicy.PERMANENT));
 
-                    try {
-                      saveContext(newContext).toCompletableFuture().get();
-                    } catch (ExecutionException e) {
-                      throw e.getCause();
-                    }
+                    return saveContext(newContext);
                   })
               .thenRun(
                   () -> {
@@ -367,15 +362,7 @@ public class AMQChannel implements ServerChannelMethodProcessor {
       closeChannel(ErrorCodes.ACCESS_REFUSED, "Exchange '" + exchangeName + "' cannot be deleted");
     } else {
       Failsafe.with(ZK_CONFLICT_RETRY)
-          .runAsync(
-              () -> {
-                Versioned<ContextMetadata> newContext = newContextMetadata();
-                try {
-                  deleteExchange(newContext, exchangeName).toCompletableFuture().get();
-                } catch (ExecutionException e) {
-                  throw e.getCause();
-                }
-              })
+          .getStageAsync(() -> deleteExchange(newContextMetadata(), exchangeName))
           .thenRun(
               () -> {
                 if (!nowait) {
@@ -566,7 +553,7 @@ public class AMQChannel implements ServerChannelMethodProcessor {
           ExclusivityPolicy exclusivityPolicy_ = exclusivityPolicy;
 
           Failsafe.with(ZK_CONFLICT_RETRY)
-              .runAsync(
+              .getStageAsync(
                   () -> {
                     Versioned<ContextMetadata> newContext = newContextMetadata();
                     VirtualHostMetadata vhost =
@@ -577,16 +564,8 @@ public class AMQChannel implements ServerChannelMethodProcessor {
                             queueName,
                             new QueueMetadata(durable, lifetimePolicy_, exclusivityPolicy_));
 
-                    try {
-                      bindQueue(
-                              newContext,
-                              ExchangeDefaults.DEFAULT_EXCHANGE_NAME,
-                              queueName,
-                              queueName)
-                          .get();
-                    } catch (ExecutionException e) {
-                      throw e.getCause();
-                    }
+                    return bindQueue(
+                        newContext, ExchangeDefaults.DEFAULT_EXCHANGE_NAME, queueName, queueName);
                   })
               .thenRun(
                   () -> {
@@ -683,15 +662,8 @@ public class AMQChannel implements ServerChannelMethodProcessor {
       } else {
         String bindingKeyStr = bindingKey == null ? "" : AMQShortString.toString(bindingKey);
         Failsafe.with(ZK_CONFLICT_RETRY)
-            .runAsync(
-                () -> {
-                  Versioned<ContextMetadata> newContext = newContextMetadata();
-                  try {
-                    bindQueue(newContext, exchangeName, queueName, bindingKeyStr).get();
-                  } catch (ExecutionException e) {
-                    throw e.getCause();
-                  }
-                })
+            .getStageAsync(
+                () -> bindQueue(newContextMetadata(), exchangeName, queueName, bindingKeyStr))
             .thenRun(
                 () -> {
                   if (LOGGER.isDebugEnabled()) {
@@ -802,7 +774,7 @@ public class AMQChannel implements ServerChannelMethodProcessor {
       } else {
         // TODO: check if exclusive queue owned by another connection
         Failsafe.with(ZK_CONFLICT_RETRY)
-            .runAsync(
+            .getStageAsync(
                 () -> {
                   Versioned<ContextMetadata> newContext = newContextMetadata();
                   VirtualHostMetadata vHostMetadata = getVHostMetadata(newContext.model());
@@ -821,11 +793,7 @@ public class AMQChannel implements ServerChannelMethodProcessor {
                           (s, exchangeMetadata) ->
                               exchangeMetadata.getBindings().remove(queueName));
                   vHostMetadata.getQueues().remove(queueName);
-                  try {
-                    saveContext(newContext).toCompletableFuture().get();
-                  } catch (ExecutionException e) {
-                    throw e.getCause();
-                  }
+                  return saveContext(newContext);
                 })
             .thenRun(
                 () -> {
@@ -889,7 +857,7 @@ public class AMQChannel implements ServerChannelMethodProcessor {
       final String bindingKeyStr = bindingKey == null ? "" : AMQShortString.toString(bindingKey);
 
       Failsafe.with(ZK_CONFLICT_RETRY)
-          .runAsync(
+          .getStageAsync(
               () -> {
                 Versioned<ContextMetadata> newContext = newContextMetadata();
                 ExchangeMetadata exchangeMetadata =
@@ -903,19 +871,15 @@ public class AMQChannel implements ServerChannelMethodProcessor {
                         .contains(bindingKeyStr)) {
                   AbstractExchange exch =
                       AbstractExchange.fromMetadata(exchangeName.toString(), exchangeMetadata);
-                  try {
-                    exch.unbind(
-                            getVHostMetadata(newContext.model()),
-                            exchangeName.toString(),
-                            queueName,
-                            bindingKeyStr,
-                            _connection)
-                        .thenCompose(it -> saveContext(newContext))
-                        .get();
-                  } catch (ExecutionException e) {
-                    throw e.getCause();
-                  }
+                  return exch.unbind(
+                          getVHostMetadata(newContext.model()),
+                          exchangeName.toString(),
+                          queueName,
+                          bindingKeyStr,
+                          _connection)
+                      .thenCompose(it -> saveContext(newContext));
                 }
+                return CompletableFuture.completedFuture(null);
               })
           .thenRun(
               () -> {
