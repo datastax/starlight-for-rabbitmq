@@ -19,6 +19,7 @@ import static com.google.common.base.Preconditions.checkNotNull;
 import static org.apache.commons.lang3.StringUtils.isNotBlank;
 
 import com.datastax.oss.starlight.rabbitmq.metadata.BindingMetadata;
+import com.datastax.oss.starlight.rabbitmq.metadata.BindingSetMetadata;
 import com.datastax.oss.starlight.rabbitmq.metadata.ContextMetadata;
 import com.datastax.oss.starlight.rabbitmq.metadata.ExchangeMetadata;
 import com.datastax.oss.starlight.rabbitmq.metadata.VirtualHostMetadata;
@@ -36,7 +37,6 @@ import io.netty.channel.socket.SocketChannel;
 import io.netty.util.concurrent.DefaultThreadFactory;
 import io.prometheus.client.Counter;
 import io.prometheus.client.Gauge;
-import io.vertx.core.impl.ConcurrentHashSet;
 import java.io.Closeable;
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -45,16 +45,15 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import net.jodah.failsafe.Failsafe;
 import org.apache.curator.RetryPolicy;
 import org.apache.curator.framework.CuratorFramework;
@@ -70,7 +69,6 @@ import org.apache.curator.x.async.modeled.versioned.Versioned;
 import org.apache.pulsar.broker.authentication.AuthenticationService;
 import org.apache.pulsar.client.admin.PulsarAdmin;
 import org.apache.pulsar.client.admin.PulsarAdminBuilder;
-import org.apache.pulsar.client.admin.PulsarAdminException;
 import org.apache.pulsar.client.api.ClientBuilder;
 import org.apache.pulsar.client.api.Consumer;
 import org.apache.pulsar.client.api.Message;
@@ -258,11 +256,14 @@ public class GatewayService implements Closeable {
     subscriptionCleaner.start();
 
     exchangeKeyProducer = pulsarClient.newProducer(Schema.STRING).topic("__exchange-keys").create();
-    exchangeKeyConsumer = pulsarClient.newConsumer(Schema.STRING).topic("__exchange-keys")
-        .subscriptionName("starlight-for-rabbitmq")
-        .subscriptionType(SubscriptionType.Failover)
-        .messageListener((MessageListener<String>) this::receivedExchangeKeyMessage)
-        .subscribe();
+    exchangeKeyConsumer =
+        pulsarClient
+            .newConsumer(Schema.STRING)
+            .topic("__exchange-keys")
+            .subscriptionName("starlight-for-rabbitmq")
+            .subscriptionType(SubscriptionType.Failover)
+            .messageListener((MessageListener<String>) this::receivedExchangeKeyMessage)
+            .subscribe();
 
     if (startChannels) {
       acceptorGroup = EventLoopUtil.newEventLoopGroup(1, true, acceptorThreadFactory);
@@ -577,13 +578,14 @@ public class GatewayService implements Closeable {
 
   private Producer<byte[]> createProducer(String topicName) {
     try {
-      Producer<byte[]> producer = getPulsarClient()
-          .newProducer()
-          .enableBatching(config.isAmqpBatchingEnabled())
-          .batchingMaxPublishDelay(100, TimeUnit.MILLISECONDS)
-          .maxPendingMessages(10000)
-          .topic(topicName)
-          .create();
+      Producer<byte[]> producer =
+          getPulsarClient()
+              .newProducer()
+              .enableBatching(config.isAmqpBatchingEnabled())
+              .batchingMaxPublishDelay(100, TimeUnit.MILLISECONDS)
+              .maxPendingMessages(10000)
+              .topic(topicName)
+              .create();
       exchangeKeyProducer.sendAsync(topicName);
       return producer;
     } catch (PulsarClientException e) {
@@ -594,62 +596,76 @@ public class GatewayService implements Closeable {
   private void receivedExchangeKeyMessage(Consumer<String> consumer, Message<String> msg) {
     String topic = msg.getValue();
     TopicName topicName = TopicName.get(topic);
-    try {
-      Failsafe.with(ZK_CONFLICT_RETRY)
-          .getStageAsync(
-              () -> {
-                Versioned<ContextMetadata> metadataVersioned = newContextMetadata(contextMetadata);
-                VirtualHostMetadata vhost = metadataVersioned.model().getVhosts().get(topicName.getNamespace());
-                if (vhost != null) {
-                  String[] exchangeAndKey = topicName.getLocalName().split(".__");
-                  if (exchangeAndKey.length == 2) {
-                    String exchangeName = exchangeAndKey[0];
-                    String routingKey = exchangeAndKey[1];
-                    ExchangeMetadata exchange = vhost.getExchanges().get(exchangeName);
-                    if (exchange != null) {
-                      exchange.getBindings().forEach(
-                          (queue, bindingSetMetadata) -> {
-                            Map<String, BindingMetadata> subscriptions = vhost.getSubscriptions().get(queue);
-                            boolean subscriptionExists = subscriptions.values().stream().anyMatch(
-                                binding -> binding.getTopic().equals(topic)
-                            );
-                            if (!subscriptionExists) {
-                              TopicParser parser = new TopicParser();
-                              bindingSetMetadata.getKeys().forEach(
-                                  key -> parser.addBinding(key, null)
-                              );
-                              if (parser.parse(routingKey).size() > 0) {
-                                String subscriptionName =
-                                    (topic + "-" + UUID.randomUUID()).replace("/", "_");
-                                try {
-                                  pulsarAdmin.topics().createSubscription(topic, subscriptionName, MessageId.earliest);
-                                } catch (PulsarAdminException e) {
-                                  throw new RuntimeException(e);
-                                }
-                                BindingMetadata bindingMetadata =
-                                    new BindingMetadata(exchangeName, topic, subscriptionName);
-                                bindingMetadata.getKeys().add(routingKey);
-                                subscriptions.put(subscriptionName, bindingMetadata);
-                              }
-                            }
-                          }
-                      );
-                      return saveContext(metadataVersioned);
+    Failsafe.with(ZK_CONFLICT_RETRY)
+        .getStageAsync(
+            () -> {
+              Versioned<ContextMetadata> metadataVersioned = newContextMetadata(contextMetadata);
+              VirtualHostMetadata vhost =
+                  metadataVersioned.model().getVhosts().get(topicName.getNamespace());
+              if (vhost != null) {
+                String[] exchangeAndKey = topicName.getLocalName().split(".__");
+                String exchangeName = exchangeAndKey[0];
+                String routingKey = exchangeAndKey.length == 2 ? exchangeAndKey[1] : "";
+                ExchangeMetadata exchange = vhost.getExchanges().get(exchangeName);
+                if (exchange != null) {
+                  List<CompletableFuture<Void>> futures = new ArrayList<>();
+                  AtomicInteger count = new AtomicInteger();
+                  for (Map.Entry<String, BindingSetMetadata> entry :
+                      exchange.getBindings().entrySet()) {
+                    String queue = entry.getKey();
+                    BindingSetMetadata bindingSetMetadata = entry.getValue();
+                    Map<String, BindingMetadata> subscriptions =
+                        vhost.getSubscriptions().get(queue);
+                    boolean subscriptionExists =
+                        subscriptions
+                            .values()
+                            .stream()
+                            .anyMatch(binding -> binding.getTopic().equals(topic));
+                    if (!subscriptionExists) {
+                      TopicParser parser = new TopicParser();
+                      bindingSetMetadata.getKeys().forEach(key -> parser.addBinding(key, null));
+                      if (parser.parse(routingKey).size() > 0) {
+                        String subscriptionName = topic.replace("/", "_") + "-" + UUID.randomUUID();
+                        CompletableFuture<Void> future =
+                            pulsarAdmin
+                                .topics()
+                                .createSubscriptionAsync(
+                                    topic, subscriptionName, MessageId.earliest)
+                                .thenAccept(
+                                    it -> {
+                                      BindingMetadata bindingMetadata =
+                                          new BindingMetadata(
+                                              exchangeName, topic, subscriptionName);
+                                      bindingMetadata.getKeys().add(routingKey);
+                                      subscriptions.put(subscriptionName, bindingMetadata);
+                                    });
+                        futures.add(future);
+                      }
                     }
                   }
+                  if (futures.size() > 0) {
+                    return CompletableFuture.allOf(
+                            futures.stream().toArray(CompletableFuture[]::new))
+                        .thenCompose(it -> saveContext(metadataVersioned));
+                  }
                 }
-                return CompletableFuture.completedFuture(null);
-              }).get();
-    } catch (InterruptedException | ExecutionException e) {
-      LOG.error("Failed to handle exchange with key update message", e);
-      consumer.negativeAcknowledge(msg);
-      return;
-    }
-    try {
-      consumer.acknowledge(msg);
-    } catch (PulsarClientException e) {
-      LOG.error("Failed to acknowledge exchange with key update message", e);
-      consumer.negativeAcknowledge(msg);
-    }
+              }
+              return CompletableFuture.completedFuture(null);
+            })
+        .thenAccept(
+            it -> {
+              try {
+                consumer.acknowledge(msg);
+              } catch (PulsarClientException e) {
+                LOG.error("Failed to acknowledge exchange with key update message", e);
+                consumer.negativeAcknowledge(msg);
+              }
+            })
+        .exceptionally(
+            throwable -> {
+              LOG.error("Failed to handle exchange with key update message", throwable);
+              consumer.negativeAcknowledge(msg);
+              return null;
+            });
   }
 }
