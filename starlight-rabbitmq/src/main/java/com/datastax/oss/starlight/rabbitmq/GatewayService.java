@@ -598,15 +598,11 @@ public class GatewayService implements Closeable {
               .maxPendingMessages(10000)
               .topic(topicName)
               .create();
-      getExchangeKeyProducer().sendAsync(topicName);
+      exchangeKeyProducer.sendAsync(topicName);
       return producer;
     } catch (PulsarClientException e) {
       throw new RuntimeException(e);
     }
-  }
-
-  public Producer<String> getExchangeKeyProducer() {
-    return exchangeKeyProducer;
   }
 
   private void receivedExchangeKeyMessage(Consumer<String> consumer, Message<String> msg) {
@@ -683,5 +679,15 @@ public class GatewayService implements Closeable {
               consumer.negativeAcknowledge(msg);
               return null;
             });
+  }
+
+  @VisibleForTesting
+  public void setExchangeKeyProducer(Producer<String> exchangeKeyProducer) {
+    this.exchangeKeyProducer = exchangeKeyProducer;
+  }
+
+  @VisibleForTesting
+  public void setExchangeKeyConsumer(Consumer<String> exchangeKeyConsumer) {
+    this.exchangeKeyConsumer = exchangeKeyConsumer;
   }
 }
