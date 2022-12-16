@@ -586,11 +586,15 @@ public class GatewayService implements Closeable {
               .maxPendingMessages(10000)
               .topic(topicName)
               .create();
-      exchangeKeyProducer.sendAsync(topicName);
+      getExchangeKeyProducer().sendAsync(topicName);
       return producer;
     } catch (PulsarClientException e) {
       throw new RuntimeException(e);
     }
+  }
+
+  public Producer<String> getExchangeKeyProducer() {
+    return exchangeKeyProducer;
   }
 
   private void receivedExchangeKeyMessage(Consumer<String> consumer, Message<String> msg) {

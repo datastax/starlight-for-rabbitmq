@@ -45,6 +45,7 @@ import org.apache.pulsar.client.admin.PulsarAdmin;
 import org.apache.pulsar.client.admin.Topics;
 import org.apache.pulsar.client.api.ConsumerBuilder;
 import org.apache.pulsar.client.api.MessageId;
+import org.apache.pulsar.client.api.Producer;
 import org.apache.pulsar.client.api.ProducerBuilder;
 import org.apache.pulsar.client.api.PulsarClient;
 import org.apache.pulsar.client.api.SubscriptionType;
@@ -119,6 +120,7 @@ public class AbstractBaseTest {
     when(consumer.acknowledgeAsync(any(MessageId.class))).thenReturn(new CompletableFuture<>());
 
     doReturn(pulsarClient).when(gatewayService).getPulsarClient();
+    doReturn(mock(Producer.class)).when(gatewayService).getExchangeKeyProducer();
 
     PulsarAdmin pulsarAdmin = mock(PulsarAdmin.class);
     Topics topics = mock(Topics.class);
