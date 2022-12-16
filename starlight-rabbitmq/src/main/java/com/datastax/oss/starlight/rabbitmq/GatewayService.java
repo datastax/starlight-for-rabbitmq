@@ -255,16 +255,6 @@ public class GatewayService implements Closeable {
     subscriptionCleaner = new SubscriptionCleaner(this, curator);
     subscriptionCleaner.start();
 
-    exchangeKeyProducer = pulsarClient.newProducer(Schema.STRING).topic("__exchange-keys").create();
-    exchangeKeyConsumer =
-        pulsarClient
-            .newConsumer(Schema.STRING)
-            .topic("__exchange-keys")
-            .subscriptionName("starlight-for-rabbitmq")
-            .subscriptionType(SubscriptionType.Failover)
-            .messageListener((MessageListener<String>) this::receivedExchangeKeyMessage)
-            .subscribe();
-
     if (startChannels) {
       acceptorGroup = EventLoopUtil.newEventLoopGroup(1, true, acceptorThreadFactory);
       workerGroup = EventLoopUtil.newEventLoopGroup(numThreads, true, workersThreadFactory);
@@ -292,6 +282,26 @@ public class GatewayService implements Closeable {
           throw new IOException("Failed to bind Starlight for RabbitMQ on address " + address, e);
         }
       }
+    }
+  }
+
+  private void createExchangeKeyProducerIfNeeded() throws PulsarClientException {
+    if (exchangeKeyProducer == null) {
+      exchangeKeyProducer =
+          pulsarClient.newProducer(Schema.STRING).topic("__exchange-keys").create();
+    }
+  }
+
+  private void createExchangeKeyConsumerIfNeeded() throws PulsarClientException {
+    if (exchangeKeyConsumer == null) {
+      exchangeKeyConsumer =
+          pulsarClient
+              .newConsumer(Schema.STRING)
+              .topic("__exchange-keys")
+              .subscriptionName("starlight-for-rabbitmq")
+              .subscriptionType(SubscriptionType.Failover)
+              .messageListener((MessageListener<String>) this::receivedExchangeKeyMessage)
+              .subscribe();
     }
   }
 
@@ -578,6 +588,8 @@ public class GatewayService implements Closeable {
 
   private Producer<byte[]> createProducer(String topicName) {
     try {
+      createExchangeKeyConsumerIfNeeded();
+      createExchangeKeyProducerIfNeeded();
       Producer<byte[]> producer =
           getPulsarClient()
               .newProducer()
