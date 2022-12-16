@@ -32,6 +32,7 @@ import org.apache.curator.x.async.modeled.versioned.Versioned;
 import org.apache.pulsar.client.admin.PulsarAdminException;
 import org.apache.pulsar.client.api.Message;
 import org.apache.pulsar.client.api.MessageId;
+import org.apache.zookeeper.KeeperException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -40,6 +41,8 @@ public class SubscriptionCleaner extends LeaderSelectorListenerAdapter implement
 
   private final GatewayService service;
   private final LeaderSelector leaderSelector;
+
+  private final AtomicBoolean closing = new AtomicBoolean();
 
   public SubscriptionCleaner(GatewayService service, CuratorFramework client) {
     this.service = service;
@@ -53,13 +56,14 @@ public class SubscriptionCleaner extends LeaderSelectorListenerAdapter implement
 
   @Override
   public void close() throws IOException {
+    closing.set(true);
     leaderSelector.close();
   }
 
   @Override
   public void takeLeadership(CuratorFramework client) {
     try {
-      while (true) {
+      while (!closing.get()) {
         Thread.sleep(TimeUnit.SECONDS.toMillis(1));
         Versioned<ContextMetadata> newContext =
             service.newContextMetadata(service.getContextMetadata());
@@ -95,8 +99,17 @@ public class SubscriptionCleaner extends LeaderSelectorListenerAdapter implement
                                           e);
                                     }
                                   } catch (PulsarAdminException e) {
-                                    LOGGER.error("Error while deleting subscription", e);
-                                    continue;
+                                    if (closing.get()
+                                        && e.getCause() instanceof InterruptedException) {
+                                      if (LOGGER.isDebugEnabled()) {
+                                        LOGGER.debug(
+                                            "Subscription deletion failed. Probably because service is closing",
+                                            e);
+                                      }
+                                    } else {
+                                      LOGGER.error("Error while deleting subscription", e);
+                                      continue;
+                                    }
                                   }
                                   iterator.remove();
                                   updateContext.set(true);
@@ -108,7 +121,14 @@ public class SubscriptionCleaner extends LeaderSelectorListenerAdapter implement
           try {
             service.saveContext(newContext).toCompletableFuture().get(5, TimeUnit.SECONDS);
           } catch (ExecutionException e) {
-            LOGGER.error("Couldn't save configuration after removing a subscription", e);
+            String errorMsg = "Couldn't save configuration after removing a subscription";
+            if (e.getCause() instanceof KeeperException.BadVersionException) {
+              if (LOGGER.isDebugEnabled()) {
+                LOGGER.debug(errorMsg, e);
+              }
+            } else {
+              LOGGER.error(errorMsg, e);
+            }
           }
         }
       }
