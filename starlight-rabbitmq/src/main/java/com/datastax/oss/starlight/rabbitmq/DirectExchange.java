@@ -73,21 +73,20 @@ public final class DirectExchange extends AbstractExchange {
       GatewayConnection connection) {
 
     BindingSetMetadata bindings = vhost.getExchanges().get(exchange).getBindings().get(queue);
-    Map<String, BindingMetadata> queueSubscriptions = vhost.getSubscriptions().get(queue);
-    for (BindingMetadata subscription : queueSubscriptions.values()) {
-      if (subscription.getLastMessageId() == null
-          && subscription.getExchange().equals(exchange)
-          && subscription.getKeys().contains(routingKey)) {
-        return connection
-            .getGatewayService()
-            .getPulsarAdmin()
-            .topics()
-            .getLastMessageIdAsync(subscription.getTopic())
-            .thenAccept(
-                lastMessageId -> {
-                  subscription.setLastMessageId(lastMessageId.toByteArray());
-                  bindings.getKeys().remove(routingKey);
-                });
+    if (bindings.getKeys().remove(routingKey)) {
+      Map<String, BindingMetadata> queueSubscriptions = vhost.getSubscriptions().get(queue);
+      for (BindingMetadata subscription : queueSubscriptions.values()) {
+        if (subscription.getLastMessageId() == null
+            && subscription.getExchange().equals(exchange)
+            && subscription.getKeys().contains(routingKey)) {
+          return connection
+              .getGatewayService()
+              .getPulsarAdmin()
+              .topics()
+              .getLastMessageIdAsync(subscription.getTopic())
+              .thenAccept(
+                  lastMessageId -> subscription.setLastMessageId(lastMessageId.toByteArray()));
+        }
       }
     }
     return CompletableFuture.completedFuture(null);
