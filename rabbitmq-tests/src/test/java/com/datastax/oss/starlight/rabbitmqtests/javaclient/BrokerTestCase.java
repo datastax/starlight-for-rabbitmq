@@ -155,11 +155,11 @@ public class BrokerTestCase {
   @AfterClass
   public static void after() throws Exception {
     if (!SystemTest.enabled) {
-      if (cluster != null) {
-        cluster.close();
-      }
       if (gatewayService != null) {
         gatewayService.close();
+      }
+      if (cluster != null) {
+        cluster.close();
       }
     }
   }
