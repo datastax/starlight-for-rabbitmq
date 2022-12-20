@@ -92,7 +92,7 @@ public class TopicExchange extends AbstractExchange {
                                   it -> {
                                     BindingMetadata bindingMetadata =
                                         new BindingMetadata(exchange, topic, subscriptionName);
-                                    bindingMetadata.getKeys().add(routingKey);
+                                    bindingMetadata.getKeys().add(bindingKey);
                                     subscriptions.put(subscriptionName, bindingMetadata);
                                   }));
                     }

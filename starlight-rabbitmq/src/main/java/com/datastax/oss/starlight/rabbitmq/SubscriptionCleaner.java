@@ -57,7 +57,7 @@ public class SubscriptionCleaner extends LeaderSelectorListenerAdapter implement
   }
 
   @Override
-  public void takeLeadership(CuratorFramework client) {
+  public void takeLeadership(CuratorFramework client) throws TimeoutException {
     try {
       while (true) {
         Thread.sleep(TimeUnit.SECONDS.toMillis(1));
@@ -117,6 +117,7 @@ public class SubscriptionCleaner extends LeaderSelectorListenerAdapter implement
       Thread.currentThread().interrupt();
     } catch (TimeoutException e) {
       LOGGER.error("Timed out while saving configuration", e);
+      throw e;
     }
   }
 

@@ -45,6 +45,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
@@ -53,7 +54,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 import net.jodah.failsafe.Failsafe;
 import org.apache.curator.RetryPolicy;
 import org.apache.curator.framework.CuratorFramework;
@@ -140,9 +140,13 @@ public class GatewayService implements Closeable {
           .withMaxRetries(100);
   private SubscriptionCleaner subscriptionCleaner;
 
+  private TopicExchangeUpdater topicExchangeUpdater;
+
   private Producer<String> exchangeKeyProducer;
 
   private Consumer<String> exchangeKeyConsumer;
+
+  private final Set<String> knownTopics = ConcurrentHashMap.newKeySet();
 
   final Counter inBytesCounter;
   final Counter outBytesCounter;
@@ -254,6 +258,9 @@ public class GatewayService implements Closeable {
 
     subscriptionCleaner = new SubscriptionCleaner(this, curator);
     subscriptionCleaner.start();
+
+    topicExchangeUpdater = new TopicExchangeUpdater(this, curator);
+    topicExchangeUpdater.start();
 
     if (startChannels) {
       acceptorGroup = EventLoopUtil.newEventLoopGroup(1, true, acceptorThreadFactory);
@@ -439,6 +446,9 @@ public class GatewayService implements Closeable {
     if (subscriptionCleaner != null) {
       subscriptionCleaner.close();
     }
+    if (topicExchangeUpdater != null) {
+      topicExchangeUpdater.close();
+    }
     if (persistentWatcher != null) {
       persistentWatcher.close();
     }
@@ -606,64 +616,8 @@ public class GatewayService implements Closeable {
   }
 
   private void receivedExchangeKeyMessage(Consumer<String> consumer, Message<String> msg) {
-    String topic = msg.getValue();
-    TopicName topicName = TopicName.get(topic);
     Failsafe.with(ZK_CONFLICT_RETRY)
-        .getStageAsync(
-            () -> {
-              Versioned<ContextMetadata> metadataVersioned = newContextMetadata(contextMetadata);
-              VirtualHostMetadata vhost =
-                  metadataVersioned.model().getVhosts().get(topicName.getNamespace());
-              if (vhost != null) {
-                String[] exchangeAndKey = topicName.getLocalName().split(".__");
-                String exchangeName = exchangeAndKey[0];
-                String routingKey = exchangeAndKey.length == 2 ? exchangeAndKey[1] : "";
-                ExchangeMetadata exchange = vhost.getExchanges().get(exchangeName);
-                if (exchange != null) {
-                  List<CompletableFuture<Void>> futures = new ArrayList<>();
-                  AtomicInteger count = new AtomicInteger();
-                  for (Map.Entry<String, BindingSetMetadata> entry :
-                      exchange.getBindings().entrySet()) {
-                    String queue = entry.getKey();
-                    BindingSetMetadata bindingSetMetadata = entry.getValue();
-                    Map<String, BindingMetadata> subscriptions =
-                        vhost.getSubscriptions().get(queue);
-                    boolean subscriptionExists =
-                        subscriptions
-                            .values()
-                            .stream()
-                            .anyMatch(binding -> binding.getTopic().equals(topic));
-                    if (!subscriptionExists) {
-                      TopicParser parser = new TopicParser();
-                      bindingSetMetadata.getKeys().forEach(key -> parser.addBinding(key, null));
-                      if (parser.parse(routingKey).size() > 0) {
-                        String subscriptionName = topic.replace("/", "_") + "-" + UUID.randomUUID();
-                        CompletableFuture<Void> future =
-                            pulsarAdmin
-                                .topics()
-                                .createSubscriptionAsync(
-                                    topic, subscriptionName, MessageId.earliest)
-                                .thenAccept(
-                                    it -> {
-                                      BindingMetadata bindingMetadata =
-                                          new BindingMetadata(
-                                              exchangeName, topic, subscriptionName);
-                                      bindingMetadata.getKeys().add(routingKey);
-                                      subscriptions.put(subscriptionName, bindingMetadata);
-                                    });
-                        futures.add(future);
-                      }
-                    }
-                  }
-                  if (futures.size() > 0) {
-                    return CompletableFuture.allOf(
-                            futures.stream().toArray(CompletableFuture[]::new))
-                        .thenCompose(it -> saveContext(metadataVersioned));
-                  }
-                }
-              }
-              return CompletableFuture.completedFuture(null);
-            })
+        .getStageAsync(() -> updateQueueSubscriptionsToTopicExchanges(msg.getValue()))
         .thenAccept(
             it -> {
               try {
@@ -679,6 +633,57 @@ public class GatewayService implements Closeable {
               consumer.negativeAcknowledge(msg);
               return null;
             });
+  }
+
+  public CompletableFuture<Void> updateQueueSubscriptionsToTopicExchanges(String topic) {
+    if (knownTopics.contains(topic)) {
+      return CompletableFuture.completedFuture(null);
+    }
+    TopicName topicName = TopicName.get(topic);
+    Versioned<ContextMetadata> metadataVersioned = newContextMetadata(contextMetadata);
+    VirtualHostMetadata vhost = metadataVersioned.model().getVhosts().get(topicName.getNamespace());
+    if (vhost != null) {
+      String[] exchangeAndKey = topicName.getLocalName().split(".__");
+      String exchangeName = exchangeAndKey[0];
+      String routingKey = exchangeAndKey.length == 2 ? exchangeAndKey[1] : "";
+      ExchangeMetadata exchange = vhost.getExchanges().get(exchangeName);
+      if (exchange != null && ExchangeMetadata.Type.topic.equals(exchange.getType())) {
+        List<CompletableFuture<Void>> futures = new ArrayList<>();
+        for (Map.Entry<String, BindingSetMetadata> entry : exchange.getBindings().entrySet()) {
+          String queue = entry.getKey();
+          BindingSetMetadata bindingSetMetadata = entry.getValue();
+          Map<String, BindingMetadata> subscriptions = vhost.getSubscriptions().get(queue);
+          boolean subscriptionExists =
+              subscriptions.values().stream().anyMatch(binding -> binding.getTopic().equals(topic));
+          if (!subscriptionExists) {
+            TopicParser parser = new TopicParser();
+            bindingSetMetadata.getKeys().forEach(key -> parser.addBinding(key, null));
+            if (parser.parse(routingKey).size() > 0) {
+              String subscriptionName = topic.replace("/", "_") + "-" + UUID.randomUUID();
+              CompletableFuture<Void> future =
+                  pulsarAdmin
+                      .topics()
+                      .createSubscriptionAsync(topic, subscriptionName, MessageId.earliest)
+                      .thenAccept(
+                          it -> {
+                            BindingMetadata bindingMetadata =
+                                new BindingMetadata(exchangeName, topic, subscriptionName);
+                            bindingMetadata.getKeys().add(routingKey);
+                            subscriptions.put(subscriptionName, bindingMetadata);
+                          });
+              futures.add(future);
+            }
+          }
+        }
+        if (futures.size() > 0) {
+          return CompletableFuture.allOf(futures.stream().toArray(CompletableFuture[]::new))
+              .thenCompose(it -> saveContext(metadataVersioned))
+              .thenAccept(it -> knownTopics.add(topic));
+        }
+      }
+    }
+    knownTopics.add(topic);
+    return CompletableFuture.completedFuture(null);
   }
 
   @VisibleForTesting
