@@ -188,9 +188,9 @@ public class BindingLifecycle extends BindingLifecycleBase {
   /** Test the behaviour of queue.unbind */
   @Test
   public void unbind() throws Exception {
-    // TODO: add tests on amq.topic and amq.headers when they are supported
+    // TODO: add tests on amq.headers when they are supported
     // for (String exchange: new String[]{"amq.fanout", "amq.direct", "amq.topic", "amq.headers"}) {
-    for (String exchange : new String[] {"amq.fanout", "amq.direct"}) {
+    for (String exchange : new String[] {"amq.fanout", "amq.direct", "amq.topic"}) {
       testUnbind(exchange);
     }
   }

@@ -48,7 +48,7 @@ public class TestUtils {
       throws IOException {
     GetResponse r = null;
     long now = System.currentTimeMillis();
-    while (System.currentTimeMillis() - now < 1000 && r == null) {
+    while (System.currentTimeMillis() - now < 5000 && r == null) {
       r = channel.basicGet(queue, autoAck);
       if (r == null) {
         try {

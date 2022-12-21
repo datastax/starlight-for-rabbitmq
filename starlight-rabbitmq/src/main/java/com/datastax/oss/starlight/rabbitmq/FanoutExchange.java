@@ -20,6 +20,7 @@ import com.datastax.oss.starlight.rabbitmq.metadata.BindingSetMetadata;
 import com.datastax.oss.starlight.rabbitmq.metadata.VirtualHostMetadata;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import org.apache.pulsar.client.api.MessageId;
@@ -39,27 +40,30 @@ public final class FanoutExchange extends AbstractExchange {
       String routingKey,
       GatewayConnection connection) {
     BindingSetMetadata bindings = vhost.getExchanges().get(exchange).getBindings().get(queue);
-    bindings.getKeys().add(routingKey);
-    Map<String, BindingMetadata> subscriptions =
-        vhost.getSubscriptions().computeIfAbsent(queue, q -> new HashMap<>());
-    for (BindingMetadata bindingMetadata : subscriptions.values()) {
-      if (bindingMetadata.getLastMessageId() == null
-          && bindingMetadata.getExchange().equals(exchange)) {
-        // There's already an active subscription
-        return CompletableFuture.completedFuture(null);
+    if (bindings != null && !bindings.getKeys().contains(routingKey)) {
+      bindings.getKeys().add(routingKey);
+      Map<String, BindingMetadata> subscriptions =
+          vhost.getSubscriptions().computeIfAbsent(queue, q -> new HashMap<>());
+      for (BindingMetadata bindingMetadata : subscriptions.values()) {
+        if (bindingMetadata.getLastMessageId() == null
+            && bindingMetadata.getExchange().equals(exchange)) {
+          // There's already an active subscription
+          return CompletableFuture.completedFuture(null);
+        }
       }
+      String topic = getTopicName(connection.getNamespace(), name, "").toString();
+      String subscriptionName = (topic + "-" + UUID.randomUUID()).replace("/", "_");
+      return connection
+          .getGatewayService()
+          .getPulsarAdmin()
+          .topics()
+          .createSubscriptionAsync(topic, subscriptionName, MessageId.latest)
+          .thenAccept(
+              it ->
+                  subscriptions.put(
+                      subscriptionName, new BindingMetadata(exchange, topic, subscriptionName)));
     }
-    String topic = getTopicName(connection.getNamespace(), name, "").toString();
-    String subscriptionName = (topic + "-" + UUID.randomUUID()).replace("/", "_");
-    return connection
-        .getGatewayService()
-        .getPulsarAdmin()
-        .topics()
-        .createSubscriptionAsync(topic, subscriptionName, MessageId.latest)
-        .thenAccept(
-            it ->
-                subscriptions.put(
-                    subscriptionName, new BindingMetadata(exchange, topic, subscriptionName)));
+    return CompletableFuture.completedFuture(null);
   }
 
   @Override
@@ -70,8 +74,10 @@ public final class FanoutExchange extends AbstractExchange {
       String routingKey,
       GatewayConnection connection) {
     Map<String, BindingSetMetadata> bindings = vhost.getExchanges().get(exchange).getBindings();
-    if (bindings.get(queue).getKeys().size() == 1) {
-      // Removing the last key
+    Set<String> keys = bindings.get(queue).getKeys();
+    boolean removedKey = keys.remove(routingKey);
+    if (removedKey && keys.isEmpty()) {
+      bindings.remove(queue);
       Map<String, BindingMetadata> queueSubscriptions = vhost.getSubscriptions().get(queue);
       for (BindingMetadata subscription : queueSubscriptions.values()) {
         if (subscription.getLastMessageId() == null
@@ -84,7 +90,6 @@ public final class FanoutExchange extends AbstractExchange {
               .thenAccept(
                   lastMessageId -> {
                     subscription.setLastMessageId(lastMessageId.toByteArray());
-                    bindings.remove(queue);
                   });
         }
       }

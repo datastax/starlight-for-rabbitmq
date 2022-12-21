@@ -101,7 +101,6 @@ public class Routing extends BrokerTestCase {
    * a message that matches both bindings.
    */
   @Test
-  @Ignore("Need to implement topic exchange first")
   public void doubleBinding() throws IOException {
     channel.queueBind(Q1, "amq.topic", "x.#");
     channel.queueBind(Q1, "amq.topic", "#.x");
@@ -140,14 +139,9 @@ public class Routing extends BrokerTestCase {
   }
 
   @Test
-  @Ignore("Need to implement topic exchanges first")
   public void topicRouting() throws Exception {
-
     List<String> queues = new ArrayList<String>();
-
-    // 100+ queues is the trigger point for bug20046
     for (int i = 0; i < 100; i++) {
-      channel.queueDeclare();
       AMQP.Queue.DeclareOk ok = channel.queueDeclare();
       String q = ok.getQueue();
       channel.queueBind(q, "amq.topic", "#");

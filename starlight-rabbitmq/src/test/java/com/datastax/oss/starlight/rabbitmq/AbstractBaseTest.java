@@ -43,8 +43,10 @@ import java.util.concurrent.TimeUnit;
 import org.apache.curator.x.async.modeled.versioned.Versioned;
 import org.apache.pulsar.client.admin.PulsarAdmin;
 import org.apache.pulsar.client.admin.Topics;
+import org.apache.pulsar.client.api.Consumer;
 import org.apache.pulsar.client.api.ConsumerBuilder;
 import org.apache.pulsar.client.api.MessageId;
+import org.apache.pulsar.client.api.Producer;
 import org.apache.pulsar.client.api.ProducerBuilder;
 import org.apache.pulsar.client.api.PulsarClient;
 import org.apache.pulsar.client.api.SubscriptionType;
@@ -119,6 +121,8 @@ public class AbstractBaseTest {
     when(consumer.acknowledgeAsync(any(MessageId.class))).thenReturn(new CompletableFuture<>());
 
     doReturn(pulsarClient).when(gatewayService).getPulsarClient();
+    gatewayService.setExchangeKeyConsumer(mock(Consumer.class));
+    gatewayService.setExchangeKeyProducer(mock(Producer.class));
 
     PulsarAdmin pulsarAdmin = mock(PulsarAdmin.class);
     Topics topics = mock(Topics.class);

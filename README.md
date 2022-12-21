@@ -9,7 +9,7 @@ The proxy can be run as a standalone jar, a Pulsar
 ## Limitations
 
 This is currently not implemented but on the roadmap:
-* Topic and headers exchanges
+* Headers exchanges
 * Exclusive consumers
 * Non durable exchanges and queues
 * Transient messages (all messages are persisted)

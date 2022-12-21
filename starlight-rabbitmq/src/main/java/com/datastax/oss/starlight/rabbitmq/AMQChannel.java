@@ -863,12 +863,7 @@ public class AMQChannel implements ServerChannelMethodProcessor {
                 ExchangeMetadata exchangeMetadata =
                     getExchange(newContext.model(), exchangeName.toString());
                 if (exchangeMetadata != null
-                    && exchangeMetadata.getBindings().get(queueName) != null
-                    && exchangeMetadata
-                        .getBindings()
-                        .get(queueName)
-                        .getKeys()
-                        .contains(bindingKeyStr)) {
+                    && exchangeMetadata.getBindings().get(queueName) != null) {
                   AbstractExchange exch =
                       AbstractExchange.fromMetadata(exchangeName.toString(), exchangeMetadata);
                   return exch.unbind(
