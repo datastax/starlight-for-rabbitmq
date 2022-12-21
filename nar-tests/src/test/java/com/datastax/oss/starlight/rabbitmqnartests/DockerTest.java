@@ -50,8 +50,8 @@ import org.testcontainers.containers.Network;
 
 public class DockerTest {
 
-  private static final String IMAGE_LUNASTREAMING210 = "datastax/lunastreaming:2.10_0.1";
-  private static final String IMAGE_PULSAR210 = "apachepulsar/pulsar:2.10.0";
+  private static final String IMAGE_LUNASTREAMING210 = "datastax/lunastreaming:2.10_2.9";
+  private static final String IMAGE_PULSAR210 = "apachepulsar/pulsar:2.10.2";
 
   @ParameterizedTest
   @ValueSource(strings = {IMAGE_PULSAR210, IMAGE_LUNASTREAMING210})
