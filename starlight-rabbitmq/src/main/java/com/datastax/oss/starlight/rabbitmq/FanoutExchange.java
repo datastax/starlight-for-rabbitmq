@@ -20,6 +20,7 @@ import com.datastax.oss.starlight.rabbitmq.metadata.BindingSetMetadata;
 import com.datastax.oss.starlight.rabbitmq.metadata.VirtualHostMetadata;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import org.apache.pulsar.client.api.MessageId;
@@ -47,8 +48,6 @@ public final class FanoutExchange extends AbstractExchange {
         if (bindingMetadata.getLastMessageId() == null
             && bindingMetadata.getExchange().equals(exchange)) {
           // There's already an active subscription
-          // TODO: Test what is the behavior on RabbitMQ: do multiple fanouts bindings add to each
-          // other ?
           return CompletableFuture.completedFuture(null);
         }
       }
@@ -75,8 +74,10 @@ public final class FanoutExchange extends AbstractExchange {
       String routingKey,
       GatewayConnection connection) {
     Map<String, BindingSetMetadata> bindings = vhost.getExchanges().get(exchange).getBindings();
-    if (bindings.get(queue).getKeys().size() == 1) {
-      // Removing the last key
+    Set<String> keys = bindings.get(queue).getKeys();
+    boolean removedKey = keys.remove(routingKey);
+    if (removedKey && keys.isEmpty()) {
+      bindings.remove(queue);
       Map<String, BindingMetadata> queueSubscriptions = vhost.getSubscriptions().get(queue);
       for (BindingMetadata subscription : queueSubscriptions.values()) {
         if (subscription.getLastMessageId() == null
@@ -89,12 +90,10 @@ public final class FanoutExchange extends AbstractExchange {
               .thenAccept(
                   lastMessageId -> {
                     subscription.setLastMessageId(lastMessageId.toByteArray());
-                    bindings.remove(queue);
                   });
         }
       }
     }
-    bindings.get(queue).getKeys().remove(routingKey);
     return CompletableFuture.completedFuture(null);
   }
 }
