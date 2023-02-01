@@ -13,7 +13,6 @@ This is currently not implemented but on the roadmap:
 * Exclusive consumers
 * Non durable exchanges and queues
 * Transient messages (all messages are persisted)
-* Authorization support
 
 RabbitMQ and Pulsar work in a pretty different way.
 Starlight for RabbitMQ was designed to make the most benefit from Pulsar's scalability.
