@@ -135,7 +135,11 @@ public class TlsConnectionIT {
 
     SSLContext sslCtx =
         SecurityUtility.createSslContext(
-            false, TLS_TRUST_CERT_FILE_PATH, TLS_CLIENT_CERT_FILE_PATH, TLS_CLIENT_KEY_FILE_PATH, null);
+            false,
+            TLS_TRUST_CERT_FILE_PATH,
+            TLS_CLIENT_CERT_FILE_PATH,
+            TLS_CLIENT_KEY_FILE_PATH,
+            null);
     factory.useSslProtocol(sslCtx);
 
     factory.newConnection();
@@ -198,7 +202,11 @@ public class TlsConnectionIT {
 
     SSLContext sslCtx =
         SecurityUtility.createSslContext(
-            false, TLS_TRUST_CERT_FILE_PATH, TLS_CLIENT_CERT_FILE_PATH, TLS_CLIENT_KEY_FILE_PATH, null);
+            false,
+            TLS_TRUST_CERT_FILE_PATH,
+            TLS_CLIENT_CERT_FILE_PATH,
+            TLS_CLIENT_KEY_FILE_PATH,
+            null);
     factory.useSslProtocol(sslCtx);
     factory.setSaslConfig(DefaultSaslConfig.EXTERNAL);
 

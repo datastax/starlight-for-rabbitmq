@@ -18,14 +18,17 @@ package com.datastax.oss.starlight.rabbitmq;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkNotNull;
 import static java.lang.String.format;
+import static java.util.Objects.requireNonNull;
 import static org.apache.commons.lang3.StringUtils.isEmpty;
 import static org.apache.pulsar.common.util.FieldParser.setEmptyValue;
+import static org.apache.pulsar.common.util.FieldParser.update;
 import static org.apache.pulsar.common.util.FieldParser.value;
 
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.lang.reflect.Field;
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Modifier;
 import java.util.Arrays;
 import java.util.Map;
@@ -90,13 +93,16 @@ public final class ConfigurationUtils {
   public static <T extends PulsarConfiguration> T create(
       Properties properties, Class<? extends PulsarConfiguration> clazz)
       throws IOException, IllegalArgumentException {
-    checkNotNull(properties);
-    T configuration = null;
+    requireNonNull(properties);
+    T configuration;
     try {
-      configuration = (T) clazz.newInstance();
+      configuration = (T) clazz.getDeclaredConstructor().newInstance();
       configuration.setProperties(properties);
       update((Map) properties, configuration);
-    } catch (InstantiationException | IllegalAccessException e) {
+    } catch (InstantiationException
+        | IllegalAccessException
+        | NoSuchMethodException
+        | InvocationTargetException e) {
       throw new IllegalArgumentException("Failed to instantiate " + clazz.getName(), e);
     }
     return configuration;
