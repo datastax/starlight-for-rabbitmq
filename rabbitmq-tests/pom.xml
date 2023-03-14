@@ -93,6 +93,14 @@
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-failsafe-plugin</artifactId>
+        <configuration>
+          <argLine>--add-opens java.base/jdk.internal.loader=ALL-UNNAMED
+            <!--Mockito-->--add-opens java.base/java.lang=ALL-UNNAMED
+            <!--Bookkeeper NativeIO-->--add-opens java.base/java.io=ALL-UNNAMED
+            <!--System Lambda-->--add-opens java.base/java.util=ALL-UNNAMED
+            <!--netty.DnsResolverUtil-->--add-opens java.base/sun.net=ALL-UNNAMED
+          </argLine>
+        </configuration>
         <executions>
           <execution>
             <goals>
