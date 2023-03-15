@@ -52,9 +52,10 @@ public class DockerTest {
 
   private static final String IMAGE_LUNASTREAMING210 = "datastax/lunastreaming:2.10_2.9";
   private static final String IMAGE_PULSAR210 = "apachepulsar/pulsar:2.10.2";
+  private static final String IMAGE_PULSAR211 = "apachepulsar/pulsar:2.11.0";
 
   @ParameterizedTest
-  @ValueSource(strings = {IMAGE_PULSAR210, IMAGE_LUNASTREAMING210})
+  @ValueSource(strings = {IMAGE_PULSAR211, IMAGE_PULSAR210, IMAGE_LUNASTREAMING210})
   public void test(String image) throws Exception {
     // create a docker network
     try (Network network = Network.newNetwork();

@@ -64,6 +64,7 @@ public class PulsarContainer implements AutoCloseable {
             .withNetwork(network)
             .withNetworkAliases("pulsar")
             .withExposedPorts(8080, 5672) // ensure that the ports are listening
+            .withEnv("PULSAR_STANDALONE_USE_ZOOKEEPER", "true")
             .withCopyFileToContainer(
                 MountableFile.forHostPath(getProtocolHandlerPath()),
                 "/pulsar/protocols/starlight-for-rabbitmq.nar")
@@ -80,8 +81,7 @@ public class PulsarContainer implements AutoCloseable {
             .withLogConsumer(
                 (f) -> {
                   String text = f.getUtf8String().trim();
-                  if (text.contains(
-                      "Successfully updated the policies on namespace public/default")) {
+                  if (text.contains("Created namespace public/default")) {
                     pulsarReady.countDown();
                   }
                   log.info(text);

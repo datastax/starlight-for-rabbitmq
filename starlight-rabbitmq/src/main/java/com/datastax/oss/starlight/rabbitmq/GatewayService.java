@@ -82,6 +82,7 @@ import org.apache.pulsar.client.api.SubscriptionType;
 import org.apache.pulsar.common.allocator.PulsarByteBufAllocator;
 import org.apache.pulsar.common.naming.TopicName;
 import org.apache.pulsar.common.util.netty.EventLoopUtil;
+import org.apache.pulsar.metadata.impl.ZKMetadataStore;
 import org.apache.qpid.server.exchange.topic.TopicParser;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.Watcher;
@@ -421,9 +422,13 @@ public class GatewayService implements Closeable {
 
   private CuratorFramework createCuratorInstance() {
     RetryPolicy retryPolicy = new ExponentialBackoffRetry(1000, 3);
+    String connectUrl = config.getConfigurationMetadataStoreUrl();
+    if (connectUrl.startsWith(ZKMetadataStore.ZK_SCHEME_IDENTIFIER)) {
+      connectUrl = connectUrl.substring(ZKMetadataStore.ZK_SCHEME_IDENTIFIER.length());
+    }
     CuratorFramework client =
         CuratorFrameworkFactory.builder()
-            .connectString(config.getConfigurationMetadataStoreUrl())
+            .connectString(connectUrl)
             .sessionTimeoutMs(5000)
             .connectionTimeoutMs(5000)
             .retryPolicy(retryPolicy)
