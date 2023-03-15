@@ -26,18 +26,13 @@
  */
 package com.datastax.oss.starlight.rabbitmqnartests;
 
-import static org.junit.jupiter.api.Assertions.assertTrue;
-
-import java.net.URL;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.testcontainers.containers.BindMode;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.Network;
-import org.testcontainers.utility.MountableFile;
+import org.testcontainers.containers.wait.strategy.Wait;
+import org.testcontainers.utility.DockerImageName;
 
 public class PulsarContainer implements AutoCloseable {
 
@@ -58,69 +53,52 @@ public class PulsarContainer implements AutoCloseable {
   }
 
   public void start() throws Exception {
-    CountDownLatch pulsarReady = new CountDownLatch(1);
     pulsarContainer =
-        new GenericContainer<>(image)
+        new org.testcontainers.containers.PulsarContainer(
+                DockerImageName.parse(image).asCompatibleSubstituteFor("apachepulsar/pulsar"))
             .withNetwork(network)
             .withNetworkAliases("pulsar")
             .withExposedPorts(8080, 5672) // ensure that the ports are listening
             .withEnv("PULSAR_STANDALONE_USE_ZOOKEEPER", "true")
-            .withCopyFileToContainer(
-                MountableFile.forHostPath(getProtocolHandlerPath()),
-                "/pulsar/protocols/starlight-for-rabbitmq.nar")
-            .withCopyFileToContainer(
-                MountableFile.forClasspathResource("standalone_with_s4r.conf"),
-                "/pulsar/conf/standalone.conf")
-            .withCommand(
-                "bin/pulsar",
-                "standalone",
-                "--advertised-address",
-                "pulsar",
-                "--no-functions-worker",
-                "-nss")
+            .withClasspathResourceMapping(
+                PROTOCOLS_TEST_PROTOCOL_HANDLER_NAR,
+                "/pulsar/protocols/starlight-for-rabbitmq.nar",
+                BindMode.READ_ONLY)
+            .withClasspathResourceMapping(
+                "standalone_with_s4r.conf", "/pulsar/conf/standalone.conf", BindMode.READ_ONLY)
             .withLogConsumer(
                 (f) -> {
                   String text = f.getUtf8String().trim();
-                  if (text.contains("Created namespace public/default")) {
-                    pulsarReady.countDown();
-                  }
                   log.info(text);
                 });
     pulsarContainer.start();
-    assertTrue(pulsarReady.await(1, TimeUnit.MINUTES));
 
     if (startProxy) {
-      CountDownLatch proxyReady = new CountDownLatch(1);
       proxyContainer =
           new GenericContainer<>(image)
               .withNetwork(network)
               .withNetworkAliases("pulsarproxy")
               .withExposedPorts(8089, 5672, 5671) // ensure that the ports are listening
-              .withCopyFileToContainer(
-                  MountableFile.forHostPath(getProtocolHandlerPath()),
-                  "/pulsar/proxyextensions/starlight-for-rabbitmq.nar")
-              .withCopyFileToContainer(
-                  MountableFile.forClasspathResource("proxy_with_s4r.conf"),
-                  "/pulsar/conf/proxy.conf")
-              .withCopyFileToContainer(
-                  MountableFile.forClasspathResource("ssl/proxy.cert.pem"),
-                  "/pulsar/conf/proxy.cert.pem")
-              .withCopyFileToContainer(
-                  MountableFile.forClasspathResource("ssl/proxy.key-pk8.pem"),
-                  "/pulsar/conf/proxy.key-pk8.pem")
-              .withCopyFileToContainer(
-                  MountableFile.forClasspathResource("ssl/ca.cert.pem"), "/pulsar/conf/ca.cert.pem")
+              .withClasspathResourceMapping(
+                  PROTOCOLS_TEST_PROTOCOL_HANDLER_NAR,
+                  "/pulsar/proxyextensions/starlight-for-rabbitmq.nar",
+                  BindMode.READ_ONLY)
+              .withClasspathResourceMapping(
+                  "proxy_with_s4r.conf", "/pulsar/conf/proxy.conf", BindMode.READ_ONLY)
+              .withClasspathResourceMapping(
+                  "ssl/proxy.cert.pem", "/pulsar/conf/proxy.cert.pem", BindMode.READ_ONLY)
+              .withClasspathResourceMapping(
+                  "ssl/proxy.key-pk8.pem", "/pulsar/conf/proxy.key-pk8.pem", BindMode.READ_ONLY)
+              .withClasspathResourceMapping(
+                  "ssl/ca.cert.pem", "/pulsar/conf/ca.cert.pem", BindMode.READ_ONLY)
               .withCommand("bin/pulsar", "proxy")
+              .waitingFor(Wait.forLogMessage(".*Server started at end point.*", 1))
               .withLogConsumer(
                   (f) -> {
                     String text = f.getUtf8String().trim();
-                    if (text.contains("Server started at end point")) {
-                      proxyReady.countDown();
-                    }
                     log.info(text);
                   });
       proxyContainer.start();
-      assertTrue(proxyReady.await(1, TimeUnit.MINUTES));
     }
   }
 
@@ -132,23 +110,6 @@ public class PulsarContainer implements AutoCloseable {
     if (pulsarContainer != null) {
       pulsarContainer.stop();
     }
-  }
-
-  protected Path getProtocolHandlerPath() {
-    URL testHandlerUrl = this.getClass().getResource(PROTOCOLS_TEST_PROTOCOL_HANDLER_NAR);
-    Path handlerPath;
-    try {
-      if (testHandlerUrl == null) {
-        throw new RuntimeException("Cannot find " + PROTOCOLS_TEST_PROTOCOL_HANDLER_NAR);
-      }
-      handlerPath = Paths.get(testHandlerUrl.toURI());
-    } catch (Exception e) {
-      log.error("failed to get handler Path, handlerUrl: {}. Exception: ", testHandlerUrl, e);
-      throw new RuntimeException(e);
-    }
-    Path res = handlerPath.toFile().toPath();
-    log.info("Loading NAR file from {}", res.toAbsolutePath());
-    return res;
   }
 
   public GenericContainer<?> getPulsarContainer() {
