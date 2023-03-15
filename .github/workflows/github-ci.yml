@@ -35,10 +35,10 @@ jobs:
         run: mvn -B spotbugs:check
 
       - name: Unit tests
-        run: mvn -B test -DfailIfNoTests=false -pl starlight-rabbitmq
+        run: mvn -B test -pl starlight-rabbitmq
 
       - name: RabbitMQ Java client tests
-        run: mvn -B integration-test -DfailIfNoTests=false -Dcurator-log-only-first-connection-issue-as-error-level=true -pl rabbitmq-tests
+        run: mvn -B integration-test -Dcurator-log-only-first-connection-issue-as-error-level=true -pl rabbitmq-tests
 
       - name: NAR tests
-        run: mvn -B clean test -DfailIfNoTests=false -pl nar-tests
+        run: mvn -B clean test -pl nar-tests
