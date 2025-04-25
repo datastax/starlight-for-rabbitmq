@@ -43,12 +43,12 @@ public class MetricsTest extends AbstractBaseTest {
     CollectorRegistry registry = CollectorRegistry.defaultRegistry;
     assertNull(
         registry.getSampleValue(
-            "server_rabbitmq_in_bytes",
+            "server_rabbitmq_in_bytes_total",
             new String[] {"namespace"},
             new String[] {"public/default"}));
     assertNull(
         registry.getSampleValue(
-            "server_rabbitmq_out_bytes",
+            "server_rabbitmq_out_bytes_total",
             new String[] {"namespace"},
             new String[] {"public/default"}));
 
@@ -71,13 +71,25 @@ public class MetricsTest extends AbstractBaseTest {
 
     assertTrue(
         registry.getSampleValue(
-                "server_rabbitmq_in_bytes",
+                "server_rabbitmq_in_bytes_total",
                 new String[] {"namespace"},
                 new String[] {"public/default"})
             > 0);
     assertTrue(
         registry.getSampleValue(
-                "server_rabbitmq_out_bytes",
+                "server_rabbitmq_out_bytes_total",
+                new String[] {"namespace"},
+                new String[] {"public/default"})
+            > 0);
+    assertTrue(
+        registry.getSampleValue(
+                "server_rabbitmq_in_bytes_created",
+                new String[] {"namespace"},
+                new String[] {"public/default"})
+            > 0);
+    assertTrue(
+        registry.getSampleValue(
+                "server_rabbitmq_out_bytes_created",
                 new String[] {"namespace"},
                 new String[] {"public/default"})
             > 0);
