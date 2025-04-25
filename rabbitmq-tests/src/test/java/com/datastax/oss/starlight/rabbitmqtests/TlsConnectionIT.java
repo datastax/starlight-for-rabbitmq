@@ -33,9 +33,7 @@ import org.apache.bookkeeper.util.PortManager;
 import org.apache.pulsar.broker.authentication.AuthenticationService;
 import org.apache.pulsar.common.util.SecurityUtility;
 import org.apache.pulsar.common.util.keystoretls.KeyStoreSSLContext;
-import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -76,22 +74,11 @@ public class TlsConnectionIT {
   private ConnectionFactory factory;
   private GatewayConfiguration config;
 
-  @BeforeAll
-  public static void before() throws Exception {
+  @BeforeEach
+  public void beforeEach() throws Exception {
+    CollectorRegistry.defaultRegistry.clear();
     cluster = new PulsarCluster(tempDir);
     cluster.start();
-  }
-
-  @AfterAll
-  public static void after() throws Exception {
-    if (cluster != null) {
-      cluster.close();
-    }
-  }
-
-  @BeforeEach
-  public void beforeEach() {
-    CollectorRegistry.defaultRegistry.clear();
     int port = PortManager.nextFreePort();
 
     config = new GatewayConfiguration();
@@ -120,7 +107,10 @@ public class TlsConnectionIT {
   }
 
   @AfterEach
-  public void afterEach() throws IOException {
+  public void afterEach() throws Exception {
+    if (cluster != null) {
+      cluster.close();
+    }
     if (gatewayService != null) {
       gatewayService.close();
     }

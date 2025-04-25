@@ -36,7 +36,7 @@ import org.apache.pulsar.broker.ServiceConfiguration;
 import org.apache.pulsar.broker.authentication.AuthenticationService;
 import org.apache.pulsar.client.admin.PulsarAdminException;
 import org.apache.pulsar.client.api.PulsarClientException;
-import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -60,10 +60,10 @@ public class BrokerClientTlsAuthenticationIT {
   private GatewayConfiguration gatewayConfiguration;
   private static final int brokerServicePortTls = PortManager.nextFreePort();
   private static final int webServicePortTls = PortManager.nextFreePort();
+  private static final ServiceConfiguration pulsarConfig = new ServiceConfiguration();
 
   @BeforeAll
   public static void before() throws Exception {
-    ServiceConfiguration pulsarConfig = new ServiceConfiguration();
     pulsarConfig.setAuthenticationEnabled(true);
     pulsarConfig.setAuthenticationProviders(
         Sets.newHashSet("org.apache.pulsar.broker.authentication.AuthenticationProviderTls"));
@@ -86,13 +86,10 @@ public class BrokerClientTlsAuthenticationIT {
         "org.apache.pulsar.client.impl.auth.AuthenticationTls");
     pulsarConfig.setBrokerClientAuthenticationParameters(
         "tlsCertFile:" + TLS_CLIENT_CERT_FILE_PATH + ",tlsKeyFile:" + TLS_CLIENT_KEY_FILE_PATH);
-
-    cluster = new PulsarCluster(tempDir, pulsarConfig);
-    cluster.start();
   }
 
-  @AfterAll
-  public static void after() throws Exception {
+  @AfterEach
+  public void after() throws Exception {
     if (cluster != null) {
       cluster.close();
     }
@@ -102,8 +99,10 @@ public class BrokerClientTlsAuthenticationIT {
   }
 
   @BeforeEach
-  public void beforeEach() {
+  public void beforeEach() throws Exception {
     CollectorRegistry.defaultRegistry.clear();
+    cluster = new PulsarCluster(tempDir, pulsarConfig);
+    cluster.start();
     gatewayConfiguration = new GatewayConfiguration();
     gatewayConfiguration.setBrokerServiceURL("pulsar+ssl://localhost:" + brokerServicePortTls);
     gatewayConfiguration.setBrokerWebServiceURL("https://localhost:" + webServicePortTls);

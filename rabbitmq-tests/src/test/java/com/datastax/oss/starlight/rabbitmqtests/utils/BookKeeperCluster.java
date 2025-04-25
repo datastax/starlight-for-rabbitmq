@@ -16,6 +16,9 @@
 package com.datastax.oss.starlight.rabbitmqtests.utils;
 
 import static com.google.common.base.Charsets.UTF_8;
+import static org.apache.bookkeeper.bookie.BookKeeperServerStats.BOOKIE_SCOPE;
+import static org.apache.bookkeeper.bookie.BookKeeperServerStats.LD_INDEX_SCOPE;
+import static org.apache.bookkeeper.bookie.BookKeeperServerStats.LD_LEDGER_SCOPE;
 
 import java.io.File;
 import java.io.IOException;
@@ -28,17 +31,34 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import org.apache.bookkeeper.bookie.Bookie;
 import org.apache.bookkeeper.bookie.BookieException;
 import org.apache.bookkeeper.bookie.BookieImpl;
+import org.apache.bookkeeper.bookie.BookieResources;
 import org.apache.bookkeeper.bookie.Cookie;
+import org.apache.bookkeeper.bookie.LedgerDirsManager;
+import org.apache.bookkeeper.bookie.LedgerStorage;
+import org.apache.bookkeeper.bookie.LegacyCookieValidation;
+import org.apache.bookkeeper.bookie.ReadOnlyBookie;
+import org.apache.bookkeeper.bookie.UncleanShutdownDetection;
+import org.apache.bookkeeper.bookie.UncleanShutdownDetectionImpl;
 import org.apache.bookkeeper.client.BookKeeperAdmin;
 import org.apache.bookkeeper.client.api.BookKeeper;
+import org.apache.bookkeeper.common.allocator.ByteBufAllocatorWithOomHandler;
+import org.apache.bookkeeper.common.allocator.PoolingPolicy;
 import org.apache.bookkeeper.conf.ClientConfiguration;
 import org.apache.bookkeeper.conf.ServerConfiguration;
 import org.apache.bookkeeper.discover.BookieServiceInfo;
 import org.apache.bookkeeper.discover.RegistrationManager;
+import org.apache.bookkeeper.meta.LedgerManager;
+import org.apache.bookkeeper.meta.LedgerManagerFactory;
+import org.apache.bookkeeper.meta.MetadataBookieDriver;
 import org.apache.bookkeeper.net.BookieId;
 import org.apache.bookkeeper.proto.BookieServer;
+import org.apache.bookkeeper.server.Main;
+import org.apache.bookkeeper.stats.NullStatsLogger;
+import org.apache.bookkeeper.stats.StatsLogger;
+import org.apache.bookkeeper.util.DiskChecker;
 import org.apache.bookkeeper.util.PortManager;
 import org.apache.bookkeeper.versioning.LongVersion;
 import org.apache.bookkeeper.versioning.Version;
@@ -197,11 +217,70 @@ public final class BookKeeperCluster implements AutoCloseable {
           Arrays.asList(BookieImpl.getCurrentDirectories(conf.getJournalDirs())),
           Arrays.asList(BookieImpl.getCurrentDirectories(conf.getLedgerDirs())));
     }
-    BookieServer bookie = new BookieServer(conf, null, null, null, null);
-    bookie.start();
-    bookies.add(bookie);
-    configurations.put(bookie.getBookieId().toString(), conf);
-    return bookie.getLocalAddress().toString();
+
+    ByteBufAllocatorWithOomHandler allocator =
+        BookieResources.createAllocator(
+            (new ServerConfiguration()).setAllocatorPoolingPolicy(PoolingPolicy.UnpooledHeap));
+
+    StatsLogger rootStatsLogger = new NullStatsLogger();
+    StatsLogger bookieStats = rootStatsLogger.scope(BOOKIE_SCOPE);
+    MetadataBookieDriver metadataDriver = BookieResources.createMetadataDriver(conf, bookieStats);
+    RegistrationManager registrationManager = metadataDriver.createRegistrationManager();
+    LedgerManagerFactory lmFactory = metadataDriver.getLedgerManagerFactory();
+    LedgerManager ledgerManager = lmFactory.newLedgerManager();
+
+    LegacyCookieValidation cookieValidation = new LegacyCookieValidation(conf, registrationManager);
+    cookieValidation.checkCookies(Main.storageDirectoriesFromConf(conf));
+
+    DiskChecker diskChecker = BookieResources.createDiskChecker(conf);
+    LedgerDirsManager ledgerDirsManager =
+        BookieResources.createLedgerDirsManager(
+            conf, diskChecker, bookieStats.scope(LD_LEDGER_SCOPE));
+    LedgerDirsManager indexDirsManager =
+        BookieResources.createIndexDirsManager(
+            conf, diskChecker, bookieStats.scope(LD_INDEX_SCOPE), ledgerDirsManager);
+
+    UncleanShutdownDetection uncleanShutdownDetection =
+        new UncleanShutdownDetectionImpl(ledgerDirsManager);
+
+    LedgerStorage storage =
+        BookieResources.createLedgerStorage(
+            conf, ledgerManager, ledgerDirsManager, indexDirsManager, bookieStats, allocator);
+
+    Bookie bookie;
+
+    if (conf.isForceReadOnlyBookie()) {
+      bookie =
+          new ReadOnlyBookie(
+              conf,
+              registrationManager,
+              storage,
+              diskChecker,
+              ledgerDirsManager,
+              indexDirsManager,
+              bookieStats,
+              allocator,
+              BookieServiceInfo.NO_INFO);
+    } else {
+      bookie =
+          new BookieImpl(
+              conf,
+              registrationManager,
+              storage,
+              diskChecker,
+              ledgerDirsManager,
+              indexDirsManager,
+              bookieStats,
+              allocator,
+              BookieServiceInfo.NO_INFO);
+    }
+
+    BookieServer bookieServer =
+        new BookieServer(conf, bookie, rootStatsLogger, allocator, uncleanShutdownDetection);
+    bookieServer.start();
+    bookies.add(bookieServer);
+    configurations.put(bookieServer.getBookieId().toString(), conf);
+    return bookieServer.getLocalAddress().toString();
   }
 
   private static void stampNewCookie(

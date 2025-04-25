@@ -24,7 +24,6 @@ import com.datastax.oss.starlight.rabbitmq.GatewayConfiguration;
 import com.datastax.oss.starlight.rabbitmq.GatewayService;
 import com.datastax.oss.starlight.rabbitmqtests.utils.PulsarCluster;
 import io.prometheus.client.CollectorRegistry;
-import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Collections;
 import java.util.Optional;
@@ -36,7 +35,6 @@ import org.apache.pulsar.broker.ServiceConfiguration;
 import org.apache.pulsar.broker.authentication.AuthenticationService;
 import org.apache.pulsar.client.admin.PulsarAdminException;
 import org.apache.pulsar.client.api.PulsarClientException;
-import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -64,11 +62,10 @@ public class BrokerClientTlsConnectionWithKeyStoreIT {
   private static final int brokerServicePortTls = PortManager.nextFreePort();
   private static final int webServicePortTls = PortManager.nextFreePort();
   private GatewayConfiguration gatewayConfiguration;
+  private static final ServiceConfiguration pulsarConfig = new ServiceConfiguration();
 
   @BeforeAll
   public static void before() throws Exception {
-    ServiceConfiguration pulsarConfig = new ServiceConfiguration();
-
     pulsarConfig.setTlsEnabledWithKeyStore(true);
     pulsarConfig.setTlsKeyStoreType(KEYSTORE_TYPE);
     pulsarConfig.setTlsKeyStore(BROKER_KEYSTORE_FILE_PATH);
@@ -82,21 +79,13 @@ public class BrokerClientTlsConnectionWithKeyStoreIT {
 
     pulsarConfig.setWebServicePort(Optional.empty());
     pulsarConfig.setWebServicePortTls(Optional.of(webServicePortTls));
-
-    cluster = new PulsarCluster(tempDir, pulsarConfig);
-    cluster.start();
-  }
-
-  @AfterAll
-  public static void after() throws Exception {
-    if (cluster != null) {
-      cluster.close();
-    }
   }
 
   @BeforeEach
-  public void beforeEach() {
+  public void beforeEach() throws Exception {
     CollectorRegistry.defaultRegistry.clear();
+    cluster = new PulsarCluster(tempDir, pulsarConfig);
+    cluster.start();
     gatewayConfiguration = new GatewayConfiguration();
     gatewayConfiguration.setBrokerServiceURL("pulsar+ssl://localhost:" + brokerServicePortTls);
     gatewayConfiguration.setBrokerWebServiceURL("https://localhost:" + webServicePortTls);
@@ -111,7 +100,10 @@ public class BrokerClientTlsConnectionWithKeyStoreIT {
   }
 
   @AfterEach
-  public void afterEach() throws IOException {
+  public void afterEach() throws Exception {
+    if (cluster != null) {
+      cluster.close();
+    }
     if (gatewayService != null) {
       gatewayService.close();
     }

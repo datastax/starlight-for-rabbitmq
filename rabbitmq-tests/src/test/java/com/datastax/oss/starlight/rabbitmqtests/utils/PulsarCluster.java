@@ -91,11 +91,6 @@ public class PulsarCluster implements AutoCloseable {
     service
         .getAdminClient()
         .topics()
-        .createPartitionedTopic("persistent://pulsar/system/transaction_coordinator_assign", 1);
-
-    service
-        .getAdminClient()
-        .topics()
         .createNonPartitionedTopic("persistent://public/default/__transaction_buffer_snapshot");
   }
 
