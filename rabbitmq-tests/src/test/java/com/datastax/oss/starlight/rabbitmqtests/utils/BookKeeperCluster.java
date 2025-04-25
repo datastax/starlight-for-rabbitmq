@@ -30,6 +30,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import org.apache.bookkeeper.bookie.Bookie;
 import org.apache.bookkeeper.bookie.BookieException;
+import org.apache.bookkeeper.bookie.BookieImpl;
 import org.apache.bookkeeper.bookie.Cookie;
 import org.apache.bookkeeper.client.BookKeeperAdmin;
 import org.apache.bookkeeper.client.api.BookKeeper;
@@ -190,14 +191,14 @@ public final class BookKeeperCluster implements AutoCloseable {
     if (newCookie != null) {
       Cookie cookie =
           Cookie.readFromRegistrationManager(
-                  new RegistrationManagerImpl(newCookie), Bookie.getBookieId(conf))
+                  new RegistrationManagerImpl(newCookie), BookieImpl.getBookieId(conf))
               .getValue();
       stampNewCookie(
           cookie,
-          Arrays.asList(Bookie.getCurrentDirectories(conf.getJournalDirs())),
-          Arrays.asList(Bookie.getCurrentDirectories(conf.getLedgerDirs())));
+          Arrays.asList(BookieImpl.getCurrentDirectories(conf.getJournalDirs())),
+          Arrays.asList(BookieImpl.getCurrentDirectories(conf.getLedgerDirs())));
     }
-    BookieServer bookie = new BookieServer(conf);
+    BookieServer bookie = new BookieServer(conf, null, null, null, null);
     bookie.start();
     bookies.add(bookie);
     configurations.put(bookie.getBookieId().toString(), conf);
@@ -294,6 +295,12 @@ public final class BookKeeperCluster implements AutoCloseable {
 
     @Override
     public boolean nukeExistingCluster() throws Exception {
+      throw new UnsupportedOperationException(
+          "Not supported yet."); // To change body of generated methods, choose Tools | Templates.
+    }
+
+    @Override
+    public void addRegistrationListener(RegistrationListener listener) {
       throw new UnsupportedOperationException(
           "Not supported yet."); // To change body of generated methods, choose Tools | Templates.
     }

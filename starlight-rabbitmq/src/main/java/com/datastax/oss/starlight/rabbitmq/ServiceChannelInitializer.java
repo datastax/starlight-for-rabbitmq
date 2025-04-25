@@ -17,15 +17,9 @@ package com.datastax.oss.starlight.rabbitmq;
 
 import io.netty.channel.ChannelInitializer;
 import io.netty.channel.socket.SocketChannel;
-import io.netty.handler.ssl.SslContext;
 import io.netty.handler.ssl.SslHandler;
-import io.netty.handler.ssl.SslProvider;
-import java.lang.reflect.Constructor;
-import java.util.Arrays;
-import java.util.Set;
-import org.apache.pulsar.common.util.NettyServerSslContextBuilder;
-import org.apache.pulsar.common.util.SslContextAutoRefreshBuilder;
-import org.apache.pulsar.common.util.keystoretls.NettySSLContextAutoRefreshBuilder;
+import org.apache.pulsar.common.util.PulsarSslConfiguration;
+import org.apache.pulsar.common.util.PulsarSslFactory;
 import org.apache.pulsar.proxy.server.ProxyConfiguration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -40,8 +34,7 @@ public class ServiceChannelInitializer extends ChannelInitializer<SocketChannel>
   private final boolean enableTls;
   private final boolean tlsEnabledWithKeyStore;
 
-  private SslContextAutoRefreshBuilder<SslContext> serverSslCtxRefresher;
-  private NettySSLContextAutoRefreshBuilder serverSSLContextAutoRefreshBuilder;
+  private PulsarSslFactory sslFactory;
 
   public ServiceChannelInitializer(
       GatewayService gatewayService, ProxyConfiguration serviceConfig, boolean enableTls) {
@@ -51,103 +44,47 @@ public class ServiceChannelInitializer extends ChannelInitializer<SocketChannel>
     this.tlsEnabledWithKeyStore = serviceConfig.isTlsEnabledWithKeyStore();
 
     if (enableTls) {
-      if (tlsEnabledWithKeyStore) {
-        serverSSLContextAutoRefreshBuilder =
-            new NettySSLContextAutoRefreshBuilder(
-                serviceConfig.getTlsProvider(),
-                serviceConfig.getTlsKeyStoreType(),
-                serviceConfig.getTlsKeyStore(),
-                serviceConfig.getTlsKeyStorePassword(),
-                serviceConfig.isTlsAllowInsecureConnection(),
-                serviceConfig.getTlsTrustStoreType(),
-                serviceConfig.getTlsTrustStore(),
-                serviceConfig.getTlsTrustStorePassword(),
-                serviceConfig.isTlsRequireTrustedClientCertOnConnect(),
-                serviceConfig.getTlsCiphers(),
-                serviceConfig.getTlsProtocols(),
-                serviceConfig.getTlsCertRefreshCheckDurationSec());
-        serverSslCtxRefresher = null;
-      } else {
-        serverSSLContextAutoRefreshBuilder = null;
-        serverSslCtxRefresher = buildNettyServerSslContextBuilder(serviceConfig);
+      PulsarSslConfiguration sslConfiguration = buildSslConfiguration(serviceConfig);
+      try {
+        this.sslFactory =
+            (PulsarSslFactory)
+                Class.forName(serviceConfig.getSslFactoryPlugin()).getConstructor().newInstance();
+        this.sslFactory.initialize(sslConfiguration);
+        this.sslFactory.createInternalSslContext();
+      } catch (Exception e) {
+        throw new RuntimeException(e);
       }
-    } else {
-      this.serverSslCtxRefresher = null;
     }
   }
 
-  public static NettyServerSslContextBuilder buildNettyServerSslContextBuilder(
-      ProxyConfiguration serviceConfig) {
-    try {
-      try {
-        Constructor<NettyServerSslContextBuilder> constructor283 =
-            NettyServerSslContextBuilder.class.getConstructor(
-                SslProvider.class,
-                Boolean.TYPE,
-                String.class,
-                String.class,
-                String.class,
-                Set.class,
-                Set.class,
-                Boolean.TYPE,
-                Long.TYPE);
-        SslProvider sslProvider = null;
-        if (serviceConfig.getTlsProvider() != null) {
-          sslProvider = SslProvider.valueOf(serviceConfig.getTlsProvider());
-        }
-        return constructor283.newInstance(
-            sslProvider,
-            serviceConfig.isTlsAllowInsecureConnection(),
-            serviceConfig.getTlsTrustCertsFilePath(),
-            serviceConfig.getTlsCertificateFilePath(),
-            serviceConfig.getTlsKeyFilePath(),
-            serviceConfig.getTlsCiphers(),
-            serviceConfig.getTlsProtocols(),
-            serviceConfig.isTlsRequireTrustedClientCertOnConnect(),
-            serviceConfig.getTlsCertRefreshCheckDurationSec());
-      } catch (NoSuchMethodException fallbackTo2880) {
-        Constructor<NettyServerSslContextBuilder> constructor280 =
-            NettyServerSslContextBuilder.class.getConstructor(
-                Boolean.TYPE,
-                String.class,
-                String.class,
-                String.class,
-                Set.class,
-                Set.class,
-                Boolean.TYPE,
-                Long.TYPE);
-        return constructor280.newInstance(
-            serviceConfig.isTlsAllowInsecureConnection(),
-            serviceConfig.getTlsTrustCertsFilePath(),
-            serviceConfig.getTlsCertificateFilePath(),
-            serviceConfig.getTlsKeyFilePath(),
-            serviceConfig.getTlsCiphers(),
-            serviceConfig.getTlsProtocols(),
-            serviceConfig.isTlsRequireTrustedClientCertOnConnect(),
-            serviceConfig.getTlsCertRefreshCheckDurationSec());
-      }
-    } catch (Throwable t) {
-      Arrays.asList(NettyServerSslContextBuilder.class.getConstructors())
-          .forEach(
-              c -> {
-                log.info("Available constructor: {}", c);
-              });
-      throw new RuntimeException(t);
-    }
+  protected PulsarSslConfiguration buildSslConfiguration(ProxyConfiguration config) {
+    return PulsarSslConfiguration.builder()
+        .tlsProvider(config.getTlsProvider())
+        .tlsKeyStoreType(config.getTlsKeyStoreType())
+        .tlsKeyStorePath(config.getTlsKeyStore())
+        .tlsKeyStorePassword(config.getTlsKeyStorePassword())
+        .tlsTrustStoreType(config.getTlsTrustStoreType())
+        .tlsTrustStorePath(config.getTlsTrustStore())
+        .tlsTrustStorePassword(config.getTlsTrustStorePassword())
+        .tlsCiphers(config.getTlsCiphers())
+        .tlsProtocols(config.getTlsProtocols())
+        .tlsTrustCertsFilePath(config.getTlsTrustCertsFilePath())
+        .tlsCertificateFilePath(config.getTlsCertificateFilePath())
+        .tlsKeyFilePath(config.getTlsKeyFilePath())
+        .allowInsecureConnection(config.isTlsAllowInsecureConnection())
+        .requireTrustedClientCertOnConnect(config.isTlsRequireTrustedClientCertOnConnect())
+        .tlsEnabledWithKeystore(config.isTlsEnabledWithKeyStore())
+        .tlsCustomParams(config.getSslFactoryPluginParams())
+        .authData(null)
+        .serverMode(true)
+        .build();
   }
 
   @Override
   protected void initChannel(SocketChannel ch) {
-    if (serverSslCtxRefresher != null && this.enableTls) {
-      SslContext sslContext = serverSslCtxRefresher.get();
-      if (sslContext != null) {
-        ch.pipeline().addLast(TLS_HANDLER, sslContext.newHandler(ch.alloc()));
-      }
-    } else if (this.tlsEnabledWithKeyStore && serverSSLContextAutoRefreshBuilder != null) {
+    if (this.enableTls) {
       ch.pipeline()
-          .addLast(
-              TLS_HANDLER,
-              new SslHandler(serverSSLContextAutoRefreshBuilder.get().createSSLEngine()));
+           .addLast(TLS_HANDLER, new SslHandler(this.sslFactory.createServerSslEngine(ch.alloc())));
     }
     ch.pipeline().addLast("encoder", new AMQDataBlockEncoder());
     ch.pipeline().addLast("handler", new GatewayConnection(gatewayService));

@@ -19,12 +19,12 @@ import static org.apache.qpid.server.protocol.v0_8.transport.ConnectionCloseOkBo
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.Matchers.any;
-import static org.mockito.Matchers.anyBoolean;
-import static org.mockito.Matchers.anyInt;
-import static org.mockito.Matchers.anyListOf;
-import static org.mockito.Matchers.anyLong;
-import static org.mockito.Matchers.anyString;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
@@ -101,7 +101,7 @@ public class AbstractBaseTest {
 
     ConsumerBuilder consumerBuilder = mock(ConsumerBuilder.class);
     when(pulsarClient.newConsumer()).thenReturn(consumerBuilder);
-    when(consumerBuilder.topics(anyListOf(String.class))).thenReturn(consumerBuilder);
+    when(consumerBuilder.topics(anyList())).thenReturn(consumerBuilder);
     when(consumerBuilder.topic(anyString())).thenReturn(consumerBuilder);
     when(consumerBuilder.subscriptionName(anyString())).thenReturn(consumerBuilder);
     when(consumerBuilder.subscriptionType(any(SubscriptionType.class))).thenReturn(consumerBuilder);
