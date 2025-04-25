@@ -325,11 +325,11 @@ public class GatewayService implements Closeable {
               if (uri.getScheme().equals("amqp")) {
                 builder.put(
                     new InetSocketAddress(uri.getHost(), uri.getPort()),
-                    new ServiceChannelInitializer(this, config, false));
+                    new ServiceChannelInitializer(this, config, false, executor));
               } else if (uri.getScheme().equals("amqps")) {
                 builder.put(
                     new InetSocketAddress(uri.getHost(), uri.getPort()),
-                    new ServiceChannelInitializer(this, config, true));
+                    new ServiceChannelInitializer(this, config, true, executor));
               } else {
                 LOG.warn(
                     "Malformed listener string for Pulsar RabbitMQ will be ignored: " + listener);

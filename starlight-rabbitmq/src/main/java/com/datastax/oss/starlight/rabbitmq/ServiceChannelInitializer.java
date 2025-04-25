@@ -18,6 +18,10 @@ package com.datastax.oss.starlight.rabbitmq;
 import io.netty.channel.ChannelInitializer;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.handler.ssl.SslHandler;
+
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+
 import org.apache.pulsar.common.util.PulsarSslConfiguration;
 import org.apache.pulsar.common.util.PulsarSslFactory;
 import org.apache.pulsar.proxy.server.ProxyConfiguration;
@@ -37,7 +41,7 @@ public class ServiceChannelInitializer extends ChannelInitializer<SocketChannel>
   private PulsarSslFactory sslFactory;
 
   public ServiceChannelInitializer(
-      GatewayService gatewayService, ProxyConfiguration serviceConfig, boolean enableTls) {
+      GatewayService gatewayService, ProxyConfiguration serviceConfig, boolean enableTls, ScheduledExecutorService sslContextRefresher) {
     super();
     this.gatewayService = gatewayService;
     this.enableTls = enableTls;
@@ -51,6 +55,13 @@ public class ServiceChannelInitializer extends ChannelInitializer<SocketChannel>
                 Class.forName(serviceConfig.getSslFactoryPlugin()).getConstructor().newInstance();
         this.sslFactory.initialize(sslConfiguration);
         this.sslFactory.createInternalSslContext();
+        if (serviceConfig.getTlsCertRefreshCheckDurationSec() > 0) {
+           sslContextRefresher.scheduleWithFixedDelay(
+               this::refreshSslContext,
+               serviceConfig.getTlsCertRefreshCheckDurationSec(),
+               serviceConfig.getTlsCertRefreshCheckDurationSec(),
+               TimeUnit.SECONDS);
+         }
       } catch (Exception e) {
         throw new RuntimeException(e);
       }
@@ -88,5 +99,13 @@ public class ServiceChannelInitializer extends ChannelInitializer<SocketChannel>
     }
     ch.pipeline().addLast("encoder", new AMQDataBlockEncoder());
     ch.pipeline().addLast("handler", new GatewayConnection(gatewayService));
+  }
+
+  protected void refreshSslContext() {
+    try {
+      this.sslFactory.update();
+    } catch (Exception e) {
+      log.error("Failed to refresh SSL context", e);
+    }
   }
 }

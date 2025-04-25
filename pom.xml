@@ -46,7 +46,7 @@
     <pulsar.version>4.0.4</pulsar.version>
     <qpid.version>8.0.6</qpid.version>
     <failsafe.version>2.4.2</failsafe.version>
-    <curator.version>5.1.0</curator.version>
+    <curator.version>5.7.1</curator.version>
     <junit.version>5.7.1</junit.version>
     <surefire.version>3.0.0-M9</surefire.version>
     <rabbitmqclient.version>5.12.0</rabbitmqclient.version>
