@@ -74,20 +74,26 @@
           </exclusion>
         </exclusions>
       </dependency>
+      <!-- Override transitive dependency version to fix vulnerability -->
       <dependency>
         <groupId>io.airlift</groupId>
         <artifactId>aircompressor</artifactId>
         <version>${aircompressor.version}</version>
+        <scope>runtime</scope>
       </dependency>
+      <!-- Override transitive dependency version to fix vulnerability -->
       <dependency>
         <groupId>com.google.protobuf</groupId>
         <artifactId>protobuf-java</artifactId>
         <version>${protobuf.version}</version>
+        <scope>runtime</scope>
       </dependency>
+      <!-- Override transitive dependency version to fix vulnerability -->
       <dependency>
         <groupId>org.asynchttpclient</groupId>
         <artifactId>async-http-client</artifactId>
         <version>${asynchttpclient.version}</version>
+        <scope>runtime</scope>
       </dependency>
       <dependency>
         <groupId>${pulsar.groupId}</groupId>
