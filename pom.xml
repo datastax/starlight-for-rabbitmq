@@ -50,6 +50,9 @@
     <junit.version>5.7.1</junit.version>
     <surefire.version>3.0.0-M9</surefire.version>
     <rabbitmqclient.version>5.12.0</rabbitmqclient.version>
+    <asynchttpclient.version>2.12.4</asynchttpclient.version>
+    <aircompressor.version>0.27</aircompressor.version>
+    <protobuf.version>3.25.5</protobuf.version>
   </properties>
   <dependencyManagement>
     <dependencies>
@@ -64,6 +67,27 @@
         <groupId>${pulsar.groupId}</groupId>
         <artifactId>pulsar-broker</artifactId>
         <version>${pulsar.version}</version>
+      </dependency>
+      <!-- Override transitive dependency version to fix vulnerability -->
+      <dependency>
+        <groupId>io.airlift</groupId>
+        <artifactId>aircompressor</artifactId>
+        <version>${aircompressor.version}</version>
+        <scope>runtime</scope>
+      </dependency>
+      <!-- Override transitive dependency version to fix vulnerability -->
+      <dependency>
+        <groupId>com.google.protobuf</groupId>
+        <artifactId>protobuf-java</artifactId>
+        <version>${protobuf.version}</version>
+        <scope>runtime</scope>
+      </dependency>
+      <!-- Override transitive dependency version to fix vulnerability -->
+      <dependency>
+        <groupId>org.asynchttpclient</groupId>
+        <artifactId>async-http-client</artifactId>
+        <version>${asynchttpclient.version}</version>
+        <scope>runtime</scope>
       </dependency>
       <dependency>
         <groupId>${pulsar.groupId}</groupId>
