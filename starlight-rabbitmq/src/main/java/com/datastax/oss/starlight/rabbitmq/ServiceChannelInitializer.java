@@ -18,6 +18,7 @@ package com.datastax.oss.starlight.rabbitmq;
 import io.netty.channel.ChannelInitializer;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.handler.ssl.SslHandler;
+import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import org.apache.pulsar.common.util.PulsarSslConfiguration;
@@ -39,14 +40,12 @@ public class ServiceChannelInitializer extends ChannelInitializer<SocketChannel>
   private PulsarSslFactory sslFactory;
 
   public ServiceChannelInitializer(
-      GatewayService gatewayService,
-      ProxyConfiguration serviceConfig,
-      boolean enableTls,
-      ScheduledExecutorService sslContextRefresher) {
+      GatewayService gatewayService, ProxyConfiguration serviceConfig, boolean enableTls) {
     super();
     this.gatewayService = gatewayService;
     this.enableTls = enableTls;
     this.tlsEnabledWithKeyStore = serviceConfig.isTlsEnabledWithKeyStore();
+    ScheduledExecutorService sslContextRefresher = Executors.newSingleThreadScheduledExecutor();
 
     if (enableTls) {
       PulsarSslConfiguration sslConfiguration = buildSslConfiguration(serviceConfig);
