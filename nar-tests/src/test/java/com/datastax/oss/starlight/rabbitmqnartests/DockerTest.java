@@ -54,6 +54,7 @@ public class DockerTest {
   private static final String IMAGE_PULSAR40 = "apachepulsar/pulsar:4.0.4";
 
   @ParameterizedTest
+  // s4r built against pulsar 4.0 may not be compatible with older docker images
   @ValueSource(strings = {IMAGE_PULSAR40, IMAGE_LUNASTREAMING40})
   public void test(String image) throws Exception {
     // create a docker network
