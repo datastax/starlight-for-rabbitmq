@@ -31,6 +31,7 @@ import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.BindMode;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.Network;
+import org.testcontainers.containers.SelinuxContext;
 import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.utility.DockerImageName;
 
@@ -60,6 +61,7 @@ public class PulsarContainer implements AutoCloseable {
             .withNetworkAliases("pulsar")
             .withExposedPorts(8080, 5672) // ensure that the ports are listening
             .withEnv("PULSAR_STANDALONE_USE_ZOOKEEPER", "true")
+            .withCommand("sudo chown -R $(whoami) .")
             .withClasspathResourceMapping(
                 PROTOCOLS_TEST_PROTOCOL_HANDLER_NAR,
                 "/pulsar/protocols/starlight-for-rabbitmq.nar",
