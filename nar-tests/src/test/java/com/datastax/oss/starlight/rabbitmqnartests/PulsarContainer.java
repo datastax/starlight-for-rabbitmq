@@ -65,7 +65,7 @@ public class PulsarContainer implements AutoCloseable {
                 "/pulsar/protocols/starlight-for-rabbitmq.nar",
                 BindMode.READ_ONLY)
             .withClasspathResourceMapping(
-                "standalone_with_s4r.conf", "/pulsar/conf/standalone.conf", BindMode.READ_ONLY)
+                "standalone_with_s4r.conf", "/pulsar/conf/standalone.conf", BindMode.READ_WRITE)
             .withLogConsumer(
                 (f) -> {
                   String text = f.getUtf8String().trim();
