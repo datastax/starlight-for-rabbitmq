@@ -68,8 +68,6 @@ public class PulsarContainer implements AutoCloseable {
             .withCopyFileToContainer(
                 MountableFile.forClasspathResource("standalone_with_s4r.conf", 0777),
                 "/pulsar/conf/standalone.conf")
-            // .withClasspathResourceMapping(
-            //     "standalone_with_s4r.conf", "/pulsar/conf/standalone.conf", BindMode.READ_WRITE)
             .withLogConsumer(
                 (f) -> {
                   String text = f.getUtf8String().trim();
