@@ -33,6 +33,7 @@ import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.Network;
 import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.utility.DockerImageName;
+import org.testcontainers.utility.MountableFile;
 
 public class PulsarContainer implements AutoCloseable {
 
@@ -64,8 +65,11 @@ public class PulsarContainer implements AutoCloseable {
                 PROTOCOLS_TEST_PROTOCOL_HANDLER_NAR,
                 "/pulsar/protocols/starlight-for-rabbitmq.nar",
                 BindMode.READ_ONLY)
-            .withClasspathResourceMapping(
-                "standalone_with_s4r.conf", "/pulsar/conf/standalone.conf", BindMode.READ_WRITE)
+            .withCopyFileToContainer(
+                MountableFile.forClasspathResource("standalone_with_s4r.conf", 0777),
+                "/pulsar/conf/standalone.conf")
+            // .withClasspathResourceMapping(
+            //     "standalone_with_s4r.conf", "/pulsar/conf/standalone.conf", BindMode.READ_WRITE)
             .withLogConsumer(
                 (f) -> {
                   String text = f.getUtf8String().trim();
