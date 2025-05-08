@@ -20,7 +20,7 @@
   <parent>
     <artifactId>starlight-rabbitmq-parent</artifactId>
     <groupId>com.datastax.oss</groupId>
-    <version>4.0.0.2</version>
+    <version>4.0.0.3-SNAPSHOT</version>
   </parent>
   <modelVersion>4.0.0</modelVersion>
   <artifactId>nar-tests</artifactId>
@@ -80,7 +80,7 @@
             <configuration>
               <target>
                 <echo>copy proxy protocol handler</echo>
-                <copy file="${basedir}/../starlight-rabbitmq/target/starlight-rabbitmq-${project.version}.nar" tofile="${project.build.outputDirectory}/test-protocol-handler.nar"/>
+                <copy file="${basedir}/../starlight-rabbitmq/target/starlight-rabbitmq-${project.version}.nar" tofile="${project.build.outputDirectory}/test-protocol-handler.nar" />
               </target>
             </configuration>
           </execution>
