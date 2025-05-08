@@ -50,12 +50,12 @@ import org.testcontainers.containers.Network;
 
 public class DockerTest {
 
-  private static final String IMAGE_LUNASTREAMING210 = "datastax/lunastreaming:2.10_2.9";
-  private static final String IMAGE_PULSAR210 = "apachepulsar/pulsar:2.10.2";
-  private static final String IMAGE_PULSAR211 = "apachepulsar/pulsar:2.11.0";
+  private static final String IMAGE_LUNASTREAMING40 = "datastax/lunastreaming:4.0_3.2";
+  private static final String IMAGE_PULSAR40 = "apachepulsar/pulsar:4.0.4";
 
   @ParameterizedTest
-  @ValueSource(strings = {IMAGE_PULSAR211, IMAGE_PULSAR210, IMAGE_LUNASTREAMING210})
+  // s4r built against pulsar 4.0 may not be compatible with older docker images
+  @ValueSource(strings = {IMAGE_PULSAR40, IMAGE_LUNASTREAMING40})
   public void test(String image) throws Exception {
     // create a docker network
     try (Network network = Network.newNetwork();
