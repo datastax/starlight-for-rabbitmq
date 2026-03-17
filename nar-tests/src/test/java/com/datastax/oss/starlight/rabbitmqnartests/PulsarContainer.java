@@ -26,6 +26,7 @@
  */
 package com.datastax.oss.starlight.rabbitmqnartests;
 
+import java.time.Duration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.BindMode;
@@ -59,6 +60,7 @@ public class PulsarContainer implements AutoCloseable {
             .withNetwork(network)
             .withNetworkAliases("pulsar")
             .withExposedPorts(8080, 5672) // ensure that the ports are listening
+            .withStartupTimeout(Duration.ofMinutes(10))
             .withEnv("PULSAR_STANDALONE_USE_ZOOKEEPER", "true")
             .withClasspathResourceMapping(
                 PROTOCOLS_TEST_PROTOCOL_HANDLER_NAR,
@@ -79,6 +81,7 @@ public class PulsarContainer implements AutoCloseable {
               .withNetwork(network)
               .withNetworkAliases("pulsarproxy")
               .withExposedPorts(8089, 5672, 5671) // ensure that the ports are listening
+              .withStartupTimeout(Duration.ofMinutes(10))
               .withClasspathResourceMapping(
                   PROTOCOLS_TEST_PROTOCOL_HANDLER_NAR,
                   "/pulsar/proxyextensions/starlight-for-rabbitmq.nar",
