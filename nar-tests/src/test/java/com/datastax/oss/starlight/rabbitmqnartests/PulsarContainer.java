@@ -60,6 +60,7 @@ public class PulsarContainer implements AutoCloseable {
             .withNetworkAliases("pulsar")
             .withExposedPorts(8080, 5672) // ensure that the ports are listening
             .withEnv("PULSAR_STANDALONE_USE_ZOOKEEPER", "true")
+            .withEnv("PULSAR_EXTRA_OPTS", "-XX:-UseContainerSupport")
             .withClasspathResourceMapping(
                 PROTOCOLS_TEST_PROTOCOL_HANDLER_NAR,
                 "/pulsar/protocols/starlight-for-rabbitmq.nar",
@@ -79,6 +80,7 @@ public class PulsarContainer implements AutoCloseable {
               .withNetwork(network)
               .withNetworkAliases("pulsarproxy")
               .withExposedPorts(8089, 5672, 5671) // ensure that the ports are listening
+              .withEnv("PULSAR_EXTRA_OPTS", "-XX:-UseContainerSupport")
               .withClasspathResourceMapping(
                   PROTOCOLS_TEST_PROTOCOL_HANDLER_NAR,
                   "/pulsar/proxyextensions/starlight-for-rabbitmq.nar",
